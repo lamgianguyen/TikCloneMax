@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script
+      src="https://code.jquery.com/jquery-3.5.1.min.js"
+      crossorigin="anonymous"
+    ></script>
+
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"
+      crossorigin="anonymous"
+    ></script>
+
+    <script src="/widget/sharedio/sharedio.js"></script>
+    <script src="/widget/socketioclient.js"></script>
+
+    <script
+      type="module"
+      crossorigin
+      src="/vue/dist/widgets/coin-jar/coin-jar.js"
+    ></script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      window.addEventListener("load", () => {
+        const CoinJar = window.createCoinJar();
+        CoinJar.mount("#app");
+      });
+
+      let triggered = false;
+
+      io.on("coin-jar:gift", (data) => {
+        triggered = true;
+        window.addGift(data);
+      });
+
+      io.on("coin-jar:reset", () => {
+        window.resetJar?.();
+      });
+
+      function preview() {
+        if (triggered) return;
+        triggered = true;
+
+        setTimeout(() => {
+          window.addGift({
+            giftPictureUrl:
+              "https://p19-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648eaf88d7189~tplv-obj.png",
+            value: 1,
+            repeatCount: 10,
+            giftName: "Rose",
+            username: "Test User 1",
+            profilePictureUrl:
+              "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg",
+          });
+        }, 3000);
+
+        setTimeout(() => {
+          window.addGift({
+            giftPictureUrl:
+              "https://p19-webcast.tiktokcdn.com/img/maliva/webcast-va/6cd022271dc4669d182cad856384870f~tplv-obj.png",
+            value: 100,
+            repeatCount: 2,
+            giftName: "Hand Hearts",
+            username: "Test User 2",
+            profilePictureUrl:
+              "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg",
+          });
+        }, 13000);
+      }
+    </script>
+  </body>
+</html>

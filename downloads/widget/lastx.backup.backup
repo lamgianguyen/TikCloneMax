@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<!-- [TIKFINITY BROWSER STUB] -->
+<script>
+  if (typeof window.require === 'undefined') {
+    window.require = function(moduleName) {
+      console.log('[Stub] require called for:', moduleName);
+      if (moduleName === 'electron') {
+        return {
+          ipcRenderer: {
+            send: function() { console.log('[Stub] ipcRenderer.send', arguments); },
+            sendSync: function() { console.log('[Stub] ipcRenderer.sendSync', arguments); return null; },
+            on: function() { console.log('[Stub] ipcRenderer.on', arguments); },
+            once: function() { console.log('[Stub] ipcRenderer.once', arguments); },
+            removeListener: function() { console.log('[Stub] ipcRenderer.removeListener', arguments); },
+            removeAllListeners: function() { console.log('[Stub] ipcRenderer.removeAllListeners', arguments); },
+            invoke: function() { console.log('[Stub] ipcRenderer.invoke', arguments); return Promise.resolve({}); }
+          },
+          clipboard: {
+             writeText: function(t) { console.log('[Stub] clipboard.writeText', t); window.navigator.clipboard?.writeText(t); },
+             readText: function() { return ''; }
+          },
+          shell: {
+             openExternal: function(url) { console.log('[Stub] shell.openExternal', url); window.open(url, '_blank'); }
+          }
+        };
+      }
+      return null;
+    };
+  }
+  if (typeof window.ipcRenderer === 'undefined') {
+    window.ipcRenderer = window.require('electron').ipcRenderer;
+  }
+  if (typeof process === 'undefined') {
+    window.process = { env: {}, platform: 'browser', type: 'renderer', versions: {} };
+  }
+
+</script>
+<!-- [/TIKFINITY BROWSER STUB] -->
+
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <link rel="stylesheet" href="/css/text-effects.css">
+    <script src="/js/text-effects.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 1.7em;
+            overflow: hidden;
+        }
+
+        #content {
+            width: fit-content;
+            padding: 5px;
+            border-radius: 15px;
+        }
+
+        img {
+            border-radius: 50%;
+        }
+
+        .username {
+            padding-right: 15px;
+            padding-left: 10px;
+
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
+            max-width: calc(100vw - 90px);
+        }
+
+        .username.text-effect--wavy,
+        .username.text-effect--wavy-slow,
+        .username.text-effect--wavy-fast {
+            white-space: normal;
+            display: flex;
+            justify-content: flex-start;
+            align-items: center;
+            flex-wrap: nowrap;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .username .wave-char {
+            line-height: inherit;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="content">
+        <div>
+            <table>
+                <tr>
+                    <td>
+                        <img class="profilePicture" onerror="this.src=nothumb" />
+                    </td>
+                    <td>
+                        <div class="username">UserX</div>
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <img class="imageCache" style="display: none;" />
+    </div>
+
+    <script>
+
+        var nothumb = "/img/nothumb.webp";
+        var myX = new URLSearchParams(location.search).get("x");
+        var currentUser = {};
+
+        if (!myX) {
+            throw new Error("Missing required param x");
+        }
+
+        function getSetting(name) {
+            return settings["lastx" + myX + "_" + name]
+        }
+
+        function updateSettings() {
+            $('body').css('color', getSetting('fontColor'));
+
+            if (getSetting('enableBackground')) {
+                $('#content').css('background-color', getSetting('backgroundColor'));
+            } else {
+                $('#content').css('background-color', 'transparent');
+            }
+
+            if (getSetting('showProfilePicture') === false) {
+                $('.profilePicture').css('display', 'none');
+            } else {
+                $('.profilePicture').css('display', 'block');
+            }
+
+            if (getSetting('showUsername') === false) {
+                $('.username').css('display', 'none');
+            } else {
+                $('.username').css('display', 'block');
+            }
+
+            if (getSetting('alignCenter') === false) {
+                $('#content').css('margin', 'inherit');
+            } else {
+                $('#content').css('margin', '0px auto');
+            }
+
+            // if (getSetting('enableBorder')) {
+            //     $('.username').css("-webkit-text-stroke-width", "1px");
+            //     $('.username').css("-webkit-text-stroke-color", getSetting('borderColor'));
+            // } else {
+            //     $('.username').css("-webkit-text-stroke-width", "inherit");
+            //     $('.username').css("-webkit-text-stroke-color", "inherit");
+            // }
+
+            if (getSetting('enableBorder')) {
+                const borderShadow = `-1px -1px 0 ${getSetting('borderColor')}, 1px -1px 0 ${getSetting('borderColor')}, -1px 1px 0 ${getSetting('borderColor')}, 1px 1px 0 ${getSetting('borderColor')}`;
+
+                if (getSetting('usernameEffect') === 'none' && !getSetting('usernameGlow')) {
+                    $('.username').css("text-shadow", borderShadow);
+                } else {
+                    $('.username').css("text-shadow", 'inherit');
+                }
+            } else {
+                $('.username').css("text-shadow", 'inherit');
+            }
+
+
+            let pictureSize = 60 + (((getSetting('profilePictureSize') || 50) - 50) * 1.3);
+
+            $('img').css('height', pictureSize)
+            $('img').css('width', pictureSize)
+
+            if (window.TextEffects) {
+                const $username = $('.username');
+                TextEffects.applyComprehensiveEffects($username, {
+                    effect: getSetting('usernameEffect') || 'none',
+                    wave: getSetting('usernameWave') || false,
+                    waveSpeed: getSetting('usernameWaveSpeed') || 'normal',
+                    glow: getSetting('usernameGlow') || false,
+                    glowColor: getSetting('usernameGlowColor') || '#ffffff',
+                    isRgbColor: false,
+                    rgbColor: null,
+                    defaultColor: getSetting('fontColor') || '#e3e3e3'
+                });
+            }
+        }
+
+
+        function showLastUser(user) {
+            let fadeDuration = settings.lastXFadeDuration || 250;
+
+            $('#content').stop(true).fadeOut(currentUser ? fadeDuration : 0, () => {
+                $('.profilePicture').attr('src', user.profilePictureUrl);
+                $('.username').text(user.name);
+
+                if (window.TextEffects) {
+                    const $username = $('.username');
+                    TextEffects.applyComprehensiveEffects($username, {
+                        effect: getSetting('usernameEffect') || 'none',
+                        wave: getSetting('usernameWave') || false,
+                        waveSpeed: getSetting('usernameWaveSpeed') || 'normal',
+                        glow: getSetting('usernameGlow') || false,
+                        glowColor: getSetting('usernameGlowColor') || '#ffffff',
+                        isRgbColor: false,
+                        rgbColor: null,
+                        defaultColor: getSetting('fontColor') || '#e3e3e3'
+                    });
+                }
+
+                $('#content').fadeIn(fadeDuration);
+                updateSettings();
+            })
+        }
+
+        $(window).on("load", () => {
+            io.on("setLastX", ({ state }) => {
+                let xdata = state[myX];
+                let xuser = xdata.testuser || xdata.user;
+
+                if (xuser) {
+                    if (!currentUser || currentUser.name !== xuser.name) {
+                        currentUser = xuser;
+
+                        if (getSetting("showProfilePicture")) {
+                            $('.imageCache').attr('src', xuser.profilePictureUrl);
+
+                            setTimeout(() => {
+                                showLastUser(xuser);
+                            }, 500)
+                        } else {
+                            showLastUser(xuser);
+                        }
+                    }
+                } else {
+                    currentUser = null;
+                    $('#content').fadeOut(250);
+                }
+            });
+
+            $('#content').hide();
+        });
+
+        let previewIndex = 0;
+        let previewEnabled = true;
+
+        function preview() {
+            if (!previewEnabled) return;
+            previewIndex += 1;
+
+            if (!currentUser) {
+                io.fakeEmit("setLastX", {
+                    state: {
+                        [myX]: {
+                            user: {
+                                name: "Example User",
+                                profilePictureUrl: 'https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+    </script>
+
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

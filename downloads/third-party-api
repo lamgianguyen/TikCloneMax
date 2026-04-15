@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head><script>(function(w,i,g){w[g]=w[g]||[];if(typeof w[g].push=='function')w[g].push(i)})
+(window,'GTM-TVRNKPSM','google_tags_first_party');</script><script>(function(w,d,s,l){w[l]=w[l]||[];(function(){w[l].push(arguments);})('set', 'developer_id.dY2E1Nz', true);
+		var f=d.getElementsByTagName(s)[0],
+		j=d.createElement(s);j.async=true;j.src='/2l68/';
+		f.parentNode.insertBefore(j,f);
+		})(window,document,'script','dataLayer');</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Third-Party API - TikFinity</title>
+
+
+    <!-- Icon -->
+    <link rel="icon" type="image/png" href="/img/tikfinity.png">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400&display=swap" rel="stylesheet">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: ubuntu, sans-serif;
+            background-color: #1d1c1c;
+            color: #fff;
+            width: 100%;
+            margin: 0px;
+        }
+
+        h1 {
+            color: #fe2c55;
+        }
+
+        h2,
+        h3 {
+            color: #44b8c4;
+        }
+
+        pre {
+            background-color: #2a2a2a;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        #markdown {
+            max-width: 800px;
+            padding: 10px;
+            margin: 0px auto;
+        }
+    </style>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            let converter = new showdown.Converter();
+            let markdown = await (await fetch('https://gist.githubusercontent.com/zerodytrash/1f1b7f8858ed523cb9424d6254299268/raw/')).text();
+            document.getElementById('markdown').innerHTML = converter.makeHtml(markdown);
+        })
+    </script>
+</head>
+
+<body>
+    <div id="markdown"></div>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<!-- [TIKFINITY BROWSER STUB] -->
+<script>
+  if (typeof window.require === 'undefined') {
+    window.require = function(moduleName) {
+      console.log('[Stub] require called for:', moduleName);
+      if (moduleName === 'electron') {
+        return {
+          ipcRenderer: {
+            send: function() { console.log('[Stub] ipcRenderer.send', arguments); },
+            sendSync: function() { console.log('[Stub] ipcRenderer.sendSync', arguments); return null; },
+            on: function() { console.log('[Stub] ipcRenderer.on', arguments); },
+            once: function() { console.log('[Stub] ipcRenderer.once', arguments); },
+            removeListener: function() { console.log('[Stub] ipcRenderer.removeListener', arguments); },
+            removeAllListeners: function() { console.log('[Stub] ipcRenderer.removeAllListeners', arguments); },
+            invoke: function() { console.log('[Stub] ipcRenderer.invoke', arguments); return Promise.resolve({}); }
+          },
+          clipboard: {
+             writeText: function(t) { console.log('[Stub] clipboard.writeText', t); window.navigator.clipboard?.writeText(t); },
+             readText: function() { return ''; }
+          },
+          shell: {
+             openExternal: function(url) { console.log('[Stub] shell.openExternal', url); window.open(url, '_blank'); }
+          }
+        };
+      }
+      return null;
+    };
+  }
+  if (typeof window.ipcRenderer === 'undefined') {
+    window.ipcRenderer = window.require('electron').ipcRenderer;
+  }
+  if (typeof process === 'undefined') {
+    window.process = { env: {}, platform: 'browser', type: 'renderer', versions: {} };
+  }
+
+</script>
+<!-- [/TIKFINITY BROWSER STUB] -->
+
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=6"></script>
+
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            overflow: hidden;
+            font-size: 1.3em;
+        }
+
+        .coinContainer {
+            position: absolute;
+        }
+
+        @keyframes coinDropAnimation {
+            0% {
+                margin-bottom: 50%;
+            }
+
+            90% {
+                margin-bottom: -20px;
+            }
+
+            100% {
+                margin-bottom: 0px;
+            }
+        }
+
+        @keyframes coinSwingAnimation {
+            0% {
+                margin-bottom: 0px;
+            }
+
+            50% {
+                margin-bottom: -10px;
+            }
+
+            100% {
+                margin-bottom: 0px;
+            }
+        }
+
+        @keyframes blurIn {
+            from {
+                -webkit-filter: blur(0px);
+            }
+
+            to {
+                -webkit-filter: blur(10px);
+            }
+        }
+
+        @keyframes blurOut {
+            from {
+                -webkit-filter: blur(10px);
+            }
+
+            to {
+                -webkit-filter: blur(0px);
+            }
+        }
+
+        .coinDrop {
+            animation-name: coinDropAnimation;
+            animation-duration: 0.4s;
+            animation-fill-mode: forwards;
+            animation-timing-function: linear;
+        }
+
+        .coinSwing {
+            animation-name: coinSwingAnimation;
+            animation-duration: 2s;
+            animation-iteration-count: infinite;
+        }
+
+        .roundImage {
+            border-radius: 50%;
+        }
+
+        .coinToUserTransformationIn {
+            animation-name: blurIn;
+            animation-duration: 0.2s;
+            animation-iteration-count: 1;
+            animation-fill-mode: forwards;
+        }
+
+        .coinToUserTransformationOut {
+            animation-name: coinSwingAnimation, blurOut;
+            animation-duration: 2s, 0.3s;
+            animation-iteration-count: infinite, 1;
+            animation-fill-mode: initial, forwards;
+        }
+    </style>
+
+    <script>
+        var coindrop = new Audio('./sounds/coindrop.mp3');
+        var collect = new Audio('./sounds/collect.mp3');
+
+
+        $(window).on("load", () => {
+
+            io.on("createCoins", (coinList) => {
+                var delay = 0;
+                coinList.forEach(coin => {
+                    setTimeout(() => {
+
+                        var customCoinUrl = new URLSearchParams(location.search).get("coinUrl");
+
+                        var coinContainer = $("<div>").addClass("coinContainer");
+                        var coinImage = $("<img>").attr("src", customCoinUrl ? customCoinUrl : "./img/coin.gif").attr("height", "30").attr("width", "30");
+                        coinContainer.append(coinImage);
+
+                        var windowMaxLeft = window.innerWidth - 40;
+                        var randomLeft = Math.floor(Math.random() * windowMaxLeft);
+
+                        var windowMaxBottom = window.innerHeight / 2;
+                        var randomBottom = Math.floor(Math.random() * windowMaxBottom);
+
+                        coinContainer.css("left", randomLeft + "px");
+                        coinContainer.css("bottom", randomBottom + "px");
+
+                        coinContainer.addClass("coinDrop");
+
+                        coinContainer.addClass(coin.uuid);
+
+                        $(".coins").append(coinContainer);
+
+                        setTimeout(() => {
+                            coinContainer.removeClass("coinDrop");
+                            coinContainer.addClass("coinSwing");
+                        }, 500)
+
+                        setTimeout(() => {
+                            if (settings && settings.coindrop_soundEnabled && !document.location.href.includes('preview=1')) {
+                                coindrop.volume = settings.coindrop_soundVolume ? parseFloat(settings.coindrop_soundVolume / 100) : 100;
+                                coindrop.pause();
+                                coindrop.currentTime = 0;
+                                coindrop.play();
+                            }
+                        }, 400);
+
+                        setTimeout(() => {
+                            coinContainer.remove();
+                        }, 485000)
+
+                    }, delay);
+
+                    if (coinList.length > 50) {
+                        delay += 50;
+                    } else if (coinList.length > 30) {
+                        delay += 100;
+                    } else {
+                        delay += 150;
+                    }
+
+                });
+            })
+
+            io.on("timeoutCoins", (coinList) => {
+                var delay = 0;
+                coinList.forEach(coin => {
+                    setTimeout(() => {
+                        $("." + coin.uuid).fadeOut(500, () => {
+                            $("." + coin.uuid).remove();
+                        });
+                    }, delay);
+
+                    if (coinList.length > 50) {
+                        delay += 20;
+                    } else if (coinList.length > 30) {
+                        delay += 80;
+                    } else {
+                        delay += 150;
+                    }
+                });
+            });
+
+            io.on("collectCoin", (coinInfo) => {
+                setTimeout(() => {
+                    var coinContainer = $("." + coinInfo.uuid);
+                    if (!coinContainer.length) return;
+
+                    coinContainer.addClass("coinToUserTransformationIn");
+
+                    setTimeout(() => {
+                        coinContainer.find("img").attr("src", coinInfo.collectedBy.profilePictureUrl || getUserThumbnailUrlFromUserId(coinInfo.collectedBy.userId));
+                        coinContainer.find("img").addClass("roundImage");
+
+                        coinContainer.find("img").on("load", () => {
+                            if (settings && settings.coindrop_soundEnabled && !document.location.href.includes('preview=1')) {
+                                collect.volume = settings.coindrop_soundVolume ? parseFloat(settings.coindrop_soundVolume / 100) : 100;
+                                collect.pause();
+                                collect.currentTime = 0;
+                                collect.play();
+                            }
+
+                            coinContainer.removeClass("coinToUserTransformationIn");
+                            coinContainer.addClass("coinToUserTransformationOut");
+
+                            setTimeout(() => {
+                                coinContainer.fadeOut(1000, () => {
+                                    coinContainer.remove();
+                                });
+                            }, 5000);
+                        })
+
+                        coinContainer.find("img").on("error", () => {
+                            coinContainer.find("img").attr("src", "/img/nothumb.webp");
+                        })
+                    }, 100)
+
+                }, Math.floor(Math.random() * 800) + 1)
+            });
+        });
+
+        let previewIndex = 0;
+        let previewEnabled = true;
+
+        function preview() {
+            if (!previewEnabled) return;
+            previewIndex += 1;
+
+            if (previewIndex === 2) {
+                io.fakeEmit('createCoins', [
+                    {
+                        "uuid": "99597cd3-7a5c-4681-8fd3-cc4ee786f1d0"
+                    },
+                    {
+                        "uuid": "3a00c796-03f8-4916-824c-470e7b4a53c7"
+                    },
+                    {
+                        "uuid": "004b599f-db14-4ca3-8f10-0f66deb6ae1a"
+                    },
+                    {
+                        "uuid": "e2e39c2a-f9fd-42e9-8300-4a11f5a7901c"
+                    },
+                    {
+                        "uuid": "1b001418-6088-4865-8ef3-74a9cd57a112"
+                    }
+                ])
+            }
+
+            if (previewIndex === 10) {
+                io.fakeEmit('collectCoin', { "uuid": "99597cd3-7a5c-4681-8fd3-cc4ee786f1d0", "collectedBy": { "userId": 17294003, "username": "FunEngine", profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg" } })
+            }
+
+            if (previewIndex === 11) {
+                io.fakeEmit('collectCoin', { "uuid": "3a00c796-03f8-4916-824c-470e7b4a53c7", "collectedBy": { "userId": 17294003, "username": "FunEngine", profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg" } })
+            }
+
+            if (previewIndex === 13) {
+                io.fakeEmit('collectCoin', { "uuid": "004b599f-db14-4ca3-8f10-0f66deb6ae1a", "collectedBy": { "userId": 17294003, "username": "FunEngine", profilePictureUrl: "https://p16-va.tiktokcdn.com/tos-maliva-avt-0068/2e1b1214567ec5ae55302f8de3535608~tplv-tiktok-shrink:72:72.webp" } })
+            }
+
+            if (previewIndex === 15) {
+                io.fakeEmit('collectCoin', { "uuid": "e2e39c2a-f9fd-42e9-8300-4a11f5a7901c", "collectedBy": { "userId": 17294003, "username": "FunEngine", profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg" } })
+            }
+
+            if (previewIndex === 15) {
+                io.fakeEmit('collectCoin', { "uuid": "1b001418-6088-4865-8ef3-74a9cd57a112", "collectedBy": { "userId": 17294003, "username": "FunEngine", profilePictureUrl: "https://p16-va.tiktokcdn.com/tos-maliva-avt-0068/2e1b1214567ec5ae55302f8de3535608~tplv-tiktok-shrink:72:72.webp" } })
+            }
+
+            if (previewIndex == 30) {
+                previewIndex = 0;
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div class="coins">
+
+    </div>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

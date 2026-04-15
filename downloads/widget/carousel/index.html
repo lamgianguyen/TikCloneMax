@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <style>
+        iframe {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            z-index: 999999;
+        }
+    </style>
+</head>
+
+<body>
+    <iframe src="./eventcarousel/index.html" onload="setConfig()"></iframe>
+
+    <script>
+        let previewEnabled = true;
+
+        function updateSettings(hasChanged) {
+            previewEnabled = !settings.config?.events?.length;
+            document.querySelector("iframe").contentWindow.postMessage({ type: "config", configData: settings.config }, "*");
+        }
+
+        function setConfig() {
+            setTimeout(() => {
+                if (settings.config) {
+                    previewEnabled = !settings.config?.events?.length;
+                    document.querySelector("iframe").contentWindow.postMessage({ type: "config", configData: settings.config }, "*");
+                }
+            }, 500)
+        }
+
+
+        function preview() {
+            if (!previewEnabled) return;
+
+            console.log("Previewing...");
+
+            document.querySelector("iframe").contentWindow.postMessage({
+                type: "config", configData: {
+                    "events": [
+                        {
+                            "type": "soundalert",
+                            "enabled": true,
+                            "trigger": {
+                                "type": "gift",
+                                "id": 5655,
+                                "name": "Rose",
+                                "coins": 1,
+                                "imageUrl": "https://p16-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648eaf88d7189~tplv-obj.webp"
+                            },
+                            "actions": [
+                                {
+                                    "type": "sound",
+                                    "name": "VINE BOOM SOUND"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "soundalert",
+                            "enabled": true,
+                            "trigger": {
+                                "type": "gift",
+                                "id": 6784,
+                                "name": "Cake Slice",
+                                "coins": 1,
+                                "imageUrl": "https://p16-webcast.tiktokcdn.com/img/maliva/webcast-va/f681afb4be36d8a321eac741d387f1e2~tplv-obj.webp"
+                            },
+                            "actions": [
+                                {
+                                    "type": "sound",
+                                    "name": "Buzzer"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "soundalert",
+                            "enabled": true,
+                            "trigger": {
+                                "type": "gift",
+                                "id": 6064,
+                                "name": "GG",
+                                "coins": 1,
+                                "imageUrl": "https://p16-webcast.tiktokcdn.com/img/maliva/webcast-va/3f02fa9594bd1495ff4e8aa5ae265eef~tplv-obj.webp"
+                            },
+                            "actions": [
+                                {
+                                    "type": "sound",
+                                    "name": "GG'S BRO!"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "soundalert",
+                            "enabled": true,
+                            "trigger": {
+                                "type": "gift",
+                                "id": 6560,
+                                "name": "Tiny Diny",
+                                "coins": 10,
+                                "imageUrl": "https://p16-webcast.tiktokcdn.com/img/maliva/webcast-va/3851a489dea62b3a9fe99f61de5470ae~tplv-obj.webp"
+                            },
+                            "actions": [
+                                {
+                                    "type": "sound",
+                                    "name": "BRUH"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "soundalert",
+                            "enabled": true,
+                            "trigger": {
+                                "type": "gift",
+                                "id": 6247,
+                                "name": "Heart",
+                                "coins": 1,
+                                "imageUrl": "https://p16-webcast.tiktokcdn.com/img/maliva/webcast-va/dd300fd35a757d751301fba862a258f1~tplv-obj.webp"
+                            },
+                            "actions": [
+                                {
+                                    "type": "sound",
+                                    "name": "My heart will go on"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "soundalert",
+                            "enabled": true,
+                            "trigger": {
+                                "type": "gift",
+                                "id": 7573,
+                                "name": "Magic Forest",
+                                "coins": 6000,
+                                "imageUrl": "https://p16-webcast.tiktokcdn.com/img/maliva/webcast-va/63a758dbef9788f690e97cd65dbbb8d2~tplv-obj.webp"
+                            },
+                            "actions": [
+                                {
+                                    "type": "sound",
+                                    "name": "what da dog doin"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "soundalert",
+                            "enabled": true,
+                            "trigger": {
+                                "type": "follow"
+                            },
+                            "actions": [
+                                {
+                                    "type": "sound",
+                                    "name": "thanks follow"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "soundalert",
+                            "enabled": true,
+                            "trigger": {
+                                "type": "subscribe"
+                            },
+                            "actions": [
+                                {
+                                    "type": "sound",
+                                    "name": "Subscriber Alert"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }, "*");
+        }
+    </script>
+</body>
+
+</html>

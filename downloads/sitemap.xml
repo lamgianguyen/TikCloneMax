@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+    xmlns:xhtml="http://www.w3.org/1999/xhtml">
+
+    <url>
+        <loc>https://tikfinity.zerody.one/</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/" />
+        <priority>1.0</priority>
+    </url>
+
+    <!-- High Prio-->
+    <url>
+        <loc>https://tikfinity.zerody.one/tiktok/sounds</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/tiktok/sounds" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/tiktok/sounds" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/tiktok/sounds" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/tiktok/sounds" />
+        <priority>0.9</priority>
+    </url>
+    <url>
+        <loc>https://tikfinity.zerody.one/tiktok/tts</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/tiktok/tts" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/tiktok/tts" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/tiktok/tts" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/tiktok/tts" />
+        <priority>0.9</priority>
+    </url>
+    <url>
+        <loc>https://tikfinity.zerody.one/tiktok/obsoverlays</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/tiktok/obsoverlays" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/tiktok/obsoverlays" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/tiktok/obsoverlays" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/tiktok/obsoverlays" />
+        <priority>0.9</priority>
+    </url>
+    <url>
+        <loc>https://tikfinity.zerody.one/tiktok/giftoverlays</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/tiktok/giftoverlays" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/tiktok/giftoverlays" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/tiktok/giftoverlays" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/tiktok/giftoverlays" />
+        <priority>0.9</priority>
+    </url>
+    <url>
+        <loc>https://tikfinity.zerody.one/tiktok/graphicoverlays</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/tiktok/graphicoverlays" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/tiktok/graphicoverlays" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/tiktok/graphicoverlays" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/tiktok/graphicoverlays" />
+        <priority>0.9</priority>
+    </url>
+
+    <!-- Medium Prio -->
+    <url>
+        <loc>https://tikfinity.zerody.one/tiktok/goals</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/tiktok/goals" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/tiktok/goals" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/tiktok/goals" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/tiktok/goals" />
+        <priority>0.5</priority>
+    </url>
+    <url>
+        <loc>https://tikfinity.zerody.one/tiktok/actionsandevents</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/tiktok/actionsandevents" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/tiktok/actionsandevents" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/tiktok/actionsandevents" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/tiktok/actionsandevents" />
+        <priority>0.5</priority>
+    </url>
+    <url>
+        <loc>https://tikfinity.zerody.one/tiktok/chatbot</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/tiktok/chatbot" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/tiktok/chatbot" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/tiktok/chatbot" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/tiktok/chatbot" />
+        <priority>0.5</priority>
+    </url>
+    <url>
+        <loc>https://tikfinity.zerody.one/tiktok/songrequests</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/tiktok/songrequests" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/tiktok/songrequests" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/tiktok/songrequests" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/tiktok/songrequests" />
+        <priority>0.5</priority>
+    </url>
+    <url>
+        <loc>https://tikfinity.zerody.one/tiktok/dapi</loc>
+        <xhtml:link rel="alternate" hreflang="x-default" href="https://tikfinity.zerody.one/tiktok/dapi" />
+        <xhtml:link rel="alternate" hreflang="en" href="https://tikfinity.zerody.one/tiktok/dapi" />
+        <xhtml:link rel="alternate" hreflang="de" href="https://tikfinity.zerody.one/de/tiktok/dapi" />
+        <xhtml:link rel="alternate" hreflang="es" href="https://tikfinity.zerody.one/es/tiktok/dapi" />
+        <priority>0.5</priority>
+    </url>
+    <url>
+        <loc>https://tikfinity.zerody.one/app/</loc>
+        <priority>0.4</priority>
+    </url>
+    <url>
+        <loc> https://blog.tikfinity.com/</loc>
+        <priority>0.3</priority>
+    </url>
+</urlset>

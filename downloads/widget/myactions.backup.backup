@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<!-- [TIKFINITY BROWSER STUB] -->
+<script>
+  if (typeof window.require === 'undefined') {
+    window.require = function(moduleName) {
+      console.log('[Stub] require called for:', moduleName);
+      if (moduleName === 'electron') {
+        return {
+          ipcRenderer: {
+            send: function() { console.log('[Stub] ipcRenderer.send', arguments); },
+            sendSync: function() { console.log('[Stub] ipcRenderer.sendSync', arguments); return null; },
+            on: function() { console.log('[Stub] ipcRenderer.on', arguments); },
+            once: function() { console.log('[Stub] ipcRenderer.once', arguments); },
+            removeListener: function() { console.log('[Stub] ipcRenderer.removeListener', arguments); },
+            removeAllListeners: function() { console.log('[Stub] ipcRenderer.removeAllListeners', arguments); },
+            invoke: function() { console.log('[Stub] ipcRenderer.invoke', arguments); return Promise.resolve({}); }
+          },
+          clipboard: {
+             writeText: function(t) { console.log('[Stub] clipboard.writeText', t); window.navigator.clipboard?.writeText(t); },
+             readText: function() { return ''; }
+          },
+          shell: {
+             openExternal: function(url) { console.log('[Stub] shell.openExternal', url); window.open(url, '_blank'); }
+          }
+        };
+      }
+      return null;
+    };
+  }
+  if (typeof window.ipcRenderer === 'undefined') {
+    window.ipcRenderer = window.require('electron').ipcRenderer;
+  }
+  if (typeof process === 'undefined') {
+    window.process = { env: {}, platform: 'browser', type: 'renderer', versions: {} };
+  }
+
+</script>
+<!-- [/TIKFINITY BROWSER STUB] -->
+
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@lottiefiles/lottie-player@1.6.3/dist/lottie-player.js"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <link rel="stylesheet" href="/css/text-effects.css">
+    <script src="/js/text-effects.js"></script>
+    <script src="mediawrapper.js?v=130"></script>
+    <script src="../js/tts.js?v=2"></script>
+
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            overflow: hidden;
+            font-size: 1.3em;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @keyframes fadeInAnimation {
+            from {
+                opacity: 0;
+                transform: scale(0.1);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes fadeOutAnimation {
+            from {
+                opacity: 1;
+            }
+
+            to {
+                opacity: 0;
+            }
+        }
+
+        .fadeIn {
+            animation-name: fadeInAnimation;
+            animation-duration: 1s;
+            animation-fill-mode: forwards;
+        }
+
+        .fadeIn_fast {
+            animation-name: fadeInAnimation;
+            animation-duration: 0.2s;
+            animation-fill-mode: forwards;
+        }
+
+        .fadeIn_disabled {
+            animation-name: fadeInAnimation;
+            animation-duration: 0.01s;
+            animation-fill-mode: forwards;
+        }
+
+        .fadeOut {
+            animation-name: fadeOutAnimation;
+            animation-duration: 2s;
+            animation-fill-mode: forwards;
+        }
+
+        .fadeOut_fast {
+            animation-name: fadeOutAnimation;
+            animation-duration: 0.5s;
+            animation-fill-mode: forwards;
+        }
+
+        .fadeOut_disabled {
+            animation-name: fadeOutAnimation;
+            animation-duration: 0.01s;
+            animation-fill-mode: forwards;
+        }
+
+        text {
+            font-weight: bold;
+            font-size: 1.1em;
+
+            -webkit-font-smoothing: antialiased;
+            justify-content: center;
+            align-items: center;
+        }
+
+        text span:not(.wave-char):not(.rainbow-char):not(.rainbow-wave-char):not(.glow-char) {
+            position: relative;
+            top: 5px;
+            animation: bounce .5s ease infinite alternate;
+            font-size: 1.5em;
+            text-shadow: 0 1px 0 #6e6e6e,
+                0 2px 0 rgb(199, 199, 199),
+                0 3px 0 rgb(199, 199, 199),
+                0 4px 0 rgb(199, 199, 199),
+                0 5px 0 rgb(199, 199, 199),
+                0 6px 0 transparent,
+                0 7px 0 transparent,
+                0 8px 0 transparent,
+                0 9px 0 transparent,
+                0 10px 10px rgba(0, 0, 0, 0.4);
+        }
+
+        .username.text-effect--wavy,
+        .username.text-effect--wavy-slow,
+        .username.text-effect--wavy-fast {
+            white-space: normal;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: nowrap;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .username .wave-char {
+            line-height: inherit;
+        }
+
+        .username.text-effect--rainbow,
+        .username.text-effect--rainbow span,
+        .username.text-effect--rainbow .rainbow-char,
+        .username.text-effect--rainbow .rainbow-wave-char {
+            text-shadow: none !important;
+            animation: none !important;
+            position: relative !important;
+            top: 0 !important;
+        }
+
+        .username.text-effect--rainbow .rainbow-char,
+        .username.text-effect--rainbow .rainbow-wave-char {
+            -webkit-background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
+        }
+
+        .username.text-effect--rainbow .rainbow-char {
+            animation: rainbow-flow 3s linear infinite !important;
+        }
+
+        .username.text-effect--rainbow .rainbow-wave-char {
+            animation: rainbow-flow-staggered 4s linear infinite, wave-motion 2s ease-in-out infinite !important;
+            animation-delay: calc(var(--char-delay, 0s) * 0.5), var(--char-delay, 0s) !important;
+        }
+
+        .username.text-effect--rainbow.text-effect--wavy .rainbow-wave-char,
+        .username.text-effect--rainbow.text-effect--wavy-slow .rainbow-wave-char,
+        .username.text-effect--rainbow.text-effect--wavy-fast .rainbow-wave-char {
+            animation: rainbow-flow-staggered 4s linear infinite, wave-motion 2s ease-in-out infinite !important;
+            animation-delay: calc(var(--char-delay, 0s) * 0.5), var(--char-delay, 0s) !important;
+        }
+
+        .username.text-effect--aurora,
+        .username.text-effect--aurora span,
+        .username.text-effect--aurora .wave-char {
+            text-shadow: none !important;
+            position: relative !important;
+            top: 0 !important;
+        }
+
+        .username.text-effect--aurora .wave-char {
+            background: inherit !important;
+            background-clip: text !important;
+            -webkit-background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
+        }
+
+        .wave-char,
+        .rainbow-char,
+        .rainbow-wave-char,
+        .glow-char {
+            animation: unset !important;
+            text-shadow: none !important;
+            top: 0 !important;
+            position: relative !important;
+        }
+
+        .text-effect--wavy .wave-char,
+        .text-effect--wavy-slow .wave-char,
+        .text-effect--wavy-fast .wave-char {
+            animation: wave-motion 2s ease-in-out infinite !important;
+            animation-delay: var(--char-delay, 0s) !important;
+        }
+
+        @keyframes bounce {
+            100% {
+                top: -1px;
+                text-shadow: 0 1px 0 #CCC,
+                    0 2px 0 rgb(138, 138, 138),
+                    0 3px 0 rgb(138, 138, 138),
+                    0 4px 0 rgb(138, 138, 138),
+                    0 5px 0 rgb(138, 138, 138),
+                    0 6px 0 rgb(138, 138, 138),
+                    0 7px 0 rgb(138, 138, 138),
+                    0 8px 0 rgb(138, 138, 138),
+                    0 9px 0 rgb(138, 138, 138),
+                    0 10px 25px rgba(0, 0, 0, 0.2);
+            }
+        }
+
+        body>img,
+        video,
+        text,
+        lottie-player {
+            max-width: 100%;
+            max-height: 100%;
+            bottom: 0;
+            left: 0;
+            margin: auto;
+            overflow: auto;
+            position: fixed;
+            right: 0;
+            top: 0;
+            -o-object-fit: contain;
+            object-fit: contain;
+            overflow: hidden;
+        }
+
+        /** https://github.com/isaackogan/TikTokWidgets/blob/master/public/index.html */
+        @keyframes wiggle {
+            50% {
+                transform: rotate(-4deg) scale(1.1);
+            }
+        }
+
+        .wiggleEffect {
+            display: inline-block;
+            animation-name: wiggle;
+            animation-duration: 0.5s;
+            animation-iteration-count: infinite;
+        }
+    </style>
+
+    <script>
+        var actionItems = [];
+        var actionIdQueue = [];
+        var currentAction = null;
+        var lastStateObj = null;
+        var preloadImageQueue = [];
+
+        var invidiousProxyHost = "invidious.namazso.eu";
+
+        function updateItems() {
+            $.get("/api/rest/action?channelId=" + channelId + "&screenId=" + screenId + "&profileId=current&pageSize=1000", (resp) => {
+                actionItems.forEach(actionItem => {
+                    actionItem.destroy();
+                })
+
+                actionItems = [];
+
+                resp.actions.forEach(actionInfo => {
+                    actionItems.push(new ActionItem(actionInfo));
+                });
+            })
+        }
+
+        function buildAndReportStateObject() {
+            var stateObj = {};
+
+            stateObj.event = 'reportScreenState';
+            stateObj.currentActionId = currentAction && currentAction.playing ? currentAction.id : null;
+            stateObj.currentActionName = currentAction && currentAction.playing ? currentAction.name : null;
+            stateObj.currentQueueSize = actionIdQueue.length;
+
+            if (lastStateObj && lastStateObj === JSON.stringify(stateObj)) return;
+            lastStateObj = JSON.stringify(stateObj);
+
+            reportState(stateObj);
+        }
+
+        function processQueue() {
+            if (actionIdQueue.length === 0) return;
+
+            if (currentAction && currentAction.fadeoutInProgress) {
+                return;
+            }
+
+            if (currentAction && currentAction.playing) {
+                if (currentAction.dynamicConfig.skipOnNext) {
+                    currentAction.scheduleFadeout();
+                }
+                return;
+            }
+
+            var actionInfoToPlay = actionIdQueue.shift();
+            var actionIdToPlay = actionInfoToPlay.actionId;
+            var actionToPlay = actionItems.find(x => x.id === actionIdToPlay);
+
+            if (!actionToPlay) return;
+
+            currentAction = actionToPlay;
+            currentAction.traceStartTs = Date.now();
+
+            try {
+                actionToPlay.start(actionInfoToPlay.context);
+            } catch (err) {
+                window.lastError = err;
+                throw err;
+            }
+
+            buildAndReportStateObject();
+        }
+
+        setInterval(() => {
+            if (currentAction && (currentAction.playing || currentAction.fadeoutInProgress)) {
+                if (currentAction.traceStartTs && Date.now() - currentAction.traceStartTs > 60000) {
+                    let logObj = {
+                        runningSinceMinutes: Math.floor((Date.now() - currentAction.traceStartTs) / 60000),
+                        playing: currentAction.playing,
+                        fadeoutInProgress: currentAction.fadeoutInProgress,
+                        actionId: currentAction.id,
+                        duration: currentAction.duration,
+                    }
+
+                    logError({ type: "ActionPlayTimeout", message: "Timeout", logObj });
+                }
+            }
+        }, 1000 * 60 * 1);
+
+
+        $(window).on("load", () => {
+
+            if (channelId > 0) {
+                updateItems();
+
+                io.on("actionsChanged", () => {
+                    location.reload();
+                });
+
+                io.on("executeAction", (actionInfo, context) => {
+                    previewEnabled = false;
+                    if (actionInfo.screenId !== screenId) return;
+                    if (actionIdQueue.length > 1000) return;
+
+                    var hasMediaOnScreen = actionInfo.imageUrl || actionInfo.audioUrl || actionInfo.videoUrl || actionInfo.animationUrl || actionInfo.text || actionInfo.textToSpeech;
+                    if (!hasMediaOnScreen) return;
+
+                    if (actionInfo.text && context.thumbnailUrl && preloadImageQueue.length < 30) {
+                        preloadImageQueue.push(context.thumbnailUrl);
+                    }
+
+                    actionIdQueue.push({ actionId: actionInfo.id, context });
+                    processQueue();
+                });
+
+                io.on("controlpageConnected", () => {
+                    lastStateObj = null;
+                })
+
+                setInterval(processQueue, 100);
+
+                setInterval(buildAndReportStateObject, 2000);
+
+                setInterval(() => {
+                    lastStateObj = null;
+                }, 20000)
+            }
+
+            setInterval(() => {
+                location.reload();
+            }, 3 * 60 * 60 * 1000) // reload every 3 hours
+        });
+
+        var catchAction = null;
+
+        //Cross Frame Communication used by SubCatch Overlay
+        // window.addEventListener("message", (event) => {
+        //     if (event.origin !== location.origin) return;
+
+        //     var message = JSON.parse(event.data);
+
+        //     switch (message.event) {
+        //         case "loadActionById":
+        //             if (catchAction) {
+        //                 catchAction.destroy();
+        //                 catchAction = null;
+        //             }
+
+        //             $.get("/api/rest/action?id=" + message.actionId, (resp) => {
+        //                 if (resp.actions.length === 0) return;
+        //                 catchAction = new ActionItem(resp.actions[0])
+        //             })
+
+        //             break;
+
+        //         case "playAction":
+        //             if (catchAction) catchAction.start();
+        //     }
+
+        // }, false);
+
+
+        function updateSettings(hasChanges) {
+            if (hasChanges && updateFontSettings) {
+                updateFontSettings()
+            }
+        }
+
+        function preloadImages() {
+            if (preloadImageQueue.length > 0) {
+                $('#preloadImage').attr("src", preloadImageQueue.shift())
+            }
+        }
+
+        setInterval(preloadImages, 700);
+
+        let previewActionConfigs = [
+            {
+                "id": 999999999991,
+                "channelId": 1,
+                "profileId": 3,
+                "name": "Follow Alert",
+                "screenId": 1,
+                "duration": 5,
+                "amountToAdd": 0,
+                "imageUrl": null,
+                "audioUrl": null,
+                "videoUrl": null,
+                "animationUrl": "/assets/lotties/11438-starburst-animation.json",
+                "webhookUrl": null,
+                "text": "Thanks for following!",
+                "textToSpeech": null,
+                "message": null,
+                "obsSceneId": null,
+                "obsSourceId": null,
+                "snapCamEffectId": null,
+                "mcCmd": null,
+                "keystrokes": null,
+                "thirdPartyAction": null,
+                "customGoalConfig": null,
+                "voicemodVoiceConfig": null,
+                "streamerbotActionId": null,
+                "enableFadeEffect": true,
+                "dynamicConfig": {
+                    "enableStreaks": false,
+                    "skipOnNext": false,
+                    "mediaSoundVolume": 100,
+                    "cooldown": 0,
+                    "userCooldown": 0,
+                    "animationUrlOriginalFilename": " starburst animation",
+                    "isImported": true
+                },
+                "isDeleted": false,
+                "createdAt": "2024-03-22T23:42:50.000Z",
+                "updatedAt": "2024-03-22T23:42:50.000Z",
+                "context": {
+                    "username": "lazyzerody",
+                    "nickname": "Zerody",
+                    "giftData": {
+                        "value": 1
+                    },
+                    "giftName": "Rose",
+                    "repeatCount": 1,
+                    "likeCount": 15,
+                    "totalLikeCount": 100,
+                    "subMonth": 1,
+                    "commandParams": "Test",
+                    "ttsLanguage": "de-DE",
+                    "ttsRandomVoice": "de_001",
+                    "thumbnailUrl": "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_1080x1080.jpeg"
+                }
+            },
+            {
+                "id": 999999999992,
+                "channelId": 1,
+                "profileId": 3,
+                "name": "Gift Alert",
+                "screenId": 1,
+                "duration": 5,
+                "amountToAdd": 0,
+                "imageUrl": null,
+                "audioUrl": location.href.includes('onStartPage=1') ? null : "https://www.myinstants.com/media/sounds/gold-coins.mp3",
+                "videoUrl": null,
+                "animationUrl": "https://ynassets.younow.com/gifts/live/LEVEL_RAIN/gift_LEVEL_RAIN_full_lottie.json?1",
+                "webhookUrl": null,
+                "text": "Thanks for {repeatcount}x {giftname}!",
+                "textToSpeech": null,
+                "message": null,
+                "obsSceneId": null,
+                "obsSourceId": null,
+                "snapCamEffectId": null,
+                "mcCmd": null,
+                "keystrokes": null,
+                "thirdPartyAction": null,
+                "customGoalConfig": null,
+                "voicemodVoiceConfig": null,
+                "streamerbotActionId": null,
+                "enableFadeEffect": true,
+                "dynamicConfig": {
+                    "enableStreaks": false,
+                    "skipOnNext": false,
+                    "mediaSoundVolume": 100,
+                    "cooldown": 0,
+                    "userCooldown": 0,
+                    "animationUrlOriginalFilename": "LEVEL_RAIN",
+                    "audioUrlOriginalFilename": "Falling Coins",
+                    "isImported": true
+                },
+                "isDeleted": false,
+                "createdAt": "2024-03-22T23:42:50.000Z",
+                "updatedAt": "2024-03-22T23:42:50.000Z",
+                "context": {
+                    "username": "Jazmin_123",
+                    "nickname": "Jazmin",
+                    "giftData": {
+                        "value": 1
+                    },
+                    "giftName": "Rose",
+                    "repeatCount": 1,
+                    "likeCount": 15,
+                    "totalLikeCount": 100,
+                    "subMonth": 1,
+                    "commandParams": "Test",
+                    "ttsLanguage": "de-DE",
+                    "ttsRandomVoice": "de_001",
+                    "thumbnailUrl": "https://p16-va.tiktokcdn.com/tos-maliva-avt-0068/be24ce4d740ed71745ffa629d29e8b23~c5_100x100.jpeg"
+                }
+            },
+            {
+                "id": 999999999993,
+                "channelId": 1,
+                "profileId": 3,
+                "name": "Like Alert",
+                "screenId": 1,
+                "duration": 5,
+                "amountToAdd": 0,
+                "imageUrl": null,
+                "audioUrl": null,
+                "videoUrl": null,
+                "animationUrl": "https://ynassets.younow.com/gifts/live/LIKE_STORM/gift_LIKE_STORM_full_lottie.json?1",
+                "webhookUrl": null,
+                "text": "Thanks for {totallikecount} Likes!",
+                "textToSpeech": null,
+                "message": null,
+                "obsSceneId": null,
+                "obsSourceId": null,
+                "snapCamEffectId": null,
+                "mcCmd": null,
+                "keystrokes": null,
+                "thirdPartyAction": null,
+                "customGoalConfig": null,
+                "voicemodVoiceConfig": null,
+                "streamerbotActionId": null,
+                "enableFadeEffect": true,
+                "dynamicConfig": {
+                    "enableStreaks": false,
+                    "skipOnNext": false,
+                    "mediaSoundVolume": 100,
+                    "cooldown": 0,
+                    "userCooldown": 0,
+                    "animationUrlOriginalFilename": "LIKE_STORM",
+                    "isImported": true
+                },
+                "isDeleted": false,
+                "createdAt": "2024-03-22T23:42:50.000Z",
+                "updatedAt": "2024-03-22T23:42:50.000Z",
+                "context": {
+                    "username": "julia123",
+                    "nickname": "Julia",
+                    "giftData": {
+                        "value": 1
+                    },
+                    "giftName": "Rose",
+                    "repeatCount": 1,
+                    "likeCount": 15,
+                    "totalLikeCount": 100,
+                    "subMonth": 1,
+                    "commandParams": "Test",
+                    "ttsLanguage": "de-DE",
+                    "ttsRandomVoice": "de_002",
+                    "thumbnailUrl": "https://p16-sg.tiktokcdn.com/aweme/100x100/tos-alisg-avt-0068/smgb0f6c44d86eff2800f4629638bf94d8b.jpeg"
+                }
+            },
+            {
+                "id": 999999999994,
+                "channelId": 1,
+                "profileId": 3,
+                "name": "Sub Alert",
+                "screenId": 1,
+                "duration": 12,
+                "amountToAdd": 0,
+                "imageUrl": null,
+                "audioUrl": location.href.includes('onStartPage=1') ? null : "https://www.myinstants.com/media/sounds/notification_alert.mp3",
+                "videoUrl": null,
+                "animationUrl": "https://ynassets.younow.com/gifts/live/MAKE_IT_RAIN/gift_MAKE_IT_RAIN_full_lottie.json?1",
+                "webhookUrl": null,
+                "text": "Thanks for subscribing!",
+                "textToSpeech": null,
+                "message": null,
+                "obsSceneId": null,
+                "obsSourceId": null,
+                "snapCamEffectId": null,
+                "mcCmd": null,
+                "keystrokes": null,
+                "thirdPartyAction": null,
+                "customGoalConfig": null,
+                "voicemodVoiceConfig": null,
+                "streamerbotActionId": null,
+                "enableFadeEffect": true,
+                "dynamicConfig": {
+                    "enableStreaks": false,
+                    "skipOnNext": false,
+                    "mediaSoundVolume": 100,
+                    "cooldown": 0,
+                    "userCooldown": 0,
+                    "animationUrlOriginalFilename": "MAKE_IT_RAIN",
+                    "audioUrlOriginalFilename": "Notification Alert",
+                    "isImported": true
+                },
+                "isDeleted": false,
+                "createdAt": "2024-03-22T23:42:50.000Z",
+                "updatedAt": "2024-03-22T23:42:50.000Z",
+                "context": {
+                    "username": "cooldude25",
+                    "nickname": "CoolDude25",
+                    "giftData": {
+                        "value": 1
+                    },
+                    "giftName": "Rose",
+                    "repeatCount": 1,
+                    "likeCount": 15,
+                    "totalLikeCount": 100,
+                    "subMonth": 1,
+                    "commandParams": "Test",
+                    "ttsLanguage": "de-DE",
+                    "ttsRandomVoice": "de_002",
+                    "thumbnailUrl": "https://p16-va.tiktokcdn.com/tos-maliva-avt-0068/df547d43121e5fe98d20c63aecbaf5b9~c5_100x100.jpeg"
+                }
+            }
+        ]
+
+        let previewIndex = 0;
+        let previewEnabled = true;
+        let previewActions = [];
+
+        window.addEventListener('load', () => {
+            previewActionConfigs.forEach(actionConfig => {
+                previewActions.push(new ActionItem(actionConfig));
+            })
+        });
+
+        function preview() {
+            if (!previewEnabled) return;
+            if (!location.href.includes("preview=1")) return;
+            if (previewActions.length === 0) return;
+
+            previewIndex += 1;
+
+            if (previewIndex === 2) {
+                previewActions[0].start(previewActionConfigs[0].context);
+            }
+
+            if (previewIndex === 15) {
+                previewActions[1].start(previewActionConfigs[1].context);
+            }
+
+            if (previewIndex === 28) {
+                previewActions[2].start(previewActionConfigs[2].context);
+            }
+
+            if (previewIndex === 44) {
+                previewActions[3].start(previewActionConfigs[3].context);
+            }
+
+            if (previewIndex === 73) {
+                previewIndex = 0;
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <img src="" style="display: none; width: 0; height: 0; position: absolute" id="preloadImage">
+    <script>
+        if (location.href.includes("debug=1")) {
+            document.write('<div id="debug" style="position: absolute; left: 0; top: 0; background-color: black; color: white; display: none; z-index: 99999999"></div>');
+
+            let debugArea = document.getElementById("debug");
+            debugArea.style.display = "block";
+            setInterval(() => {
+                debugArea.innerText = `${new Date().toLocaleString()}\nQueue: ${actionIdQueue.length} - Current: ${currentAction ? currentAction.id : "0"}\nException: ${window.lastError ? window.lastError : "0"}`;
+            }, 1000);
+        }
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

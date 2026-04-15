@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<!-- [TIKFINITY BROWSER STUB] -->
+<script>
+  if (typeof window.require === 'undefined') {
+    window.require = function(moduleName) {
+      console.log('[Stub] require called for:', moduleName);
+      if (moduleName === 'electron') {
+        return {
+          ipcRenderer: {
+            send: function() { console.log('[Stub] ipcRenderer.send', arguments); },
+            sendSync: function() { console.log('[Stub] ipcRenderer.sendSync', arguments); return null; },
+            on: function() { console.log('[Stub] ipcRenderer.on', arguments); },
+            once: function() { console.log('[Stub] ipcRenderer.once', arguments); },
+            removeListener: function() { console.log('[Stub] ipcRenderer.removeListener', arguments); },
+            removeAllListeners: function() { console.log('[Stub] ipcRenderer.removeAllListeners', arguments); },
+            invoke: function() { console.log('[Stub] ipcRenderer.invoke', arguments); return Promise.resolve({}); }
+          },
+          clipboard: {
+             writeText: function(t) { console.log('[Stub] clipboard.writeText', t); window.navigator.clipboard?.writeText(t); },
+             readText: function() { return ''; }
+          },
+          shell: {
+             openExternal: function(url) { console.log('[Stub] shell.openExternal', url); window.open(url, '_blank'); }
+          }
+        };
+      }
+      return null;
+    };
+  }
+  if (typeof window.ipcRenderer === 'undefined') {
+    window.ipcRenderer = window.require('electron').ipcRenderer;
+  }
+  if (typeof process === 'undefined') {
+    window.process = { env: {}, platform: 'browser', type: 'renderer', versions: {} };
+  }
+
+</script>
+<!-- [/TIKFINITY BROWSER STUB] -->
+
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <style>
+        iframe {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            z-index: 999999;
+        }
+    </style>
+</head>
+
+<body>
+    <iframe></iframe>
+
+    <script>
+        let params = new URLSearchParams(window.location.search);
+        let dockId = params.get('did');
+        let iframe = document.querySelector("iframe");
+
+        iframe.addEventListener("load", () => {
+            if (window.location.href.includes("preview=1")) {
+                iframe.contentDocument.body.style.backgroundColor = "transparent";
+            }
+        });
+
+        iframe.src = `./vite/src/activity-feed/?dockId=${dockId}&cid=${params.get('cid')}`;
+
+        io.on("dockData", (event) => {
+            if (!window.location.href.includes("preview=1")) {
+                iframe.contentWindow.postMessage(event, "*");
+            }
+        });
+
+        window.addEventListener("message", (event) => {
+            if (event.data && typeof event.data === "object" && event.data.type && event.data.payload) {
+                iframe.contentWindow.postMessage(event.data, "*");
+            }
+        });
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

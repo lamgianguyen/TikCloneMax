@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <script src="/js/guard/obf/trc.js"></script>
+
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+
+  <script src="sharedio/sharedio.js"></script>
+  <script src="socketioclient.js?v=10"></script>
+
+  <link rel="stylesheet" href="/fa/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;700&family=Lexend:wght@800&family=Luckiest+Guy&display=swap" rel="stylesheet">
+
+  <script type="module" crossorigin src="/vue/dist/widgets/wheel-of-actions/wheel-of-actions.js"></script>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+    window.addEventListener("load", () => {
+      if (window.mountWheelOfActions) {
+        window.mountWheelOfActions("#app");
+      }
+    });
+
+    let triggered = false;
+    let spinning = false;
+
+    io.on("onSpinWheel", (data) => {
+      if(!settings.isPro && !location.href.includes('preview=1')) {
+        return;
+      }
+
+      window.triggerWheel(data);
+
+      triggered = true;
+    });
+
+    function preview() {
+      if(triggered || spinning || !window.triggerWheel) return;
+
+      const mockedSegments = [
+        {
+          id: 0,
+          text: "nothing",
+          color: "#289376",
+        },
+        {
+          id: 1,
+          text: "3x sit-ups",
+          color: "#EEF0E6",
+        },
+        {
+          id: 2,
+          text: "10x push-ups",
+          color: "#FBB129",
+        },
+        {
+          id: 3,
+          text: "1x push-ups",
+          color: "#E63A44",
+        },
+        {
+          id: 4,
+          text: "20x sit-ups",
+          color: "#EEF0E6",
+        },
+        {
+          id: 5,
+          text: "5x planks",
+          color: "#4397D5",
+        },
+
+        {
+          id: 6,
+          text: "15x push-ups",
+          color: "#99124B",
+        },
+        {
+          id: 7,
+          text: "1x sit-ups",
+          color: "#EEF0E6",
+        },
+        {
+          id: 8,
+          text: "15x planks",
+          color: "#E63A44",
+        },
+        {
+          id: 9,
+          text: "45x planks",
+          color: "#FBB129",
+        },
+      ];
+
+      const announceDuration = parseInt(settings.wheelofactions_announceDuration || 3) * 1000;
+      const spinDuration = parseInt(settings.wheelofactions_spinDuration || 10) * 1000;
+      const waitDuration = parseInt(settings.wheelofactions_waitDuration || 1) * 1000;
+
+      const mockedWheelOptions = {
+        user: {
+          username: "zerodytester",
+          profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg",
+        },
+        activation: {
+          type: "gift",
+          giftPictureUrl: "https://p19-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648eaf88d7189~tplv-obj.png",
+          giftName: "Rose",
+          repeatCount: 1,
+          value: 1,
+        },
+        wheelName: "Test Wheel 1",
+        segments: mockedSegments,
+        spinDuration: spinDuration,
+        winnerSegmentIndex: 0,
+        showBase: String(settings.wheelofactions_showBase) ?? "true",
+        playSound: "false", // override
+        announceDuration: announceDuration,
+        waitDuration: waitDuration,
+      };
+
+      spinning = true;
+      window.triggerWheel(mockedWheelOptions);
+
+      setTimeout(() => {
+        spinning = false;
+      }, announceDuration + spinDuration + waitDuration + 1000 + 1000);
+    }
+</script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>

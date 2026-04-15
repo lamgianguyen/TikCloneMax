@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head><script>(function(w,i,g){w[g]=w[g]||[];if(typeof w[g].push=='function')w[g].push(i)})
+(window,'GTM-TVRNKPSM','google_tags_first_party');</script><script>(function(w,d,s,l){w[l]=w[l]||[];(function(){w[l].push(arguments);})('set', 'developer_id.dY2E1Nz', true);
+		var f=d.getElementsByTagName(s)[0],
+		j=d.createElement(s);j.async=true;j.src='/2l68/';
+		f.parentNode.insertBefore(j,f);
+		})(window,document,'script','dataLayer');</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot Troubleshooting</title>
+
+    <!-- Icon -->
+    <link rel="icon" type="image/png" href="/img/tikfinity.png">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400&display=swap" rel="stylesheet">
+
+
+    <style>
+        body {
+            background-color: #1d1c1c;
+            font-family: "Helvetica Neue", "Segoe UI", helvetica, verdana, sans-serif;
+            font-weight: 400;
+            color: #d9d9d9;
+            padding: 10px;
+
+            animation-name: slideDown;
+            animation-duration: 1s;
+            animation-fill-mode: forwards;
+        }
+
+        #content {
+            max-width: 800px;
+            margin: 0px auto;
+        }
+
+        a {
+            color: #fff;
+        }
+
+        @keyframes slideDown {
+            0% {
+                margin-top: -500px;
+                opacity: 0;
+            }
+
+            100% {
+                margin-top: 0px;
+                opacity: 1;
+            }
+        }
+
+        h1,
+        h2 {
+            color: #d43555;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="content">
+        <h1>Chatbot Troubleshooting</h1>
+        <div>
+            Due to the TikTok chat filter settings, many messages are filtered by default. To turn off the TikTok chat filter, follow these steps:
+        </div>
+
+        <br>
+
+        <div>
+            <h2>Disable Chat Filter in TikTok Live Studio</h2>
+            Click on the cogwheel in the chat box and switch off the "Hide potential spam or offensive comments" option.<br><br>
+
+            <table>
+                <tr>
+                    <td><img src="/img/chatfilter/ls1.png" height="400"></img></td>
+                    <td><img src="/img/chatfilter/ls2.png" height="400"></img></td>
+                </tr>
+            </table>
+        </div>
+
+        <div>
+            <h2>Disable Chat Filter on Mobile</h2>
+            
+
+            Go to "Settings" -> "Comment Settings" -> "Filter Comments" -> Disable all filter options.<br><br>
+            <table>
+                <tr>
+                    <td><img src="/img/chatfilter/m1.jpg" height="420"></img></td>
+                    <td><img src="/img/chatfilter/m2.jpg" height="420"></img></td>
+                    <td><img src="/img/chatfilter/m3.jpg" height="420"></img></td>
+                    <td><img src="/img/chatfilter/m4.jpg" height="420"></img></td>
+                </tr>
+            </table>
+        </div>
+
+        <div>
+            <h2>Other Tipps</h2>
+            <ul>
+                <li>Use social media names instead of links because links are not clickable.</li>
+                <li>Be aware that TikTok filters the messages if your account sends too many messages.</li>
+                <li>Configure your chatbot to send a maximum of 1 message per 15 seconds.</li>
+                <li>If a message does not go through, try typing it into the chat yourself and ask your viewers if the message is visible. If not, try rephrasing the message with other words.</li>
+            </ul>
+        </div>
+    </div>
+
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

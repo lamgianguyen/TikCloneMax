@@ -1,0 +1,40 @@
+{
+  "status": 200,
+  "message": "OK",
+  "config": {
+    "modules": [
+      { "id": "actions", "sort": 1, "enabled": true },
+      { "id": "events", "sort": 2, "enabled": true },
+      { "id": "sounds", "sort": 3, "enabled": true },
+      { "id": "tts", "sort": 4, "enabled": true },
+      { "id": "media", "sort": 5, "enabled": true },
+      { "id": "timers", "sort": 6, "enabled": true },
+      { "id": "commands", "sort": 7, "enabled": true },
+      { "id": "spotify", "sort": 8, "enabled": true },
+      { "id": "webhooks", "sort": 9, "enabled": true },
+      { "id": "overlays", "sort": 10, "enabled": true }
+    ],
+    "features": ["all"],
+    "settings": {}
+  },
+  "modules": [
+    { "id": "actions", "sort": 1, "enabled": true },
+    { "id": "events", "sort": 2, "enabled": true },
+    { "id": "sounds", "sort": 3, "enabled": true },
+    { "id": "tts", "sort": 4, "enabled": true },
+    { "id": "media", "sort": 5, "enabled": true },
+    { "id": "timers", "sort": 6, "enabled": true },
+    { "id": "commands", "sort": 7, "enabled": true },
+    { "id": "spotify", "sort": 8, "enabled": true },
+    { "id": "webhooks", "sort": 9, "enabled": true },
+    { "id": "overlays", "sort": 10, "enabled": true }
+  ],
+  "isPro": true,
+  "features": ["all"],
+  "ttsVoices": [],
+  "languages": ["en", "de", "es", "fr", "pt", "vi"],
+  "supportedLanguages": ["en", "de", "es", "fr", "pt", "vi"],
+  "defaultLanguage": "en",
+  "maxSoundSize": 10485760,
+  "maxImageSize": 5242880
+}

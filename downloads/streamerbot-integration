@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head><script>(function(w,i,g){w[g]=w[g]||[];if(typeof w[g].push=='function')w[g].push(i)})
+(window,'GTM-TVRNKPSM','google_tags_first_party');</script><script>(function(w,d,s,l){w[l]=w[l]||[];(function(){w[l].push(arguments);})('set', 'developer_id.dY2E1Nz', true);
+		var f=d.getElementsByTagName(s)[0],
+		j=d.createElement(s);j.async=true;j.src='/2l68/';
+		f.parentNode.insertBefore(j,f);
+		})(window,document,'script','dataLayer');</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streamerbot Integration</title>
+
+    <!-- Icon -->
+    <link rel="icon" type="image/png" href="/img/tikfinity.png">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400&display=swap" rel="stylesheet">
+
+
+    <style>
+        body {
+            background-color: #1d1c1c;
+            font-family: "Helvetica Neue", "Segoe UI", helvetica, verdana, sans-serif;
+            font-weight: 400;
+            color: #d9d9d9;
+            padding: 10px;
+
+            animation-name: slideDown;
+            animation-duration: 1s;
+            animation-fill-mode: forwards;
+        }
+
+        #content {
+            max-width: 800px;
+            margin: 0px auto;
+        }
+
+        a {
+            color: #fff;
+        }
+
+        @keyframes slideDown {
+            0% {
+                margin-top: -500px;
+                opacity: 0;
+            }
+
+            100% {
+                margin-top: 0px;
+                opacity: 1;
+            }
+        }
+
+        h1,
+        h2 {
+            color: #d43555;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="content">
+        <h1>Streamer.bot Integration</h1>
+        <div>
+            <a href="https://streamer.bot/" target="_blank">Streamer.bot</a> offers a variety of interactive features for your live stream! You can trigger your Streamerbot actions via TikFinity's "Actions & Events" system. This requires a one-time setup.
+        </div>
+
+        <br>
+
+        <div>
+            <h2>Initial Setup</h2>
+            <a href="https://streamer.bot/downloads" target="_blank">Please download the latest version of Streamer.bot</a> and activate the "Websocket Server", which you can find in the "Server/Clients" tab.
+            Then switch to TikFinity and go to "Setup" -> "Streamer.bot Connection" to set the connection details. In most cases, the default values are fine.
+            Click on "Test Connection" to check if the connection is working. If it is, you can start using Streamer.bot in the TikFinity Actions.
+        
+            <br><br>
+            <img src="/img/streamerbot/setup1.png" style="margin-left: -150px; width: 140%;"></img>
+            <br>
+        </div>
+
+        <div>
+            <h2>Using Streamer.bot Actions</h2>
+
+            <ul>
+                <li>On TikFinity go to "Actions & Events"</li>
+                <li>Click on "Create Action" and select "Streamer.bot Action"</li>
+                <li>Choose the Streamer.bot Action you want to trigger</li>
+                <li>Click on "Save"</li>
+                <li>Assign an Event to your Action</li>
+            </ul>
+
+            <br>
+            <img src="/img/streamerbot/setup2.png" style="width: 100%; max-width: 600px;"></img>
+            <br><br>
+
+            Also note that the information of the trigger user, e.g. the user name, is transmitted as a placeholder parameter. 
+            These placeholder parameters can be used in Streamer.bot for further processing. The following placeholder parameters 
+            are available depending on the event type:
+
+            <ul>
+                <li><b>%userId%</b> - Numeric TikTok User-ID</li>
+                <li><b>%username%</b> - TikTok Username (@handle)</li>
+                <li><b>%nickname%</b> - TikTok Nickname (display name)</li>
+                <li><b>%profilePicturUrl%</b> - https-URL to the profile picture of the user</li>
+                <li><b>%commandParams%</b> - The user comment or the params written for a !command</li>
+                <li><b>%giftId%</b> - Numeric Gift-ID</li>
+                <li><b>%giftName%</b> - Gift Name</li>
+                <li><b>%coins%</b> - Number of Coins sent on a gift event</li>
+                <li><b>%repeatCount%</b> - Repeat Count for a gift</li>
+                <li><b>%likeCount%</b> - Like Count</li>
+                <li><b>%totalLikeCount%</b> - Total Like Count for a user (Summed up)</li>
+                <li><b>%subMonth%</b> - Sub Month (for sub events)</li>
+                <li><b>%emoteId%</b> - ID of the emote</li>
+                <li><b>%emoteImageUrl%</b> - https-URL to the Emote</li>
+            </ul>
+
+            <br>
+            Example usage (Core -> File IO -> Write to File):
+            <br><br>
+            <img src="/img/streamerbot/setup3.png" style="width: 100%; max-width: 600px;"></img>
+            <br><br>
+        </div>
+
+        <div>
+            <h2>Sending Chat Messages from Streamer.bot</h2>
+
+            You can also send messages to your TikTok chat via Streamer.bot. To do this, go to the chatbot settings on TikFinity and activate the "Allow Streamer.bot to push messages to TikFinity" option.
+            Then create a Streamer.bot action and add the following steps in the sub-actions:
+
+            <ul>
+                <li><b>Core > Arguments > Set Argument:</b> Create a variable with the name "message". The value is your message text to send. You can use all the variables listed above in your message text, e.g. %nickname% to mention the trigger user.
+                    <br><br><img src="/img/streamerbot/chatbot2.png" style="width: 100%; max-width: 300px;"></img>
+                    <br><br></li>
+                <li><b>Core > C# > Execute C# Code:</b> Copy and paste the following code and click "Save and Compile"</li>
+                <pre>
+using System;
+using Newtonsoft.Json;
+
+public class CPHInline
+{
+    public bool Execute()
+    {
+        CPH.WebsocketBroadcastJson(JsonConvert.SerializeObject(new { action = "sendChatbotMessage", args = args }));
+        return true;
+    }
+}
+                </pre>
+            </ul>
+
+            It should look like this:<br><br>
+            <img src="/img/streamerbot/chatbot1.png" style="width: 100%; max-width: 600px;"></img>
+
+            <br><br>
+            Now you can trigger this Streamer.bot action and it will send the message to your TikTok chat. 
+            If you experience any problems, please contact us via Discord.
+        </div>
+
+    </div>
+
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

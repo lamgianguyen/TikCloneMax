@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <link rel="stylesheet" href="/css/text-effects.css">
+    <script src="/js/text-effects.js"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            overflow-x: hidden;
+            width: 100%;
+        }
+
+        .counterContainer {
+            font-size: 2.3em;
+        }
+
+        .counterContainer>div {
+            top: 0;
+            position: absolute;
+            width: 100%;
+            text-align: center;
+        }
+
+        .image>img {
+            display: none;
+            width: 100%;
+            height: auto;
+            filter: blur(0.7px) saturate(110%) hue-rotate(5deg);
+            height: 150px;
+            width: 165px;
+            animation: upDown 5s infinite;
+        }
+
+        .counterBump {
+            animation: zoomBeat 0.1s ease-in-out forwards;
+        }
+
+        @keyframes zoomBeat {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.3);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        @keyframes upDown {
+            0% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(5px);
+            }
+
+            100% {
+                transform: translateY(0);
+            }
+        }
+
+        .title.text-effect--wavy,
+        .title.text-effect--wavy-slow,
+        .title.text-effect--wavy-fast {
+            white-space: normal;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: nowrap;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .counter.text-effect--wavy,
+        .counter.text-effect--wavy-slow,
+        .counter.text-effect--wavy-fast {
+            white-space: normal;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: nowrap;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .title .wave-char,
+        .counter .wave-char {
+            line-height: inherit;
+        }
+    </style>
+
+    <script>
+        var counterId = new URLSearchParams(location.search).get("c");
+        var lastValue = 0;
+        var lastGoalValue = 0;
+        var blinkInterval = null;
+        var isHidden = false;
+        var hideTimeout = null;
+
+        var reachedAready = false;
+
+        function getSetting(key, defaultValue) {
+            let fullKey = 'gcounter' + counterId + '_' + key;
+            if (!window.settings || typeof window.settings[fullKey] === 'undefined') return defaultValue;
+            return window.settings[fullKey];
+        }
+
+        function updateSettings() {
+            $('.title').css('color', getSetting('titleColor', '#ffffff'));
+            $('.counter').css('color', getSetting('counterColor', '#ebc94d'));
+
+            $('.title').css('margin-top', getSetting('titleYOffset', 0) + 'px');
+            $('.counter').css('margin-top', getSetting('counterYOffset', 170) + 'px');
+            $('.image').css('margin-top', getSetting('giftYOffset', 40) + 'px');
+
+            if (getSetting('enableBorder')) {
+                const borderShadow = `-1px -1px 0 ${getSetting('borderColor')}, 1px -1px 0 ${getSetting('borderColor')}, -1px 1px 0 ${getSetting('borderColor')}, 1px 1px 0 ${getSetting('borderColor')}`;
+
+                if (getSetting('titleEffect', 'none') === 'none' && !getSetting('titleGlow', false)) {
+                    $('.title').css("text-shadow", borderShadow);
+                } else {
+                    $('.title').css("text-shadow", 'inherit');
+                }
+
+                if (getSetting('counterEffect', 'none') === 'none' && !getSetting('counterGlow', false)) {
+                    $('.counter').css("text-shadow", borderShadow);
+                } else {
+                    $('.counter').css("text-shadow", 'inherit');
+                }
+            } else {
+                $('.title, .counter').css("text-shadow", 'inherit');
+            }
+
+            if (getSetting('giftEnabled', true)) {
+                $('.image img').css('opacity', getSetting('giftOpacity', 100) / 100);
+            } else {
+                $('.image img').css('opacity', 0);
+            }
+
+            if (window.TextEffects) {
+                const $title = $('.title');
+                TextEffects.applyComprehensiveEffects($title, {
+                    effect: getSetting('titleEffect', 'none'),
+                    wave: getSetting('titleWave', false),
+                    waveSpeed: getSetting('titleWaveSpeed', 'normal'),
+                    glow: getSetting('titleGlow', false),
+                    glowColor: getSetting('titleGlowColor', '#ffffff'),
+                    isRgbColor: false,
+                    rgbColor: null,
+                    defaultColor: getSetting('titleColor', '#ffffff')
+                });
+            }
+
+            if (window.TextEffects) {
+                const $counter = $('.counter');
+                TextEffects.applyComprehensiveEffects($counter, {
+                    effect: getSetting('counterEffect', 'none'),
+                    wave: getSetting('counterWave', false),
+                    waveSpeed: getSetting('counterWaveSpeed', 'normal'),
+                    glow: getSetting('counterGlow', false),
+                    glowColor: getSetting('counterGlowColor', '#ebc94d'),
+                    isRgbColor: false,
+                    rgbColor: null,
+                    defaultColor: getSetting('counterColor', '#ebc94d')
+                });
+            }
+        }
+
+        async function giftGoalStatus(status) {
+            let title = status?.config?.['gcounter_gc' + counterId + '_title'];
+            let goalValue = status?.config?.['gcounter_gc' + counterId + '_value'];
+            let increaseSelect = status?.config?.['gcounter_gc' + counterId + '_increaseSelect'];
+            let resetAllGiftCounterWhenGoalHit = status?.config?.['resetAllGiftCounterWhenGoalHitCheckbox'];
+            let resetGiftGoalsOnNewBc = status?.config?.['resetGiftGoalsOnNewBcCheckbox'];
+            let currentValue = status?.status?.['gc' + counterId]?.current;
+            let reached = status?.status?.['gc' + counterId]?.reached;
+            let giftPictureUrl = status?.config?.['gcounter_gc' + counterId + '_giftPictureUrl'];
+
+            $('.title').text(title || '');
+
+            if (window.TextEffects) {
+                const $title = $('.title');
+                TextEffects.applyComprehensiveEffects($title, {
+                    effect: getSetting('titleEffect', 'none'),
+                    wave: getSetting('titleWave', false),
+                    waveSpeed: getSetting('titleWaveSpeed', 'normal'),
+                    glow: getSetting('titleGlow', false),
+                    glowColor: getSetting('titleGlowColor', '#ffffff'),
+                    isRgbColor: false,
+                    rgbColor: null,
+                    defaultColor: getSetting('titleColor', '#ffffff')
+                });
+
+                const $counter = $('.counter');
+                TextEffects.applyComprehensiveEffects($counter, {
+                    effect: getSetting('counterEffect', 'none'),
+                    wave: getSetting('counterWave', false),
+                    waveSpeed: getSetting('counterWaveSpeed', 'normal'),
+                    glow: getSetting('counterGlow', false),
+                    glowColor: getSetting('counterGlowColor', '#ebc94d'),
+                    isRgbColor: false,
+                    rgbColor: null,
+                    defaultColor: getSetting('counterColor', '#ebc94d')
+                });
+            }
+
+            var reachedNow = false;
+
+            if (goalValue > 0 && currentValue >= goalValue) {
+                if (!reachedAready) {
+                    reachedNow = true;
+                    reachedAready = true;
+                }
+            } else {
+                reachedNow = false;
+                reachedAready = false;
+            }
+
+            lastValue = currentValue;
+
+            if (giftPictureUrl) {
+                $('.image img').attr('src', giftPictureUrl);
+                $('.image img').css('display', 'initial');
+            } else {
+                $('.image img').attr('src', '/images/gift.png');
+            }
+
+            if (increaseSelect === "3" && reachedAready) {
+                if (!isHidden) {
+                    hideTimeout = setTimeout(() => {
+                        $('.widget').fadeOut(500);
+                        isHidden = true;
+                    }, 4000);
+                }
+            } else {
+                if (hideTimeout) {
+                    clearTimeout(hideTimeout);
+                    hideTimeout = null;
+                }
+
+                if (isHidden) {
+                    $('.widget').fadeIn(500);
+                    isHidden = false;
+                }
+            }
+
+            await updateValue(currentValue, goalValue);
+
+            if (reachedNow) {
+                setTimeout(() => {
+                    blinkInterval = setInterval(() => {
+                        $('.counter').css('opacity', $('.counter').css('opacity') === '1' ? '0' : '1');
+                    }, 250);
+
+                    setTimeout(() => {
+                        clearInterval(blinkInterval);
+                        blinkInterval = null;
+                        $('.counter').css('opacity', '1');
+                    }, 4000);
+                }, 2000)
+            }
+        }
+
+        let destinationCurrentValue = 0;
+        let destinationGoalValue = 0;
+
+        let lastSetCurrentValue = 0;
+        let lastSetGoalValue = 0;
+
+        async function setValue(currentValue, goalValue, withAnimation) {
+            lastSetCurrentValue = currentValue;
+            lastSetGoalValue = goalValue;
+
+            if (goalValue > 0) {
+                $('.counter').text(`${Math.round(currentValue).toLocaleString()} / ${goalValue.toLocaleString()}`);
+                $('.counter').css('font-size', '1em');
+            } else {
+                $('.counter').text(Math.round(currentValue).toLocaleString());
+                $('.counter').css('font-size', '1.3em');
+            }
+
+            if (withAnimation) {
+                $('.counter').addClass('counterBump');
+                await new Promise(resolve => setTimeout(resolve, 120));
+                $('.counter').removeClass('counterBump');
+            }
+
+            if (window.TextEffects) {
+                const $counter = $('.counter');
+                TextEffects.applyComprehensiveEffects($counter, {
+                    effect: getSetting('counterEffect', 'none'),
+                    wave: getSetting('counterWave', false),
+                    waveSpeed: getSetting('counterWaveSpeed', 'normal'),
+                    glow: getSetting('counterGlow', false),
+                    glowColor: getSetting('counterGlowColor', '#ebc94d'),
+                    isRgbColor: false,
+                    rgbColor: null,
+                    defaultColor: getSetting('counterColor', '#ebc94d')
+                });
+            }
+        }
+
+        (async function () {
+            while (true) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                if (destinationGoalValue !== lastSetGoalValue) {
+                    await setValue(lastSetCurrentValue, destinationGoalValue, false);
+                }
+
+                if (destinationCurrentValue > lastSetCurrentValue) {
+                    let diff = destinationCurrentValue - lastSetCurrentValue;
+                    let step = Math.ceil(diff / 5);
+                    if (step < 1) step = 1;
+
+                    if (step > 10) {
+                        step = step * 3;
+                    }
+
+                    if ((lastSetCurrentValue + step) > destinationCurrentValue) {
+                        await setValue(destinationCurrentValue, destinationGoalValue, true);
+                    } else {
+                        await setValue(lastSetCurrentValue + step, destinationGoalValue, true);
+                    }
+
+                    // if diff small wait longer (calulate)
+                    if (diff > 3) {
+                        console.log("fast step", step);
+                    } else if (diff > 2) {
+                        console.log("medium step", step);
+                        await new Promise(resolve => setTimeout(resolve, 75));
+                    } else {
+                        console.log("slow step", step);
+                        await new Promise(resolve => setTimeout(resolve, 150));
+                    }
+                } else {
+                    await setValue(destinationCurrentValue, destinationGoalValue, false);
+                }
+            }
+        })();
+
+        async function updateValue(newValue, goalValue) {
+            destinationCurrentValue = newValue;
+            destinationGoalValue = goalValue;
+        }
+
+
+
+        function testGiftGoal() {
+            let valueBefore = lastSetCurrentValue;
+            let goalBefore = lastSetGoalValue;
+            updateValue(lastSetGoalValue ? lastSetGoalValue : 100, lastSetGoalValue);
+            setTimeout(() => {
+                updateValue(valueBefore, goalBefore);
+            }, 5000);
+        }
+
+        $(window).on("load", () => {
+            updateSettings();
+        });
+
+        io.on("giftGoalStatus", giftGoalStatus);
+        io.on("testGiftGoal", testGiftGoal);
+    </script>
+</head>
+
+<body>
+
+    <div class="widget">
+        <div class="counterContainer">
+            <div class="image">
+                <img>
+            </div>
+            <div class="title">Loading...</div>
+            <div class="counter">0</div>
+        </div>
+    </div>
+
+</body>
+
+</html>

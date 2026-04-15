@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -o '[a-zA-Z_$][a-zA-Z0-9_$]*\\\\[0x[0-9a-f]*\\\\]\\\\[_0x[a-z0-9]*\\\\\\(0x[0-9a-f]*\\\\\\)\\\\]')",
+      "Bash(grep -rE [\"\"047].*api /c/Users/nguyenlg/Documents/clone/downloads/combo/app.js -o)",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}

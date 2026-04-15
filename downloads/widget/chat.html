@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <link rel="stylesheet" href="/css/text-effects.css">
+    <script src="/js/text-effects.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            overflow-x: hidden;
+            background: transparent;
+        }
+
+        #chatContainer {
+            width: 100%;
+            height: 100vh;
+            overflow-y: hidden;
+            overflow-wrap: break-word;
+            word-break: break-word;
+            overflow-x: hidden;
+            box-sizing: border-box;
+            padding: 6px 6px 0;
+        }
+
+        @keyframes chatMessageOpacityIntro {
+            0% {
+                opacity: 0;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        @keyframes chatMessageSlideIntro {
+            0% {
+                left: 100px;
+            }
+
+            100% {
+                left: 0px;
+            }
+        }
+
+        .chatMessage {
+            position: relative;
+            display: block;
+            width: fit-content;
+            max-width: min(430px, calc(100vw - 12px));
+            margin-top: 6px;
+            margin-left: auto;
+            overflow-wrap: break-word;
+            word-break: break-word;
+            overflow-x: hidden;
+            border-radius: 14px;
+            box-sizing: border-box;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+        }
+
+        .chatMessageInner {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            padding: 6px 10px 6px 8px;
+        }
+
+        .chatText {
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .chatMessage table {
+            border-collapse: collapse;
+            border-spacing: 0;
+            width: auto;
+        }
+
+        .chatMessage td {
+            padding: 0;
+            vertical-align: middle;
+        }
+
+        .comment {
+            overflow-wrap: break-word;
+            word-break: break-word;
+            max-width: 100%;
+            overflow-x: hidden;
+            margin-bottom: 0;
+            font-size: 16px;
+            line-height: 1.15;
+            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.32);
+        }
+
+        .username {
+            font-weight: bold;
+            margin-bottom: 2px;
+            font-size: 17px;
+            line-height: 1.05;
+            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.32);
+        }
+
+        img {
+            margin-right: 0;
+            border-radius: 12px;
+            height: 40px;
+            width: 40px;
+            flex: 0 0 40px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .fadeOut {
+            animation-name: smoothFadeout;
+            animation-duration: 1s;
+            animation-fill-mode: forwards;
+        }
+
+        @keyframes smoothFadeout {
+            from {
+                opacity: 1;
+            }
+
+            to {
+                opacity: 0;
+            }
+        }
+
+        @keyframes redBlinkAnimation {
+            0% {
+                background-color: transparent;
+            }
+
+            25% {
+                background-color: rgba(211, 65, 60, 0.56);
+            }
+
+            50% {
+                background-color: rgba(211, 65, 60, 0.56);
+            }
+
+            100% {
+                background-color: transparent;
+            }
+        }
+
+        @keyframes redGlowAnimation {
+            0% {
+                background-color: transparent;
+            }
+
+            10% {
+                background-color: rgba(211, 65, 60, 0.56);
+            }
+
+            100% {
+                background-color: transparent;
+            }
+        }
+
+        .slideIn {
+            animation-name: chatMessageOpacityIntro, chatMessageSlideIntro;
+            animation-duration: 0.5s, 0.5s;
+            animation-iteration-count: 1, 1;
+        }
+
+        @keyframes foundAnimation {
+            0% {
+                background-color: transparent;
+            }
+
+            25% {
+                background-color: rgba(70, 203, 52, 0.56);
+            }
+
+            50% {
+                background-color: rgba(70, 203, 52, 0.56);
+            }
+
+            100% {
+                background-color: transparent;
+            }
+        }
+
+        @keyframes foundAnimationEnd {
+            0% {
+                background-color: transparent;
+            }
+
+            100% {
+                background-color: rgba(70, 203, 52, 0.56);
+            }
+        }
+
+        .found {
+            animation-name: foundAnimation, foundAnimationEnd, chatMessageOpacityIntro, chatMessageSlideIntro;
+            animation-duration: 0.5s, 0.3s, 0.5s, 0.5s;
+            animation-iteration-count: 3, 1, 1, 1;
+            animation-delay: 0s, 1.5s, 0s, 0s;
+            animation-fill-mode: none, forwards, none, none;
+        }
+    </style>
+
+    <script>
+
+        var nothumb = "/img/nothumb.webp";
+
+        function rndColorPart(min, max) {
+            return Math.floor(Math.random() * (max - min + 1) + min);
+        }
+
+        $(window).on("load", () => {
+
+            var chatContainer = $("#chatContainer");
+            var template = $(".chatMessage").first().clone();
+            template.css("display", "block");
+
+            var userIdColorMappings = {};
+
+            $(".chatMessage").remove();
+
+            io.on("chat", (message) => {
+                //clear
+                if ($(".chatMessage").length > 100) {
+                    $(".chatMessage").slice(0, 50).remove();
+                }
+
+                var thisItem = template.clone();
+
+                thisItem.find("img").attr("src", message.profilePictureUrl || nothumb)
+                thisItem.find(".username").text(message.nickname || message.uniqueId);
+                thisItem.find(".comment").text(message.comment);
+                thisItem.attr("data-ts", new Date().getTime());
+
+                if (!message.isSubscriber && !message.isModerator && settings.chat_showChatNormal === false) {
+                    return;
+                }
+
+                if (message.isSubscriber && settings.chat_showChatSub === false) {
+                    return;
+                }
+
+                if (message.isModerator && settings.chat_showChatMod === false) {
+                    return;
+                }
+
+                if (message.isModerator) {
+                    thisItem.find(".username").css('color', settings.chat_usernameColorMod);
+                    thisItem.find(".comment").css('color', settings.chat_commentColorMod);
+                    thisItem.css('background-color', settings.chat_backgroundMod);
+                } else if (message.isSubscriber) {
+                    thisItem.find(".username").css('color', settings.chat_usernameColorSub);
+                    thisItem.find(".comment").css('color', settings.chat_commentColorSub);
+                    thisItem.css('background-color', settings.chat_backgroundSub);
+                } else {
+                    thisItem.find(".username").css('color', settings.chat_usernameColorNormal);
+                    thisItem.find(".comment").css('color', settings.chat_commentColorNormal);
+                    thisItem.css('background-color', settings.chat_backgroundNormal);
+                }
+
+
+                if (settings.chat_showPictures === false) {
+                    thisItem.find("img").css('display', 'none');
+                }
+
+                if (settings.chat_mini) {
+                    thisItem.find("img").css('height', "25px");
+                    thisItem.find("img").css('width', "25px");
+                    thisItem.find("img").css('margin-bottom', "-5px");
+                    thisItem.find(".username").text(thisItem.find(".username").text() + ":")
+                    thisItem.find(".username").css("display", "inline");
+                    thisItem.find(".comment").css("display", "inline");
+                    thisItem.css("padding-bottom", "5px");
+                }
+
+                if (settings.chat_usernameRgb) {
+                    if (!userIdColorMappings[message.userId]) {
+                        userIdColorMappings[message.userId] = "rgba(" + rndColorPart(100, 240) + "," + rndColorPart(100, 240) + "," + rndColorPart(100, 240) + ", 1)";
+                    }
+
+                    thisItem.find(".username").css('color', userIdColorMappings[message.userId]);
+                }
+
+                if (window.TextEffects) {
+                    let usernameEffect = 'none';
+                    let waveEnabled = false;
+                    let waveSpeed = 'normal';
+                    let glowEnabled = false;
+                    let glowColor = '#ffffff';
+
+                    if (message.isModerator) {
+                        usernameEffect = settings.chat_usernameEffectMod || 'none';
+                        waveEnabled = settings.chat_usernameWaveMod === 'true' || settings.chat_usernameWaveMod === true;
+                        waveSpeed = settings.chat_usernameWaveSpeedMod || 'normal';
+                        glowEnabled = settings.chat_usernameGlowMod === 'true' || settings.chat_usernameGlowMod === true;
+                        glowColor = settings.chat_usernameGlowColorMod || '#d93030';
+                    } else if (message.isSubscriber) {
+                        usernameEffect = settings.chat_usernameEffectSub || 'none';
+                        waveEnabled = settings.chat_usernameWaveSub === 'true' || settings.chat_usernameWaveSub === true;
+                        waveSpeed = settings.chat_usernameWaveSpeedSub || 'normal';
+                        glowEnabled = settings.chat_usernameGlowSub === 'true' || settings.chat_usernameGlowSub === true;
+                        glowColor = settings.chat_usernameGlowColorSub || '#e8b461';
+                    } else {
+                        usernameEffect = settings.chat_usernameEffectNormal || 'none';
+                        waveEnabled = settings.chat_usernameWaveNormal === 'true' || settings.chat_usernameWaveNormal === true;
+                        waveSpeed = settings.chat_usernameWaveSpeedNormal || 'normal';
+                        glowEnabled = settings.chat_usernameGlowNormal === 'true' || settings.chat_usernameGlowNormal === true;
+                        glowColor = settings.chat_usernameGlowColorNormal || '#ffffff';
+                    }
+
+                    const $username = thisItem.find(".username");
+                    TextEffects.applyComprehensiveEffects($username, {
+                        effect: usernameEffect,
+                        wave: waveEnabled,
+                        waveSpeed: waveSpeed,
+                        glow: glowEnabled,
+                        glowColor: glowColor,
+                        isRgbColor: settings.chat_usernameRgb,
+                        rgbColor: userIdColorMappings[message.userId],
+                        defaultColor: message.isModerator ? settings.chat_usernameColorMod :
+                                     message.isSubscriber ? settings.chat_usernameColorSub :
+                                     settings.chat_usernameColorNormal
+                    });
+                }
+
+
+                if (settings.chat_autoWidth) {
+                    thisItem.css("width", "fit-content");
+                }
+
+                if (settings.chat_rightAlignment) {
+                    thisItem.css("float", "right");
+                    thisItem.css("clear", "right");
+                }
+
+                if (settings.chat_slideEffect !== false) {
+                    thisItem.addClass('slideIn');
+                }
+
+                chatContainer.append(thisItem);
+
+                chatContainer.stop().animate({ scrollTop: chatContainer.prop("scrollHeight") }, 600);
+            })
+        });
+
+        setInterval(() => {
+            if (settings && settings.chat_hideAfter && settings.chat_hideAfter > 0) {
+                $(".chatMessage").each((i, elem) => {
+                    let elemTs = elem.getAttribute("data-ts");
+                    if (elemTs) {
+                        if (elemTs < (new Date().getTime() - (settings.chat_hideAfter * 1000))) {
+                            $(elem).removeAttr("data-ts").removeClass("slideIn").addClass("fadeOut");
+                        }
+                    }
+                })
+            }
+        }, 100)
+
+        let previewIndex = 0;
+        let previewEnabled = true;
+
+        function preview() {
+            if (!previewEnabled) return;
+            previewIndex += 1;
+
+            if (location.href.includes("onStartPage=1")) {
+                if (previewIndex === 2) {
+                    io.fakeEmit("chat", { isTest: true, userId: 0, uniqueId: "Andromeda87", comment: "Hey whats up?", profilePictureUrl: "https://p19-pu-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7341842435955720235~tplv-tiktok-shrink:72:72.webp?lk3s=a5d48078&x-expires=1711306800&x-signature=oJh33ArtLGL8z3J8Ht%2F%2FBDoEnmY%3D" });
+                }
+
+                if (previewIndex === 5) {
+                    io.fakeEmit("chat", { isTest: true, userId: 1, uniqueId: "Barlay", comment: "Hahahah love it! ❤️", isModerator: true, profilePictureUrl: "https://p16-va.tiktokcdn.com/tos-maliva-avt-0068/b81edb6ef16b7d3e2e65b08af3be61e0~tplv-tiktok-shrink:72:72.webp?lk3s=a5d48078&x-expires=1711306800&x-signature=UQwy5bZ1AT4MvOBHl1E%2FFAtsJxE%3D" });
+                }
+
+                if (previewIndex === 8) {
+                    io.fakeEmit("chat", { isTest: true, userId: 8, uniqueId: "SweetMeloay", comment: "What do you call an ant who fights crime? A vigilANTe! HAHHSHSHSHSH", isSubscriber: true, profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-euttp/d3b0b619b215f34beb8f1cb9ea2720b6~tplv-tiktok-shrink:72:72.webp?lk3s=a5d48078&x-expires=1711306800&x-signature=yRk2DJnVqHNY0%2BR33LTuu8zhVBs%3D" });
+                }
+
+                if (previewIndex === 13) {
+                    io.fakeEmit("chat", { isTest: true, userId: 2, uniqueId: "Zerody", comment: "I think that were enough jokes for this night", isSubscriber: true, profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg?lk3s=a5d48078&x-expires=1711306800&x-signature=MsFwaFEJgnpf96hNSEYwhuMTpPM%3D" });
+                }
+
+                if (previewIndex === 18) {
+                    io.fakeEmit("chat", { isTest: true, userId: 2, uniqueId: "Zerody", comment: "Can you give me a different TTS voice?", isSubscriber: true, profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg?lk3s=a5d48078&x-expires=1711306800&x-signature=MsFwaFEJgnpf96hNSEYwhuMTpPM%3D" });
+                }
+
+                if (previewIndex === 21) {
+                    io.fakeEmit("chat", { isTest: true, userId: 8, uniqueId: "SweetMeloay", comment: "OMG", isModerator: true, profilePictureUrl: "https://p16-va.tiktokcdn.com/tos-maliva-avt-0068/b81edb6ef16b7d3e2e65b08af3be61e0~tplv-tiktok-shrink:72:72.webp?lk3s=a5d48078&x-expires=1711306800&x-signature=UQwy5bZ1AT4MvOBHl1E%2FFAtsJxE%3D" });
+                }
+
+                if (previewIndex === 24) {
+                    io.fakeEmit("chat", { isTest: true, userId: 0, uniqueId: "Andromeda87", comment: "can you sing? 🎙️", profilePictureUrl: "https://p19-pu-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7341842435955720235~tplv-tiktok-shrink:72:72.webp?lk3s=a5d48078&x-expires=1711306800&x-signature=oJh33ArtLGL8z3J8Ht%2F%2FBDoEnmY%3D" });
+                }
+
+                if (previewIndex === 26) {
+                    io.fakeEmit("chat", { isTest: true, userId: 0, uniqueId: "Andromeda87", comment: "!random_meme", profilePictureUrl: "https://p19-pu-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7341842435955720235~tplv-tiktok-shrink:72:72.webp?lk3s=a5d48078&x-expires=1711306800&x-signature=oJh33ArtLGL8z3J8Ht%2F%2FBDoEnmY%3D" });
+                }
+
+                if (previewIndex === 29) {
+                    io.fakeEmit("chat", { isTest: true, userId: 1, uniqueId: "Barlay", comment: "When does your Twitch stream start?", isModerator: true, profilePictureUrl: "https://p16-va.tiktokcdn.com/tos-maliva-avt-0068/b81edb6ef16b7d3e2e65b08af3be61e0~tplv-tiktok-shrink:72:72.webp" });
+                }
+
+                if (previewIndex === 32) {
+                    io.fakeEmit("chat", { isTest: true, userId: 7, uniqueId: "Mobster", comment: "that can't be true xD", isModerator: true, profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-euttp/7929a8a1580e4a60643d1348937e4a23~c5_100x100.jpeg" });
+                }
+
+                if (previewIndex === 34) {
+                    io.fakeEmit("chat", { isTest: true, userId: 7, uniqueId: "Mobster", comment: "!scare", isModerator: true, profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-euttp/7929a8a1580e4a60643d1348937e4a23~c5_100x100.jpeg" });
+                }
+
+                if (previewIndex === 36) {
+                    io.fakeEmit("chat", { isTest: true, userId: 8, uniqueId: "Jerry", comment: "hi", isModerator: true, profilePictureUrl: "https://p77-va.tiktokcdn.com/tos-maliva-avt-0068/278b5260e72bee9015938125bf985850~c5_100x100.jpeg" });
+                }
+            } else {
+                if (previewIndex === 2) {
+                    io.fakeEmit("chat", { isTest: true, userId: 0, uniqueId: "TheNormalUser", comment: "Hi, i'm a normal user. How are you?", profilePictureUrl: "https://p19-pu-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7341842435955720235~tplv-tiktok-shrink:72:72.webp?lk3s=a5d48078&x-expires=1711306800&x-signature=oJh33ArtLGL8z3J8Ht%2F%2FBDoEnmY%3D" });
+                }
+
+                if (previewIndex === 5) {
+                    io.fakeEmit("chat", { isTest: true, userId: 1, uniqueId: "TheModerator", comment: "Hi, i'm a moderator of your broadcast!", isModerator: true, profilePictureUrl: "https://p16-va.tiktokcdn.com/tos-maliva-avt-0068/b81edb6ef16b7d3e2e65b08af3be61e0~tplv-tiktok-shrink:72:72.webp?lk3s=a5d48078&x-expires=1711306800&x-signature=UQwy5bZ1AT4MvOBHl1E%2FFAtsJxE%3D" });
+                }
+
+                if (previewIndex === 8) {
+                    io.fakeEmit("chat", { isTest: true, userId: 2, uniqueId: "TheSubscriber", comment: "Hi, i'm a subscriber!!!", isSubscriber: true, profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-euttp/d3b0b619b215f34beb8f1cb9ea2720b6~tplv-tiktok-shrink:72:72.webp?lk3s=a5d48078&x-expires=1711306800&x-signature=yRk2DJnVqHNY0%2BR33LTuu8zhVBs%3D" });
+                }
+
+                if (previewIndex === 11) {
+                    io.fakeEmit("chat", { isTest: true, userId: 3, uniqueId: "Zerody", comment: "click the customize button to change the colors, font and size. also note that in live studio you can adjust the size of the overlay (height and width) in the link source settings!", isSubscriber: true, profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg?lk3s=a5d48078&x-expires=1711306800&x-signature=MsFwaFEJgnpf96hNSEYwhuMTpPM%3D" });
+                }
+
+                if (previewIndex === 15) {
+                    io.fakeEmit("chat", { isTest: true, userId: 3, uniqueId: "Zerody", comment: "I recommend reducing the link source width in Live studio so that you can place the chat to the side.", isSubscriber: true, profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg?lk3s=a5d48078&x-expires=1711306800&x-signature=MsFwaFEJgnpf96hNSEYwhuMTpPM%3D" });
+                }
+
+                if (previewIndex === 22) {
+                    previewIndex = 0;
+                }
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="chatContainer">
+        <div class="chatMessage" style="display: none;">
+            <table>
+                <tr>
+                    <td>
+                        <div class="chatMessageInner">
+                            <img onerror="this.src=nothumb" />
+                            <div class="chatText">
+                                <div class="username"></div>
+                                <div class="comment"></div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

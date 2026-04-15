@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+        <link
+            href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100..900;1,100..900&display=swap"
+            rel="stylesheet"
+        />
+
+
+
+        <title>TikFinity Activity Feed</title>
+      <script type="module" crossorigin src="../../assets/activityFeed-DsYkAilU.js"></script>
+      <link rel="modulepreload" crossorigin href="../../assets/modulepreload-polyfill-B5Qt9EMX.js">
+      <link rel="stylesheet" crossorigin href="../../assets/activityFeed-BRqMXzqW.css">
+    </head>
+    <body>
+        <div id="app">
+            <div class="activity-feed">
+                <div class="activity-feed__header">
+                    <div class="activity-feed__header__logo"><span>Tik</span>Finity</div>
+
+                    <button id="settingsButton" class="activity-feed__header__settings-button">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+
+                <div id="settingsPanel" class="settings-panel settings-panel--hidden">
+                    <div class="settings-title">Settings</div>
+
+                    <div class="settings-group">
+                        <div class="settings-item">
+                            <label for="showChat">Show Chat</label>
+                            <input type="checkbox" id="showChat" checked />
+                        </div>
+
+                        <div class="settings-item">
+                            <label for="showFollows">Show Follows</label>
+                            <input type="checkbox" id="showFollows" checked />
+                        </div>
+
+                        <div class="settings-item">
+                            <label for="showShares">Show Shares</label>
+                            <input type="checkbox" id="showShares" checked />
+                        </div>
+
+                        <div class="settings-item">
+                            <label for="showGifts">Show Gifts</label>
+                            <input type="checkbox" id="showGifts" checked />
+                        </div>
+
+                        <div class="settings-item">
+                            <label for="showSubscribes">Show Subs</label>
+                            <input type="checkbox" id="showSubscribes" checked />
+                        </div>
+
+                        <div class="settings-item">
+                            <label for="showEnvelopes">Show Treasure Chests</label>
+                            <input type="checkbox" id="showEnvelopes" checked />
+                        </div>
+
+                        <div class="settings-item">
+                            <label for="showJoins">Show Joins</label>
+                            <input type="checkbox" id="showJoins" checked />
+                        </div>
+                    </div>
+
+                    <div class="settings-actions">
+                        <button id="saveSettings" class="settings-save">Save</button>
+                    </div>
+                </div>
+
+                <div class="activity-feed__content"></div>
+            </div>
+        </div>
+
+
+    <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>

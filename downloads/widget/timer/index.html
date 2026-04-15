@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <style>
+        body {
+            font-size: 3em;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        #content {
+            width: 100%;
+        }
+
+        #countdown {
+            width: fit-content;
+            padding-left: 15px;
+            padding-right: 10px;
+            margin: 0px auto;
+            border-radius: 10px;
+        }
+
+        @keyframes buzzAnimation {
+            0% {
+                transform: scale(1.3, 1.3);
+            }
+
+            100% {
+                transform: scale(1.0, 1.0);
+            }
+        }
+
+        .buzz {
+            animation-name: buzzAnimation;
+            animation-duration: 0.5s;
+            animation-fill-mode: backwards;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="content">
+        <div id="countdown">00:00</div>
+    </div>
+
+    <script>
+        function getSetting(name) {
+            if (!settings) return;
+            return settings["timer_" + name]
+        }
+
+        function updateSettings() {
+            $('body').css('color', getSetting('fontColor'));
+            $('#countdown').css('background-color', getSetting('backgroundColor'));
+        }
+
+        var toHHMMSS = (secs) => {
+            var sec_num = parseInt(secs, 10)
+            var hours = Math.floor(sec_num / 3600)
+            var minutes = Math.floor(sec_num / 60) % 60
+            var seconds = sec_num % 60
+
+            return [hours, minutes, seconds]
+                .map(v => v < 10 ? "0" + v : v)
+                .filter((v, i) => v !== "00" || i > 0)
+                .join(":")
+        }
+
+        let lastState;
+        let lastStateTs;
+        let hideTimeout;
+        let lastTotalSecs = 0;
+
+        io.on("timerUpdate", ({ state }) => {
+            lastState = state;
+            lastStateTs = new Date();
+        });
+
+
+        $(window).on("load", () => {
+
+            setInterval(() => {
+                if (!lastState) {
+                    if (getSetting('hideAfterExpiry') === true) {
+                        $('#content').fadeOut(500);
+                    } else {
+                        $('#content').fadeIn(500);
+                    }
+                    return;
+                }
+
+
+                if (getSetting('hideAfterExpiry') === false) {
+                    $('#content').fadeIn(500);
+                    if (hideTimeout) {
+                        clearTimeout(hideTimeout);
+                        hideTimeout = null;
+                    }
+                }
+
+                let totalSecs = Math.round((lastState.totalMillis - (new Date().getTime() - lastStateTs.getTime())) / 1000);
+
+                if (lastState.isPaused) {
+                    totalSecs = Math.round(lastState.totalMillis / 1000);
+                }
+
+                if (totalSecs < 0) {
+                    totalSecs = 0;
+                }
+
+                if (totalSecs === 0 && getSetting('hideAfterExpiry') === true) {
+                    if (!hideTimeout) {
+                        hideTimeout = setTimeout(() => {
+                            $('#content').fadeOut(500);
+                        }, 5000)
+                    }
+                } else {
+                    if (hideTimeout) {
+                        clearTimeout(hideTimeout);
+                        hideTimeout = null;
+                    }
+                }
+
+                if (totalSecs > 0) {
+                    $('#content').fadeIn(500);
+                    if (hideTimeout) {
+                        clearTimeout(hideTimeout);
+                        hideTimeout = null;
+                    }
+                }
+
+                if (totalSecs > (lastTotalSecs + 30) || totalSecs < (lastTotalSecs - 30)) {
+                    $('#countdown').addClass("buzz");
+                    setTimeout(() => $('#countdown').removeClass("buzz"), 500);
+                }
+
+                $('#countdown').text(toHHMMSS(totalSecs));
+                lastTotalSecs = totalSecs;
+
+            }, 100)
+
+            updateSettings();
+        });
+    </script>
+
+</body>
+
+</html>

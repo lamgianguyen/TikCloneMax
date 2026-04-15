@@ -1,0 +1,10 @@
+Old SQL Server migrations have been deleted as part of the switch to SQLite.
+
+To create a new initial migration for SQLite, run:
+
+    cd backend
+    dotnet ef migrations add InitialCreate_SQLite
+
+Then apply it with:
+
+    dotnet ef database update

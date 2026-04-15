@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<!-- [TIKFINITY BROWSER STUB] -->
+<script>
+  if (typeof window.require === 'undefined') {
+    window.require = function(moduleName) {
+      console.log('[Stub] require called for:', moduleName);
+      if (moduleName === 'electron') {
+        return {
+          ipcRenderer: {
+            send: function() { console.log('[Stub] ipcRenderer.send', arguments); },
+            sendSync: function() { console.log('[Stub] ipcRenderer.sendSync', arguments); return null; },
+            on: function() { console.log('[Stub] ipcRenderer.on', arguments); },
+            once: function() { console.log('[Stub] ipcRenderer.once', arguments); },
+            removeListener: function() { console.log('[Stub] ipcRenderer.removeListener', arguments); },
+            removeAllListeners: function() { console.log('[Stub] ipcRenderer.removeAllListeners', arguments); },
+            invoke: function() { console.log('[Stub] ipcRenderer.invoke', arguments); return Promise.resolve({}); }
+          },
+          clipboard: {
+             writeText: function(t) { console.log('[Stub] clipboard.writeText', t); window.navigator.clipboard?.writeText(t); },
+             readText: function() { return ''; }
+          },
+          shell: {
+             openExternal: function(url) { console.log('[Stub] shell.openExternal', url); window.open(url, '_blank'); }
+          }
+        };
+      }
+      return null;
+    };
+  }
+  if (typeof window.ipcRenderer === 'undefined') {
+    window.ipcRenderer = window.require('electron').ipcRenderer;
+  }
+  if (typeof process === 'undefined') {
+    window.process = { env: {}, platform: 'browser', type: 'renderer', versions: {} };
+  }
+
+</script>
+<!-- [/TIKFINITY BROWSER STUB] -->
+
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <link rel="stylesheet" href="/css/text-effects.css">
+    <script src="/js/text-effects.js"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            overflow-x: hidden;
+            width: 100%;
+        }
+
+        .counterContainer {
+            font-size: 1.9em;
+        }
+
+        .counterContainer>div {
+            top: 0;
+            position: absolute;
+            width: 100%;
+            text-align: center;
+        }
+
+        .image>img {
+            display: none;
+            width: 100%;
+            height: auto;
+            filter: blur(0.7px) saturate(110%) hue-rotate(5deg);
+            height: 150px;
+            width: 165px;
+            animation: upDown 5s infinite;
+        }
+
+        .counterBump {
+            animation: zoomBeat 0.1s ease-in-out forwards;
+        }
+
+        .username {
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .username.text-effect--wavy,
+        .username.text-effect--wavy-slow,
+        .username.text-effect--wavy-fast {
+            white-space: normal;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: nowrap;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .title.text-effect--wavy,
+        .title.text-effect--wavy-slow,
+        .title.text-effect--wavy-fast {
+            white-space: normal;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: nowrap;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .username .wave-char,
+        .title .wave-char {
+            line-height: inherit;
+        }
+
+        @keyframes zoomBeat {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.3);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        @keyframes upDown {
+            0% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(5px);
+            }
+
+            100% {
+                transform: translateY(0);
+            }
+        }
+    </style>
+
+    <script>
+        let dataReceived = false;
+
+        function getSetting(name, defaultValue) {
+            if (!settings || typeof settings['tops_' + name] === "undefined") {
+                return defaultValue;
+            }
+
+            return settings['tops_' + name];
+        }
+
+        function updateSettings() {
+            $('.title').css('color', getSetting('titleColor', '#9d6d6d'));
+            $('.counter').css('color', getSetting('counterColor', '#ebc94d'));
+
+            $('.title').css('margin-top', getSetting('titleYOffset', 0) + 'px');
+            $('.username').css('margin-top', getSetting('usernameYOffset', 170) + 'px');
+            $('.counter').css('margin-top', getSetting('counterYOffset', 170) + 'px');
+            $('.image').css('margin-top', getSetting('giftYOffset', 40) + 'px');
+
+            if (dataReceived) {
+                $('.title').text(getSetting('titleText', ''));
+            } else {
+                $('.title').text("Please start TikFinity");
+            }
+
+            let usernameFontSize = (parseInt(getSetting('usernameSize', 50)) / 50) + 'em';
+            $('.username').css('font-size', usernameFontSize);
+
+            let titleFontSize = (parseInt(getSetting('titleSize', 50)) / 50) + 'em';
+            $('.title').css('font-size', titleFontSize);
+
+            if (getSetting('enableBorder')) {
+                const borderShadow = `-1px -1px 0 ${getSetting('borderColor')}, 1px -1px 0 ${getSetting('borderColor')}, -1px 1px 0 ${getSetting('borderColor')}, 1px 1px 0 ${getSetting('borderColor')}`;
+
+                if (getSetting('titleEffect', 'none') === 'none' && !getSetting('titleGlow', false)) {
+                    $('.title').css("text-shadow", borderShadow);
+                } else {
+                    $('.title').css("text-shadow", 'inherit');
+                }
+
+                if (getSetting('usernameEffect', 'none') === 'none' && !getSetting('usernameGlow', false)) {
+                    $('.username').css("text-shadow", borderShadow);
+                } else {
+                    $('.username').css("text-shadow", 'inherit');
+                }
+
+                $('.counter').css("text-shadow", borderShadow);
+            } else {
+                $('.title, .username, .counter').css("text-shadow", 'inherit');
+            }
+
+            if (getSetting('giftEnabled', true)) {
+                $('.image img').css('opacity', getSetting('giftOpacity', 100) / 100);
+            } else {
+                $('.image img').css('opacity', 0);
+            }
+
+            if (window.TextEffects) {
+                const $title = $('.title');
+                TextEffects.applyComprehensiveEffects($title, {
+                    effect: getSetting('titleEffect', 'none'),
+                    wave: getSetting('titleWave', false),
+                    waveSpeed: getSetting('titleWaveSpeed', 'normal'),
+                    glow: getSetting('titleGlow', false),
+                    glowColor: getSetting('titleGlowColor', '#ffffff'),
+                    isRgbColor: false,
+                    rgbColor: null,
+                    defaultColor: getSetting('titleColor', '#c9c9c9')
+                });
+            }
+
+            if (window.TextEffects) {
+                const $username = $('.username');
+                TextEffects.applyComprehensiveEffects($username, {
+                    effect: getSetting('usernameEffect', 'none'),
+                    wave: getSetting('usernameWave', false),
+                    waveSpeed: getSetting('usernameWaveSpeed', 'normal'),
+                    glow: getSetting('usernameGlow', false),
+                    glowColor: getSetting('usernameGlowColor', '#ffffff'),
+                    isRgbColor: false,
+                    rgbColor: null,
+                    defaultColor: getSetting('usernameColor', '#ebc94d')
+                });
+            }
+        }
+
+        let lastCount = 0;
+
+        function setTopStreakerData(data) {
+            $(".widget .counterContainer .image img").attr("src", data.giftPictureUrl);
+            $(".widget .counterContainer .username").text(data.username);
+            $(".widget .counterContainer .title").text(data.title);
+
+            setTimeout(() => {
+                $(".widget .counterContainer .counter").text("x " + data.count);
+            }, 50);
+
+            if (data.count > lastCount) {
+                $(".widget .counterContainer .counter").addClass("counterBump");
+                setTimeout(() => {
+                    $(".widget .counterContainer .counter").removeClass("counterBump");
+                }, 120);
+            }
+
+            if (data.giftPictureUrl) {
+                $(".widget .counterContainer .image img").show();
+            } else {
+                $(".widget .counterContainer .image img").hide();
+            }
+        }
+
+        let lastTopStreakerData = null;
+
+        $(window).on("load", async () => {
+            if (location.href.includes('cid=0') && location.href.includes('preview')) {
+                dataReceived = true;
+            }
+
+            updateSettings();
+
+            if (!lastTopStreakerData) {
+                if (location.href.includes('cid=0') && location.href.includes('preview')) {
+                    dataReceived = true;
+                    let dummyCount = 5931;
+                    while (true) {
+                        setTopStreakerData({
+                            giftPictureUrl: "https://p16-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648eaf88d7189~tplv-obj.webp",
+                            username: "Username",
+                            count: dummyCount
+                        });
+
+                        dummyCount++;
+                        if (dummyCount > 7000) dummyCount = 5931;
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+
+                } else {
+                    setTopStreakerData({
+                        giftPictureUrl: "https://p16-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648eaf88d7189~tplv-obj.webp",
+                        username: "Username",
+                        count: 0
+                    });
+                }
+            }
+        });
+
+        io.on("topGiftData", (data) => {
+            if (location.href.includes('cid=0') && location.href.includes('preview')) return;
+
+            if (!location.href.includes('preview') && settings.isPro === false) {
+                document.write('');
+                return;
+            }
+
+            dataReceived = true;
+            updateSettings();
+
+            if (data.topStreaker && JSON.stringify(data.topStreaker) !== JSON.stringify(lastTopStreakerData)) {
+                lastTopStreakerData = data.topStreaker;
+                setTopStreakerData(data.topStreaker);
+            }
+
+            // Apply text effects after data update
+            updateSettings();
+        });
+
+    </script>
+</head>
+
+<body>
+    <div class="widget">
+        <div class="counterContainer">
+            <div class="image">
+                <img>
+            </div>
+            <div class="title">Please start TikFinity</div>
+            <div class="username">-</div>
+            <div class="counter">-</div>
+        </div>
+    </div>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

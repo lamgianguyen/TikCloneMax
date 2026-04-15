@@ -1,0 +1,10 @@
+{
+  "status": 200,
+  "message": "OK",
+  "arrayKey": "data",
+  "data": [],
+  "pageSize": 100,
+  "page": 1,
+  "hasNext": false,
+  "isPro": true
+}

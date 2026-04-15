@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script
+      src="https://code.jquery.com/jquery-3.5.1.min.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"
+      crossorigin="anonymous"
+    ></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <script type="module" crossorigin src="/vue/dist/widgets/coin-match/coin-match.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      window.addEventListener("load", () => {
+        const CoinMatch = window.createCoinMatch();
+        CoinMatch.mount("#app");
+      });
+
+      let triggered = false;
+      let previewing = false;
+
+      let timeouts = [];
+      let interval = null;
+
+      io.on("coin-match:start", (data) => {
+        if(!settings.isPro && !location.href.includes('preview=1')) {
+          return;
+        }
+
+        if (previewing) {
+          timeouts.forEach(timeout => clearTimeout(timeout));
+          if (interval) clearInterval(interval);
+          previewing = false;
+        }
+
+        triggered = true;
+        window.startMatch(data);
+      });
+
+      io.on("coin-match:update", (data) => {
+        window.updateMatch(data);
+      });
+
+      io.on("coin-match:result", (data) => {
+        window.showResults(data);
+      });
+
+      io.on("coin-match:reset", () => {
+        window.resetMatch();
+      });
+
+      function preview() {
+        if (!window.startMatch || triggered || previewing) return;
+        previewing = true;
+
+        const payloadSettings = {
+          showTitle: settings.coinmatch_showTitle, 
+          title: settings.coinmatch_title,
+          showParticipantsCount: settings.coinmatch_showParticipantsCount,
+          keepShowingWinners: settings.coinmatch_showWinners === "keepShowing",
+          hideAfter: Number(settings.coinmatch_hideAfter),
+          shouldAutoScroll: settings.coinmatch_shouldAutoScroll,
+          enableSnipeMode: settings.coinmatch_enableSnipeMode,
+          enableSlowCountdown: settings.coinmatch_enableSlowCountdown,
+          randomizedSlowCountdown: settings.coinmatch_randomizedSlowCountdown,
+          countdown: Number(settings.coinmatch_countdown),
+          countdownStartDelay: Number(settings.coinmatch_countdownStartDelay),
+          fontColor: settings.coinmatch_fontColor,
+          backgroundColor: settings.coinmatch_backgroundColor,
+          timerBackgroundColor: settings.coinmatch_timerBackgroundColor,
+        };
+
+        let countdown = payloadSettings.countdown;
+        const participants = [];
+
+        window.startMatch(payloadSettings);
+
+        timeouts.push(setTimeout(() => {
+          timeouts.push(setTimeout(() => {
+            participants.push({
+              userId: "123",
+              username: "Test User",
+              position: 1,
+              profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg",
+              totalCoins: 100,
+            });
+          }, 6_000));
+
+          timeouts.push(setTimeout(() => {
+            participants.push({
+              userId: "456",
+              username: "Test User 2",
+              position: 2,
+              profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg",
+              totalCoins: 50,
+            });
+          }, 10_000));
+
+          timeouts.push(setTimeout(() => {
+            participants.push({
+              userId: "789",
+              username: "Test User 3",
+              position: 3,
+              profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg",
+              totalCoins: 150,
+            });
+
+            participants.sort((a, b) => b.totalCoins - a.totalCoins);
+            participants.forEach((participant, index) => {
+              participant.position = index + 1;
+            });
+          }, 15_000));
+
+          interval = setInterval(() => {
+            window.updateMatch({
+              countdown: countdown--,
+              entries: participants.map(p => ({ ...p })),
+            });
+
+            if (countdown <= 0) {
+              clearInterval(interval);
+
+              window.showResults({
+                winners: participants.slice(0, 3),
+              });
+
+              if (!payloadSettings.keepShowingWinners) {
+                timeouts.push(setTimeout(() => {
+                  previewing = false;
+                  window.resetMatch();
+                }, payloadSettings.hideAfter * 1000));
+              }
+            }
+          }, 1000);
+        }, payloadSettings.countdownStartDelay * 1000));
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<!-- [TIKFINITY BROWSER STUB] -->
+<script>
+  if (typeof window.require === 'undefined') {
+    window.require = function(moduleName) {
+      console.log('[Stub] require called for:', moduleName);
+      if (moduleName === 'electron') {
+        return {
+          ipcRenderer: {
+            send: function() { console.log('[Stub] ipcRenderer.send', arguments); },
+            sendSync: function() { console.log('[Stub] ipcRenderer.sendSync', arguments); return null; },
+            on: function() { console.log('[Stub] ipcRenderer.on', arguments); },
+            once: function() { console.log('[Stub] ipcRenderer.once', arguments); },
+            removeListener: function() { console.log('[Stub] ipcRenderer.removeListener', arguments); },
+            removeAllListeners: function() { console.log('[Stub] ipcRenderer.removeAllListeners', arguments); },
+            invoke: function() { console.log('[Stub] ipcRenderer.invoke', arguments); return Promise.resolve({}); }
+          },
+          clipboard: {
+             writeText: function(t) { console.log('[Stub] clipboard.writeText', t); window.navigator.clipboard?.writeText(t); },
+             readText: function() { return ''; }
+          },
+          shell: {
+             openExternal: function(url) { console.log('[Stub] shell.openExternal', url); window.open(url, '_blank'); }
+          }
+        };
+      }
+      return null;
+    };
+  }
+  if (typeof window.ipcRenderer === 'undefined') {
+    window.ipcRenderer = window.require('electron').ipcRenderer;
+  }
+  if (typeof process === 'undefined') {
+    window.process = { env: {}, platform: 'browser', type: 'renderer', versions: {} };
+  }
+
+</script>
+<!-- [/TIKFINITY BROWSER STUB] -->
+
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <link rel="stylesheet" href="/css/text-effects.css">
+    <script src="/js/text-effects.js"></script>
+    <script src="/js/text-effects-integration.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            overflow: hidden;
+            font-size: 1.3em;
+        }
+
+        img {
+            border-radius: 25%;
+        }
+
+        .points {
+            font-weight: bold;
+        }
+
+        .transactionContainer {
+            position: absolute;
+        }
+
+        @keyframes moveUpAnimationNagative {
+            from {
+                bottom: -20px
+            }
+
+            to {
+                bottom: 10%
+            }
+        }
+
+        @keyframes moveUpAnimationSmall {
+            from {
+                bottom: -20px
+            }
+
+            to {
+                bottom: 20%
+            }
+        }
+
+        @keyframes moveUpAnimationBig {
+            from {
+                bottom: -20px
+            }
+
+            to {
+                bottom: 40%
+            }
+        }
+
+        @keyframes fadeInOutAnimation {
+            0% {
+                opacity: 0;
+            }
+
+            20% {
+                opacity: 1;
+            }
+
+            80% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0;
+            }
+        }
+
+        .animateNegative {
+            animation-name: moveUpAnimationNagative, fadeInOutAnimation;
+            animation-duration: 5s, 5s;
+            animation-fill-mode: forwards;
+        }
+
+        .animateSmall {
+            animation-name: moveUpAnimationSmall, fadeInOutAnimation;
+            animation-duration: 5s, 5s;
+            animation-fill-mode: forwards;
+        }
+
+        .animateBig {
+            animation-name: moveUpAnimationBig, fadeInOutAnimation;
+            animation-duration: 5s, 5s;
+            animation-fill-mode: forwards;
+        }
+
+        .box {
+            background-color: rgba(33, 33, 33, 0.3);
+            padding-left: 3px;
+            padding-top: 3px;
+            padding-right: 3px;
+            border-radius: 10px;
+            min-width: 120px;
+        }
+    </style>
+
+    <script>
+        let styleSheet = null;
+        let dynamicAnimation = (name, styles) => {
+            // Creating a style element
+            // To add the keyframes
+            if (!styleSheet) {
+                styleSheet = document.createElement('style');
+                styleSheet.type = 'text/css';
+                document.head.appendChild(styleSheet);
+            }
+            // Adding The Keyframes
+            styleSheet.sheet.insertRule(`@keyframes ${name} {${styles}}`,
+                styleSheet.length
+            );
+        }
+
+        var lastPostion = null;
+
+        $(window).on("load", () => {
+
+            setTimeout(() => {
+                $("body").css("color", "#d9d9d9");
+
+                var template = $(".transactionContainer").clone();
+                $(".transactionContainer").remove();
+
+                io.on("newTransaction", (transactionDetails) => {
+                    if (!transactionDetails.show) return;
+                    if (settings && settings.transactionviewer_showChatMinutes === false && transactionDetails.description && transactionDetails.description.toString().indexOf("Chat Minute") >= 0) return;
+
+                    var transactionContainer = template.clone();
+                    transactionContainer.find("img").attr("src", transactionDetails.thumbnailUrl || getUserThumbnailUrlFromUserId(transactionDetails.userId));
+                    transactionContainer.find("img").attr("onerror", "this.src='/img/nothumb.webp'");
+                    transactionContainer.find(".points").text("");
+
+                    if (settings && settings.transactionviewer_showBoxShadow) {
+                        transactionContainer.addClass("box");
+                        if (settings.transactionviewer_boxShadowColor) transactionContainer.css("background-color", settings.transactionviewer_boxShadowColor);
+                    }
+
+                    if (settings && settings.transactionviewer_fontColor) transactionContainer.css("color", settings.transactionviewer_fontColor)
+                    if (settings && settings.transactionviewer_fontColor_positive && transactionDetails.amount >= 0) transactionContainer.css("color", settings.transactionviewer_fontColor_positive);
+                    if (settings && settings.transactionviewer_fontColor_negative && transactionDetails.amount < 0) transactionContainer.css("color", settings.transactionviewer_fontColor_negative);
+
+                    var windowMaxLeft = window.innerWidth - 120;
+                    var randomLeft = Math.floor(Math.random() * windowMaxLeft) + 1
+
+                    // prevent generation of sequential items on same left
+                    if (lastPostion && windowMaxLeft > 310) {
+                        while (randomLeft < (lastPostion + 150) && randomLeft > (lastPostion - 150)) randomLeft = Math.floor(Math.random() * windowMaxLeft) + 1;
+                    }
+
+                    lastPostion = randomLeft
+
+                    transactionContainer.css("left", randomLeft + "px");
+
+                    if (transactionDetails.amount >= 0) {
+                        transactionContainer.addClass(transactionDetails.amount > 1 ? "animateBig" : "animateSmall");
+                    } else {
+                        transactionContainer.addClass("animateNegative");
+                    }
+
+
+                    var countedAmount = 0.0000;
+                    var amountStep = transactionDetails.amount / 100;
+                    var counter = 0;
+                    var interval = setInterval(() => {
+                        counter += 1;
+                        countedAmount += amountStep;
+
+                        var roundOptions = {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        }
+
+                        var roundedAmount = countedAmount.toLocaleString(undefined, roundOptions);
+                        if (countedAmount > 0.00000) {
+                            transactionContainer.find(".points").text("+ " + roundedAmount);
+                        } else {
+                            transactionContainer.find(".points").text("- " + roundedAmount.replace("-", ""));
+                        }
+
+                        if (counter > 100) {
+                            clearInterval(interval);
+                            if (transactionDetails.amount > 0.00000) {
+                                transactionContainer.find(".points").text("+ " + transactionDetails.amount.toLocaleString(undefined, roundOptions));
+                            } else {
+                                transactionContainer.find(".points").text("- " + transactionDetails.amount.toLocaleString(undefined, roundOptions).replace("-", ""));
+                            }
+                        }
+
+                    }, 3000 / 100);
+
+
+                    $("body").append(transactionContainer);
+
+                    setTimeout(() => {
+                        transactionContainer.remove();
+                    }, 10000);
+                })
+
+            }, 100);
+        });
+
+        let previewIndex = 0;
+        let previewEnabled = true;
+
+        function preview() {
+            if (!previewEnabled) return;
+            previewIndex += 1;
+
+            if (previewIndex % 2 === 0) {
+                let thumbnailUrl = "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_100x100.jpeg";
+                if(Math.random() > 0.5) thumbnailUrl = "https://p19-pu-useast8.tiktokcdn-us.com/tos-useast5-avt-0068-tx/7341842435955720235~tplv-tiktok-shrink:72:72.webp";
+                io.fakeEmit("newTransaction", { userId: "1", username: "Zerody", thumbnailUrl, amount: Math.ceil(Math.random() * 10) * (Math.round(Math.random()) ? 1 : -1), show: true })
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div class="transactionContainer">
+        <table>
+            <tr>
+                <td>
+                    <img height="40px">
+                </td>
+                <td class="points">+ 1.5</td>
+            </tr>
+        </table>
+    </div>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

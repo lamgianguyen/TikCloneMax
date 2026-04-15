@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head><script>(function(w,i,g){w[g]=w[g]||[];if(typeof w[g].push=='function')w[g].push(i)})
+(window,'GTM-TVRNKPSM','google_tags_first_party');</script><script>(function(w,d,s,l){w[l]=w[l]||[];(function(){w[l].push(arguments);})('set', 'developer_id.dY2E1Nz', true);
+		var f=d.getElementsByTagName(s)[0],
+		j=d.createElement(s);j.async=true;j.src='/2l68/';
+		f.parentNode.insertBefore(j,f);
+		})(window,document,'script','dataLayer');</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+
+    <meta name="google-site-verification" content="SpRsqM8KSkxycX5GVbPj3_NqcWHwaQUZ7uR2jcs85jo" />
+
+    <title>TikFinity - Terms of Service</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            background-color: #1d1c1c;
+            font-family: "Helvetica Neue","Segoe UI",helvetica,verdana,sans-serif;
+            font-weight: 400;
+            color: #d9d9d9;
+            padding: 10px;
+
+            animation-name: slideDown;
+            animation-duration: 1s;
+            animation-fill-mode: forwards;
+        }
+
+        #content {
+            max-width: 800px;
+            margin: 0px auto;
+        }
+
+        a {
+            color: #fff;
+        }
+
+        @keyframes slideDown {
+            0% {
+                margin-top: -500px;
+                opacity: 0;
+            }
+
+            100% {
+                margin-top: 0px;
+                opacity: 1;
+            }
+        }
+
+        h1, h2 {
+            color: #d43555;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="content">
+        <h1>Terms of Service</h1>
+        <p>Effective Date: August 20, 2023</p>
+        <p>Welcome to TikFinity! These Terms of Service (&quot;Terms&quot;) govern your use of the TikFinity website and services (&quot;Service&quot;). By accessing or using the Service, you agree to be bound by these Terms. If you do not agree to these Terms, please do not use the Service.</p>
+        <p><strong>1. Account Usage</strong></p>
+        <p>1.1. <strong>Multiple Accounts:</strong> Users are permitted to create and maintain multiple accounts on TikFinity, provided that these accounts are not used for the purpose of actively circumventing any restrictions or engaging in prohibited activities. Any attempt to create and use multiple accounts for such purposes may result in immediate account suspension or banning at our discretion.</p>
+        <p><strong>2. Use of Unofficial APIs</strong></p>
+        <p>2.1. <strong>Unofficial APIs:</strong> TikFinity utilizes unofficial APIs (Application Programming Interfaces) provided by TikTok to retrieve and display data. By using our Service, you acknowledge and agree that we are not affiliated with TikTok and that we use these unofficial APIs to access TikTok data.</p>
+        <p>2.2. <strong>Data Accuracy:</strong> While we strive to provide accurate and up-to-date data, we cannot guarantee the accuracy, completeness, or reliability of the information displayed on TikFinity. Users are responsible for verifying any data they rely on from our Service.</p>
+        <p><strong>3. Service Availability</strong></p>
+        <p>3.1. <strong>TikTok API Changes:</strong> TikFinity relies on TikTok&#39;s APIs to function correctly. We cannot guarantee the continuous availability or functionality of our Service, as changes made by TikTok to their APIs may affect our ability to provide the Service. We will make reasonable efforts to adapt to such changes but cannot guarantee uninterrupted access.</p>
+        <p><strong>4. User Responsibilities</strong></p>
+        <p>4.1. <strong>Compliance:</strong> Users agree to comply with all applicable laws, regulations, and these Terms when using TikFinity.</p>
+        <p>4.2. <strong>Privacy:</strong> Users are responsible for protecting their personal information and ensuring the security of their TikFinity account. We are not responsible for any unauthorized access or use of your account.</p>
+        <p>4.3. <strong>Prohibited Content:</strong> Users must not upload, share, or promote any content that is illegal, infringing on the rights of others, or violates these Terms.</p>
+        <p><strong>5. Termination</strong></p>
+        <p>5.1. <strong>Banning:</strong> TikFinity reserves the right to suspend or ban users who violate these Terms or engage in prohibited activities, including but not limited to the creation of multiple accounts, as outlined in Section 1.</p>
+        <p><strong>6. Modifications to Terms</strong></p>
+        <p>6.1. <strong>Updates:</strong> TikFinity may update these Terms from time to time. Any changes will be effective upon posting the revised Terms on our website. Your continued use of the Service after any modifications indicate your acceptance of the updated Terms.</p>
+        <p><strong>7. Disclaimers and Limitations of Liability</strong></p>
+        <p>7.1. <strong>No Warranty:</strong> TikFinity is provided &quot;as is&quot; without warranties of any kind, either express or implied. We do not warrant that the Service will be error-free or uninterrupted.</p>
+        <p>7.2. <strong>Limitation of Liability:</strong> To the maximum extent permitted by law, TikFinity shall not be liable for any problems, damages, losses, or issues arising from the use of the Service. TikFinity assumes no liability for any direct, indirect, incidental, consequential, or special damages, including but not limited to financial losses, data loss, or any other problems that may occur during the use of the Service.</p>
+        <p><strong>8. Premium Membership</strong></p>
+        <p>8.1 <strong>Monthly Subscription:</strong> TikFinity offers a monthly premium membership subscription (&quot;TikFinity Pro&quot;) that grants users access to additional features and benefits. By purchasing a Premium Membership, you agree to pay the associated monthly subscription fee.</p>
+        <p>8.2 <strong>Billing:</strong> Premium Membership fees will be billed on a monthly basis to the payment method provided by the user at the time of purchase. You authorize us to charge your payment method for the applicable fees.</p>
+        <p><strong>9. Cancellation</strong></p>
+        <p>You may cancel your Premium Membership at any time by visiting the &quot;TikFinity Pro&quot; section on our website. Cancellation will take effect at the end of the current billing cycle.</p>
+        <p><strong>10. Refunds</strong></p>
+        <p><strong>10.1 One-Time Refund for First-Time Subscribers:</strong><br>
+        We offer a one-time refund for new users who are not satisfied with TikFinity Pro.
+        You may request a refund within seven (7) days of your very first Premium Membership purchase (“Initial Subscription”). 
+        This refund may be granted as a gesture of goodwill and without requiring a reason.</p>
+        <p><strong>10.2 No Refunds for Renewals or Subsequent Charges:</strong><br>
+        Refund eligibility applies exclusively to the Initial Subscription.
+        All renewals, subsequent billing cycles, additional months, upgrades, downgrades, or re-subscriptions are strictly non-refundable, 
+        regardless of the date of the charge or whether the Service was used.</p>
+        <p><strong>10.3 Expiration of Refund Window:</strong><br>
+        After the 7-day window following the Initial Subscription has expired, no refunds will be issued, for any reason. 
+        The refund period does not reset or renew with any future charges. For example:<br>
+        – Charges in month 2, 3, or any later month are not refundable, even if requested within 7 days of those charges.</p>
+        <p><strong>10.4 Responsibility to Cancel:</strong><br>
+        Users are responsible for cancelling their subscription before the next billing cycle.
+        If a user forgets to cancel, stops using the Service, or no longer streams, this does not constitute grounds for a refund beyond the Initial Subscription.</p>
+        <p><strong>10.5 Waiver of Statutory Withdrawal Rights (EU):</strong><br>
+        By purchasing TikFinity Pro, you acknowledge that the digital service begins immediately and that any statutory right of withdrawal may be waived once the service is activated.</p>
+        <p><strong>11. Contact Us</strong></p>
+        <p>11.1. <strong>Questions:</strong> If you have any questions about these Terms or TikFinity, please contact us at support@tikfinity.com.</p>
+        <p>By using TikFinity, you agree to these Terms of Service. If you do not agree with any part of these Terms, please refrain from using our Service. Thank you for using TikFinity!</p>
+        <p><em>Last updated: August 20, 2023</em></p>
+        <div id="footer"></div>
+        <br><br><br><br>
+    </div>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

@@ -1,0 +1,268 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using TikFinityBackend.Data;
+using TikFinityBackend.Services;
+
+namespace TikFinityBackend.Controllers;
+
+[ApiController]
+[Route("api")]
+[AllowAnonymous]
+public class MeController : BaseApiController
+{
+    private readonly AppDbContext _db;
+    private readonly JwtService _jwtService;
+
+    public MeController(AppDbContext db, JwtService jwtService)
+    {
+        _db = db;
+        _jwtService = jwtService;
+    }
+
+    /// <summary>
+    /// GET/POST /api/me - Main user info (matches TikFinity frontend expectations)
+    /// </summary>
+    [HttpGet("me")]
+    [HttpPost("me")]
+    [HttpGet("loginChannel")]
+    [HttpPost("loginChannel")]
+    public async Task<IActionResult> GetMe()
+    {
+        // Check auth FIRST: no valid Bearer token → guest response
+        var authHeader = Request.Headers.Authorization.ToString();
+        var hasValidToken = !string.IsNullOrWhiteSpace(authHeader)
+            && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            && authHeader.Length > 20;
+
+        if (!hasValidToken)
+        {
+            return Ok(new { status = 200, message = "OK", channelId = 0, channelName = "", isPro = false,
+                accountChannelName = "", tiktokUsername = "",
+                channel = new { channelId = 0, channelName = "", challengeRunning = false,
+                    challengeName = (string?)null, challengeStartAt = (DateTime?)null,
+                    dynamicSettings = new Dictionary<string, string>(), profiles = Array.Empty<object>() },
+                userFeatures = new { isPro = false }, subscription = new { isPro = false, plan = "", active = false },
+                wsAuthToken = "", cookieAuth = false, countryCode = "VN",
+                overloadSettings = new { enabled = false }, activePromotions = Array.Empty<object>(),
+                isTrialAvailable = false, hasActiveTrial = false, trialEnded = false, trialInfo = (object?)null,
+                featureBaseToken = "" });
+        }
+
+        var channelId = GetChannelId();
+        if (channelId <= 0) channelId = 1;
+        var channel = await _db.Channels
+            .Include(c => c.Subscription)
+            .Include(c => c.Profiles)
+            .Include(c => c.DynamicSettings)
+            .FirstOrDefaultAsync(c => c.ChannelId == channelId);
+
+        if (channel == null)
+        {
+            // Fallback: get any channel
+            channel = await _db.Channels
+                .Include(c => c.Subscription)
+                .Include(c => c.DynamicSettings)
+                .OrderBy(c => c.ChannelId)
+                .FirstOrDefaultAsync();
+        }
+
+        if (channel == null)
+            return Ok(new { status = 200, message = "OK", channelId = 0, channelName = "guest", isPro = true,
+                channel = new { channelId = 0, channelName = "guest", isPro = true, dynamicSettings = new Dictionary<string, string>(), subscription = new { isPro = true, plan = "pro", active = true } },
+                userFeatures = new { isPro = true, proInfo = new { plan = "pro", active = true } },
+                subscription = new { isPro = true, plan = "pro", active = true } });
+
+        var ds = channel.DynamicSettings.ToDictionary(d => d.Key, d => d.Value);
+        var preferredTikTokName = ds.TryGetValue("setting_tiktokname", out var savedTikTokName)
+            ? savedTikTokName?.Trim().TrimStart('@')
+            : null;
+        if (string.IsNullOrWhiteSpace(preferredTikTokName))
+        {
+            preferredTikTokName = null;
+        }
+
+        var frontendChannelName = preferredTikTokName ?? channel.ChannelName;
+        var pro = channel.Subscription?.IsPro ?? true;
+        var wsAuthToken = _jwtService.GenerateToken(channel.ChannelId, channel.ChannelName, channel.Email, pro);
+        var featureBaseToken = _jwtService.GenerateFeaturebaseToken(frontendChannelName, channel.Email, channel.ChannelId.ToString());
+        var dynamicSettings = BuildDynamicSettings(ds, frontendChannelName, featureBaseToken, channel.OwnerUserId);
+        var remoteIp = HttpContext.Connection.RemoteIpAddress?.ToString();
+
+        return Ok(new
+        {
+            status = 200, message = "OK",
+            channelName = frontendChannelName,
+            accountChannelName = channel.ChannelName,
+            tiktokUsername = preferredTikTokName ?? "",
+            channel = new
+            {
+                channel.OwnerUserId, channel.ChannelId,
+                ChannelName = frontendChannelName,
+                AccountChannelName = channel.ChannelName,
+                channel.ChannelSignature, channel.Sub, channel.Email,
+                channel.AffId, channel.AgencyId, channel.ProfileId,
+                proExpireAt = channel.Subscription?.ProExpireAt,
+                proExpireSetBy = channel.Subscription?.ProExpireSetBy,
+                channel.Locale, channel.IsChatbotApproved,
+                channel.ChallengeRunning, channel.ChallengeName,
+                channel.SignupAuthProvider, channel.ChallengeStartAt,
+                TiktokUsername = preferredTikTokName ?? "",
+                dynamicSettings = dynamicSettings,
+                dynamicProfileSettings = Array.Empty<object>(),
+                halvingLastExecutionAt = (DateTime?)null,
+                catchApplied = false,
+                catchEnabled = false,
+                catchEnabledInGrid = true,
+                catchEnabledAt = (DateTime?)null,
+                catchProEnabled = false,
+                catchProEnabledAt = (DateTime?)null,
+                catchRandom = 5,
+                isCatchAdmin = false,
+                userAgent = Request.Headers.UserAgent.ToString(),
+                customInfoText = (string?)null,
+                lastActivityAt = channel.UpdatedAt,
+                patreonUserId = (string?)null,
+                discordUsername = (string?)null,
+                bmcEmail = (string?)null,
+                lmSubscriptionId = (string?)null,
+                monthlyEarnings = 0,
+                monthlyEarningsMax = 0,
+                streamGifter = 0,
+                streamGifterMax = 0,
+                lastSeenIp = remoteIp,
+                lastActiveProDate = (DateTime?)null,
+                firstActiveProDate = (DateTime?)null,
+                lastActiveProInfo = (object?)null,
+                proCanceledAt = (DateTime?)null,
+                banReason = (string?)null,
+                tiktokAgencyInfoId = 0,
+                tiktokAgencyInfoName = (string?)null,
+                tiktokAgencyInfoUpdatedAt = (DateTime?)null,
+                upgradeIntent = (string?)null,
+                upgradeIntentUpdatedAt = (DateTime?)null,
+                paymentMethodSelected = (string?)null,
+                paymentMethodSelectedAt = (DateTime?)null,
+                specialProOfferPrice = (decimal?)null,
+                trialStartedAt = (DateTime?)null,
+                trialExpiresAt = (DateTime?)null,
+                trialOfferNotificationSentAt = (DateTime?)null,
+                channel.CreatedAt,
+                channel.UpdatedAt,
+                isPro = pro,
+                subscription = new { isPro = pro, plan = channel.Subscription?.Plan ?? "pro", active = channel.Subscription?.Active ?? true },
+                userFeatures = new { isPro = pro, proInfo = new { plan = channel.Subscription?.Plan ?? "pro", active = channel.Subscription?.Active ?? true } },
+                profiles = channel.Profiles.Select(p => new { p.Id, p.Name, p.Sort })
+            },
+            channeluser = (object?)null,
+            userFeatures = new { isPro = pro, proInfo = new { plan = channel.Subscription?.Plan ?? "pro", active = channel.Subscription?.Active ?? true } },
+            profile = (object?)null,
+            cookieAuth = false,
+            wsAuthToken,
+            discordVerifyToken = channel.ChannelSignature,
+            channelId = channel.ChannelId,
+            countryCode = channel.Locale ?? "VN",
+            overloadSettings = new { enabled = false, suffixIds = new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }, minAccountAge = 5, updatedAt = channel.UpdatedAt },
+            activePromotions = Array.Empty<object>(),
+            mobileVoucherCode = "",
+            performanceDebugInfo = new { cid = channel.ChannelId, step1 = 0, step2 = 0, step3 = 0, step4 = 0, step5 = 0, step6 = 0, step7 = 0, total = 0 },
+            isTrialAvailable = false,
+            hasActiveTrial = false,
+            trialEnded = false,
+            trialInfo = (object?)null,
+            featureBaseToken,
+            isPro = pro,
+            subscription = new { isPro = pro, plan = channel.Subscription?.Plan ?? "pro", active = channel.Subscription?.Active ?? true }
+        });
+    }
+
+    [HttpPost("switchProfile")]
+    public async Task<IActionResult> SwitchProfile([FromBody] JsonElement body)
+    {
+        var channelId = GetChannelId();
+        var profileId = body.TryGetProperty("profileId", out var pid) ? pid.GetInt32() : 0;
+
+        if (profileId > 0)
+        {
+            var channel = await _db.Channels.FirstOrDefaultAsync(c => c.ChannelId == channelId);
+            if (channel != null)
+            {
+                channel.ProfileId = profileId;
+                await _db.SaveChangesAsync();
+            }
+        }
+
+        return Ok(new { status = 200, message = "OK" });
+    }
+
+    [HttpPost("setAffiliate")]
+    [HttpPost("setAff")]
+    public async Task<IActionResult> SetAffiliate([FromBody] JsonElement body)
+    {
+        var channelId = GetChannelId();
+        var affId = body.TryGetProperty("affId", out var aid) ? aid.GetString() : null;
+
+        if (!string.IsNullOrEmpty(affId))
+        {
+            var channel = await _db.Channels.FirstOrDefaultAsync(c => c.ChannelId == channelId);
+            if (channel != null)
+            {
+                channel.AffId = affId;
+                await _db.SaveChangesAsync();
+            }
+        }
+
+        return Ok(new { status = 200, message = "OK" });
+    }
+
+    private static Dictionary<string, string> BuildDynamicSettings(
+        Dictionary<string, string> source,
+        string frontendChannelName,
+        string featureBaseToken,
+        string? ownerUserId)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["events"] = "[]",
+            ["timer"] = "[]",
+            ["soundsdatasource"] = "[]",
+            ["widget_wheelofactions_wheels"] = "[]",
+            ["wheelcustomsegments"] = "[]",
+            ["widget_socialmediarotator_socials"] = "[]",
+            ["FBVisitedChangelogsTracker-tikfinity"] = "{\"shownChangelogs\":[],\"unviewedChangelogs\":[]}",
+            ["featurebaseIdentifyData"] = "{}"
+        };
+
+        foreach (var (key, value) in source)
+        {
+            result[key] = value ?? "";
+        }
+
+        if (string.IsNullOrWhiteSpace(result.GetValueOrDefault("profilechannelname")))
+        {
+            result["profilechannelname"] = frontendChannelName;
+        }
+
+        if (string.IsNullOrWhiteSpace(result.GetValueOrDefault("textboxchannelname")))
+        {
+            result["textboxchannelname"] = $"@{frontendChannelName}";
+        }
+
+        if (string.IsNullOrWhiteSpace(result.GetValueOrDefault("owneruserid")))
+        {
+            result["owneruserid"] = ownerUserId ?? "";
+        }
+
+        if (string.IsNullOrWhiteSpace(result.GetValueOrDefault("featurebaseGlobalAuth")))
+        {
+            result["featurebaseGlobalAuth"] = JsonSerializer.Serialize(new
+            {
+                organization = "tikfinity",
+                jwt = featureBaseToken
+            });
+        }
+
+        return result;
+    }
+}

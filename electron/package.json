@@ -1,0 +1,52 @@
+{
+  "name": "tikfinity-desktop",
+  "version": "1.0.0",
+  "description": "TikFinity Desktop - TikTok LIVE Tools",
+  "author": "TikFinity",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.tikfinity.desktop",
+    "productName": "TikFinity",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": ["portable"],
+      "sign": "./nosign.js",
+      "signingHashAlgorithms": []
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "extraResources": [
+      {
+        "from": "../node-backend",
+        "to": "node-backend",
+        "filter": ["**/*", "!node_modules/.cache/**"]
+      },
+      {
+        "from": "../tiktok-bridge",
+        "to": "tiktok-bridge",
+        "filter": ["**/*", "!node_modules/.cache/**"]
+      },
+      {
+        "from": "../downloads",
+        "to": "downloads",
+        "filter": ["**/*"]
+      }
+    ]
+  }
+}

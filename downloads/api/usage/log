@@ -1,0 +1,16 @@
+{
+  "status": 200,
+  "isPro": true,
+  "data": {
+    "isPro": true
+  },
+  "value": [],
+  "items": [],
+  "results": [],
+  "subscription": {
+    "isPro": true
+  },
+  "payment": {
+    "isPro": true
+  }
+}

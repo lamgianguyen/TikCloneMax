@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head><script>(function(w,i,g){w[g]=w[g]||[];if(typeof w[g].push=='function')w[g].push(i)})
+(window,'GTM-TVRNKPSM','google_tags_first_party');</script><script>(function(w,d,s,l){w[l]=w[l]||[];(function(){w[l].push(arguments);})('set', 'developer_id.dY2E1Nz', true);
+		var f=d.getElementsByTagName(s)[0],
+		j=d.createElement(s);j.async=true;j.src='/2l68/';
+		f.parentNode.insertBefore(j,f);
+		})(window,document,'script','dataLayer');</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Studio Fix</title>
+
+    <!-- Icon -->
+    <link rel="icon" type="image/png" href="/img/tikfinity.png">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400&display=swap" rel="stylesheet">
+
+
+    <style>
+        body {
+            font-family: ubuntu, sans-serif;
+            background-color: #1d1c1c;
+            color: #fff;
+            padding-left: 20px;
+        }
+
+        h1 {
+            color: #fe2c55;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Fix Live Studio Sound Problems</h1>
+    <div>Since the last update there are problems with link sources in Live Studio.<br>
+        The sound of alerts and TTS sometimes does not work. But there is a simple trick to fix this.
+    </div>
+
+    <ol>
+        <li>Click on the "Hide" button for all affected Link sources
+        <li>Click on the "Show" (Un-hide) button for all affected Link sources</li>
+    </ol>
+
+    <br>
+
+    <img src="https://cdn.discordapp.com/attachments/1007390796976246905/1169713478777450496/ezgif.com-video-to-gif.gif" style="margin-left: 30px;">
+
+    <br><br>
+
+    <div>
+        This step must be repeated after starting the stream and when the scene changes.<br>
+        We hope that TikTok will fix this bug soon.
+    </div>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"65f9075973884fc192143938ea377297","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+
+</html>

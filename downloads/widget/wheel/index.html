@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/latest/TweenMax.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/circletype@2.3.0/dist/circletype.min.js"></script>
+
+    <script src="winwheel.min.js"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <style>
+        body {
+            font-family: arial;
+            margin: 0px auto !important;
+        }
+
+        @keyframes zoomIn {
+            from {
+                transform: scale(0.1)
+            }
+
+            to {
+                transform: scale(1)
+            }
+        }
+
+        .zommInAnimation {
+            animation-name: zoomIn;
+            animation-duration: 0.5s;
+            animation-fill-mode: forwards;
+        }
+
+        /* Sets the background image for the wheel */
+        td.the_wheel {
+            background-image: url(./img/wheel_back.png);
+            background-position: center;
+            background-repeat: no-repeat;
+            padding-top: 6px;
+        }
+
+        /* Do some css reset on selected elements */
+        h1,
+        p {
+            margin: 0;
+        }
+
+        div.power_controls {
+            margin-right: 70px;
+        }
+
+        div.html5_logo {
+            margin-left: 70px;
+        }
+
+        /* Styles for the power selection controls */
+        table.power {
+            background-color: #cccccc;
+            cursor: pointer;
+            border: 1px solid #333333;
+        }
+
+        table.power th {
+            background-color: white;
+            cursor: default;
+        }
+
+        td.pw1 {
+            background-color: #6fe8f0;
+        }
+
+        td.pw2 {
+            background-color: #86ef6f;
+        }
+
+        td.pw3 {
+            background-color: #ef6f6f;
+        }
+
+        /* Style applied to the spin button once a power has been selected */
+        .clickable {
+            cursor: pointer;
+        }
+
+        /* Other misc styles */
+        .margin_bottom {
+            margin-bottom: 5px;
+        }
+
+        .middle {
+            position: absolute;
+            border-radius: 50%;
+            top: 224px;
+            margin-left: -70px;
+            height: 140px;
+            width: 140px;
+        }
+
+        .footer {
+            position: absolute;
+            top: 490px;
+            width: 100%;
+            text-align: center;
+            align-items: center;
+            margin-left: 5px;
+            color: #fff;
+            z-index: -9999;
+            font-weight: bold;
+        }
+
+        .footerBackground {
+            margin: 0px auto;
+            background-color: rgba(0, 0, 0, 0.3);
+            width: 240px;
+            height: 70px;
+        }
+
+        .footerInfo {
+            padding-top: 25px;
+        }
+    </style>
+
+
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            overflow: hidden;
+        }
+    </style>
+
+    <script>
+        var spinRunning = false;
+        var winSegment = null;
+        var lastGambleAmount = 0;
+
+        function setFontSize() {
+            $("#gambleAmount").css("font-size", "28px");
+
+            if ($("#gambleAmount").text().length < 8) {
+                $("#gambleAmount").css("font-size", "38px");
+            }
+        }
+
+        function startSpin(segments, gambleAmount) {
+            winSegment = segments[0];
+            lastGambleAmount = gambleAmount;
+
+            let theWheel = new Winwheel({
+                'outerRadius': 212,        // Set outer radius so wheel fits inside the background.
+                'innerRadius': 75,         // Make wheel hollow so segments don't go all way to center.
+                'textFontSize': 24,         // Set default font size for the segments.
+                'textOrientation': 'vertical', // Make text vertial so goes down from the outside of wheel.
+                'textAlignment': 'outer',    // Align text to outside of wheel.
+                'textOrientation': segments.length <= 8 ? 'curved' : 'vertical',
+                'numSegments': segments.length,         // Specify number of segments.
+                'segments': segments,
+                'animation':           // Specify the animation to use.
+                {
+                    'type': 'spinToStop',
+                    'duration': 10,    // Duration in seconds.
+                    'spins': 3,     // Default number of complete spins.
+                    'callbackFinished': alertPrize,
+                    'callbackSound': playSound,   // Function to call when the tick sound is to be triggered.
+                    'soundTrigger': 'pin'        // Specify pins are to trigger the sound, the other option is 'segment'.
+                },
+                'pins':				// Turn pins on.
+                {
+                    'number': segments.length,
+                    'fillStyle': 'silver',
+                    'outerRadius': 4,
+                }
+            });
+
+            theWheel.animation.spins = 6;
+
+
+            let stopAt = theWheel.getRandomForSegment(1);
+
+            // Important thing is to set the stopAngle of the animation before stating the spin.
+            theWheel.animation.stopAngle = stopAt;
+
+            $("#wheelcontainer").fadeIn(300);
+
+            $("#gambleAmount").empty();
+
+            if (gambleAmount) {
+                $("#gambleAmount").text(gambleAmount.toLocaleString());
+                $("#gambleAmount").css("color", "#fff");
+                setFontSize();
+
+                $(".footer").fadeIn(300);
+                var elem = document.getElementById("gambleAmount");
+                new CircleType(elem).dir(-1).radius(400);
+            }
+
+
+            $("html").addClass("zommInAnimation");
+            spinRunning = true;
+
+            // Begin the spin animation by calling startAnimation on the wheel object.
+            theWheel.startAnimation();
+        }
+
+        // Loads the tick audio sound in to an audio object.
+        let audio = new Audio('sounds/tick.mp3');
+
+        // This function is called when the sound is to be played.
+        function playSound() {
+            if (document.location.href.includes('preview=1')) return;
+            if (document.hidden) return;
+            if (settings && settings.wheel_soundEnabled === false) return;
+            // Stop and rewind the sound if it already happens to be playing.
+            audio.pause();
+            audio.currentTime = 0;
+            audio.volume = settings.wheel_soundVolume ? parseFloat(settings.wheel_soundVolume / 100) : 100;
+
+            // Play the sound.
+            audio.play();
+        }
+
+        // -------------------------------------------------------
+        // Called when the spin animation has finished by the callback feature of the wheel because I specified callback in the parameters.
+        // -------------------------------------------------------
+        function alertPrize(indicatedSegment) {
+            console.log(winSegment);
+            spinRunning = false;
+
+            var winSum = 0;
+            try {
+                if (typeof winSegment.amount === "number") {
+                    winSum = winSegment.amount;
+                } else {
+                    if (winSegment.text !== "") winSum = parseInt(winSegment.text);
+                }
+            } catch (err) { }
+
+            $("#gambleAmount").fadeOut(100, () => {
+                $("#gambleAmount").empty();
+                var profitSum = winSum - lastGambleAmount;
+
+                if (!isNaN(profitSum)) {
+                    if (profitSum < 0) {
+                        $("#gambleAmount").css("color", settings.transactionviewer_fontColor_negative);
+                        $("#gambleAmount").text(profitSum.toLocaleString());
+                    } else {
+                        $("#gambleAmount").css("color", settings.transactionviewer_fontColor_positive);
+                        $("#gambleAmount").text("+" + profitSum.toLocaleString());
+                    }
+                    setFontSize();
+                }
+
+                $("#gambleAmount").fadeIn(300);
+                setTimeout(() => {
+                    var elem = document.getElementById("gambleAmount");
+                    new CircleType(elem).dir(-1).radius(400);
+                }, 10)
+            });
+
+            console.log(winSum);
+
+            setTimeout(() => {
+                if (spinRunning) return;
+                $("#wheelcontainer").fadeOut(300);
+                $(".footer").fadeOut(100);
+                $("html").removeClass("zommInAnimation");
+            }, 1700);
+        }
+
+        io.on("spinWheel", function (data) {
+            if (document.hidden) return;
+
+            $(".middle").attr("src", "");
+            $(".middle").attr("src", data.thumbnailUrl || getUserThumbnailUrlFromUserId(data.userId));
+
+            startSpin(data.segments, data.gambleAmount);
+        })
+
+        let previewIndex = 0;
+        let previewEnabled = true;
+
+        function preview() {
+            if (!previewEnabled) return;
+            previewIndex += 1;
+
+            if (previewIndex === 2) {
+                io.fakeEmit("spinWheel", {
+                    "userId": 17294003,
+                    "segments": [
+                        {
+                            "fillStyle": "#66c6e9",
+                            "text": "10",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#54a1be",
+                            "text": "6",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#46869f",
+                            "text": "2",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#56a5c3",
+                            "text": "6",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#3c778b",
+                            "text": "1",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#5099b4",
+                            "text": "5",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#3e7a8f",
+                            "text": "1",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#407d93",
+                            "text": "1",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#5aadcd",
+                            "text": "7",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#4a8da7",
+                            "text": "3",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#60bcdd",
+                            "text": "9",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#4889a3",
+                            "text": "3",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#4c91ab",
+                            "text": "4",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#44839b",
+                            "text": "2",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#428097",
+                            "text": "1",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#4a4a4a",
+                            "text": "",
+                            "textFontSize": 25,
+                            "textFillStyle": "#8a8a8a"
+                        },
+                        {
+                            "fillStyle": "#5eb7d7",
+                            "text": "8",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#4a4a4a",
+                            "text": "",
+                            "textFontSize": 25,
+                            "textFillStyle": "#8a8a8a"
+                        },
+                        {
+                            "fillStyle": "#58a9c8",
+                            "text": "7",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#bf964e",
+                            "text": "30",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a",
+                            "isMainWin": true
+                        },
+                        {
+                            "fillStyle": "#529db9",
+                            "text": "5",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#5cb2d2",
+                            "text": "8",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#4e95af",
+                            "text": "4",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        },
+                        {
+                            "fillStyle": "#63c1e3",
+                            "text": "9",
+                            "textFontSize": 40,
+                            "textFillStyle": "#213f4a"
+                        }
+                    ],
+                    "soundEnabled": true
+                })
+            }
+        }
+
+    </script>
+</head>
+
+<body>
+
+    <div align="center" id="wheelcontainer">
+        <table cellpadding="0" cellspacing="0" border="0">
+            <tr>
+                <td width="438" height="582" class="the_wheel" align="center" valign="center">
+                    <canvas id="canvas" width="434" height="434"></canvas>
+                </td>
+            </tr>
+            <tr>
+                <img class="middle" src="https://ynassets.younow.com/user/live/a/b.jpg" onerror="this.src='/img/nothumb.webp'">
+            </tr>
+        </table>
+    </div>
+
+    <div class="footer">
+        <div class="footerBackground">
+            <div class="footerInfo" id="gambleAmount">
+                100,000,000
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        $(window).on("load", function () {
+            $("#wheelcontainer").hide();
+            $(".footer").hide();
+        })
+    </script>
+
+</body>
+
+</html>

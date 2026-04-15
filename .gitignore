@@ -1,0 +1,56 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+build/
+out/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Logs
+logs/
+*.log
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Claude / misc
+.sixth/
+
+# Temp / debug scratch
+check_*.js
+check_*.txt
+debug_*.js
+debug_*.txt
+find_*.js
+find_*.txt
+fix_*.js
+fix_*.txt
+tmp_*
+temp_*
+trace*.txt
+served*.html
+test_page.html
+test_express*.js
+get_error_context.js
+patch_app.js
+missing_context.txt
+out.json
