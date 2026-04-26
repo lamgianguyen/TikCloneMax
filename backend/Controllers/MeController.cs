@@ -28,51 +28,28 @@ public class MeController : BaseApiController
     [HttpPost("me")]
     [HttpGet("loginChannel")]
     [HttpPost("loginChannel")]
-    public async Task<IActionResult> GetMe()
+    public async Task<IActionResult> GetMe(CancellationToken cancellationToken)
     {
-        // Check auth FIRST: no valid Bearer token → guest response
-        var authHeader = Request.Headers.Authorization.ToString();
-        var hasValidToken = !string.IsNullOrWhiteSpace(authHeader)
-            && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            && authHeader.Length > 20;
-
-        if (!hasValidToken)
+        // Real JWT validation: ignore invalid/revoked tokens and return guest.
+        var auth = TryAuthenticate();
+        if (auth == null)
         {
-            return Ok(new { status = 200, message = "OK", channelId = 0, channelName = "", isPro = false,
-                accountChannelName = "", tiktokUsername = "",
-                channel = new { channelId = 0, channelName = "", challengeRunning = false,
-                    challengeName = (string?)null, challengeStartAt = (DateTime?)null,
-                    dynamicSettings = new Dictionary<string, string>(), profiles = Array.Empty<object>() },
-                userFeatures = new { isPro = false }, subscription = new { isPro = false, plan = "", active = false },
-                wsAuthToken = "", cookieAuth = false, countryCode = "VN",
-                overloadSettings = new { enabled = false }, activePromotions = Array.Empty<object>(),
-                isTrialAvailable = false, hasActiveTrial = false, trialEnded = false, trialInfo = (object?)null,
-                featureBaseToken = "" });
+            return Ok(GuestResponse());
         }
 
-        var channelId = GetChannelId();
-        if (channelId <= 0) channelId = 1;
+        var channelId = auth.Value.ChannelId;
         var channel = await _db.Channels
             .Include(c => c.Subscription)
             .Include(c => c.Profiles)
             .Include(c => c.DynamicSettings)
-            .FirstOrDefaultAsync(c => c.ChannelId == channelId);
+            .FirstOrDefaultAsync(c => c.ChannelId == channelId, cancellationToken);
 
+        // Token is for a channel that no longer exists → treat as guest, not
+        // silently swap to someone else's data.
         if (channel == null)
         {
-            // Fallback: get any channel
-            channel = await _db.Channels
-                .Include(c => c.Subscription)
-                .Include(c => c.DynamicSettings)
-                .OrderBy(c => c.ChannelId)
-                .FirstOrDefaultAsync();
+            return Ok(GuestResponse());
         }
-
-        if (channel == null)
-            return Ok(new { status = 200, message = "OK", channelId = 0, channelName = "guest", isPro = true,
-                channel = new { channelId = 0, channelName = "guest", isPro = true, dynamicSettings = new Dictionary<string, string>(), subscription = new { isPro = true, plan = "pro", active = true } },
-                userFeatures = new { isPro = true, proInfo = new { plan = "pro", active = true } },
-                subscription = new { isPro = true, plan = "pro", active = true } });
 
         var ds = channel.DynamicSettings.ToDictionary(d => d.Key, d => d.Value);
         var preferredTikTokName = ds.TryGetValue("setting_tiktokname", out var savedTikTokName)
@@ -84,8 +61,8 @@ public class MeController : BaseApiController
         }
 
         var frontendChannelName = preferredTikTokName ?? channel.ChannelName;
-        var pro = channel.Subscription?.IsPro ?? true;
-        var wsAuthToken = _jwtService.GenerateToken(channel.ChannelId, channel.ChannelName, channel.Email, pro);
+        var pro = channel.Subscription?.IsPro ?? false;
+        var (wsAuthToken, _, _) = _jwtService.GenerateToken(channel.ChannelId, channel.ChannelName, channel.Email, pro);
         var featureBaseToken = _jwtService.GenerateFeaturebaseToken(frontendChannelName, channel.Email, channel.ChannelId.ToString());
         var dynamicSettings = BuildDynamicSettings(ds, frontendChannelName, featureBaseToken, channel.OwnerUserId);
         var remoteIp = HttpContext.Connection.RemoteIpAddress?.ToString();
@@ -151,12 +128,12 @@ public class MeController : BaseApiController
                 channel.CreatedAt,
                 channel.UpdatedAt,
                 isPro = pro,
-                subscription = new { isPro = pro, plan = channel.Subscription?.Plan ?? "pro", active = channel.Subscription?.Active ?? true },
-                userFeatures = new { isPro = pro, proInfo = new { plan = channel.Subscription?.Plan ?? "pro", active = channel.Subscription?.Active ?? true } },
+                subscription = new { isPro = pro, plan = channel.Subscription?.Plan ?? "free", active = channel.Subscription?.Active ?? false },
+                userFeatures = new { isPro = pro, proInfo = new { plan = channel.Subscription?.Plan ?? "free", active = channel.Subscription?.Active ?? false } },
                 profiles = channel.Profiles.Select(p => new { p.Id, p.Name, p.Sort })
             },
             channeluser = (object?)null,
-            userFeatures = new { isPro = pro, proInfo = new { plan = channel.Subscription?.Plan ?? "pro", active = channel.Subscription?.Active ?? true } },
+            userFeatures = new { isPro = pro, proInfo = new { plan = channel.Subscription?.Plan ?? "free", active = channel.Subscription?.Active ?? false } },
             profile = (object?)null,
             cookieAuth = false,
             wsAuthToken,
@@ -173,7 +150,7 @@ public class MeController : BaseApiController
             trialInfo = (object?)null,
             featureBaseToken,
             isPro = pro,
-            subscription = new { isPro = pro, plan = channel.Subscription?.Plan ?? "pro", active = channel.Subscription?.Active ?? true }
+            subscription = new { isPro = pro, plan = channel.Subscription?.Plan ?? "free", active = channel.Subscription?.Active ?? false }
         });
     }
 
@@ -215,6 +192,41 @@ public class MeController : BaseApiController
 
         return Ok(new { status = 200, message = "OK" });
     }
+
+    private static object GuestResponse() => new
+    {
+        status = 200,
+        message = "OK",
+        channelId = 0,
+        channelName = "",
+        accountChannelName = "",
+        tiktokUsername = "",
+        isPro = false,
+        channel = new
+        {
+            channelId = 0,
+            channelName = "",
+            isPro = false,
+            challengeRunning = false,
+            challengeName = (string?)null,
+            challengeStartAt = (DateTime?)null,
+            dynamicSettings = new Dictionary<string, string>(),
+            profiles = Array.Empty<object>(),
+            subscription = new { isPro = false, plan = "free", active = false }
+        },
+        userFeatures = new { isPro = false, proInfo = new { plan = "free", active = false } },
+        subscription = new { isPro = false, plan = "free", active = false },
+        wsAuthToken = "",
+        cookieAuth = false,
+        countryCode = "VN",
+        overloadSettings = new { enabled = false },
+        activePromotions = Array.Empty<object>(),
+        isTrialAvailable = false,
+        hasActiveTrial = false,
+        trialEnded = false,
+        trialInfo = (object?)null,
+        featureBaseToken = ""
+    };
 
     private static Dictionary<string, string> BuildDynamicSettings(
         Dictionary<string, string> source,

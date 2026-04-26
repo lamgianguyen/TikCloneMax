@@ -27,24 +27,27 @@ app.on('second-instance', () => {
 // --- Backend process management ---
 
 function getBackendLaunchConfig() {
+    // The real backend is the .NET project in ../backend. Electron spawns it
+    // via `dotnet run` in dev, or the self-contained publish in a packaged app.
+    const isWin = process.platform === 'win32';
+
     if (app.isPackaged) {
-        // Packaged: node-backend is in resources
-        const serverJs = path.join(process.resourcesPath, 'node-backend', 'server.js');
+        const exeName = isWin ? 'TikFinityBackend.exe' : 'TikFinityBackend';
+        const exePath = path.join(process.resourcesPath, 'backend', exeName);
         return {
-            command: 'node',
-            args: [serverJs],
-            cwd: path.join(process.resourcesPath, 'node-backend'),
-            label: `node ${serverJs}`
+            command: exePath,
+            args: [],
+            cwd: path.join(process.resourcesPath, 'backend'),
+            label: exePath
         };
     }
 
-    // Dev: run from project directory
-    const serverJs = path.join(__dirname, '..', 'node-backend', 'server.js');
+    const backendProjectDir = path.join(__dirname, '..', 'backend');
     return {
-        command: 'node',
-        args: [serverJs],
-        cwd: path.join(__dirname, '..', 'node-backend'),
-        label: `node ${serverJs}`
+        command: isWin ? 'dotnet.exe' : 'dotnet',
+        args: ['run', '--project', backendProjectDir, '--no-launch-profile'],
+        cwd: backendProjectDir,
+        label: `dotnet run --project ${backendProjectDir}`
     };
 }
 

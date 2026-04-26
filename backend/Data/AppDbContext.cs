@@ -21,6 +21,7 @@ public class AppDbContext : DbContext
     public DbSet<ChatCommand> ChatCommands => Set<ChatCommand>();
     public DbSet<Goal> Goals => Set<Goal>();
     public DbSet<TimerItem> Timers => Set<TimerItem>();
+    public DbSet<RevokedToken> RevokedTokens => Set<RevokedToken>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -30,8 +31,17 @@ public class AppDbContext : DbContext
             e.HasKey(c => c.ChannelId);
             e.Property(c => c.ChannelId).ValueGeneratedOnAdd();
             e.HasIndex(c => c.GoogleId).IsUnique().HasFilter("GoogleId IS NOT NULL");
-            e.HasIndex(c => c.Email);
+            e.HasIndex(c => c.Email).IsUnique().HasFilter("Email <> ''");
             e.HasIndex(c => c.ChannelName).IsUnique();
+        });
+
+        // RevokedToken
+        mb.Entity<RevokedToken>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Jti).HasMaxLength(64).IsRequired();
+            e.HasIndex(r => r.Jti).IsUnique();
+            e.HasIndex(r => r.ExpiresAt);
         });
 
         // Subscription 1:1

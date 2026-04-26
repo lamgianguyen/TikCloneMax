@@ -172,8 +172,8 @@ public class ChannelService
         _db.Subscriptions.Add(new Subscription
         {
             ChannelId = channel.ChannelId,
-            IsPro = true,
-            Plan = "local",
+            IsPro = false,
+            Plan = "free",
             Active = true
         });
 

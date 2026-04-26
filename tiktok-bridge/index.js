@@ -8,7 +8,7 @@ const { WebSocketServer } = require('ws');
 
 const PREFERRED_PORT = parseInt(process.env.BRIDGE_PORT || '5288', 10);
 const CONNECT_TIMEOUT_MS = parseInt(process.env.TIKTOK_CONNECT_TIMEOUT_MS || '30000', 10);
-const MAX_CONNECT_RETRIES = parseInt(process.env.TIKTOK_MAX_RETRIES || '3', 10);
+const MAX_CONNECT_RETRIES = parseInt(process.env.TIKTOK_MAX_RETRIES || '1', 10);
 
 let currentConnection = null;
 let currentUsername = null;
@@ -163,8 +163,8 @@ async function tryConnect(username, options, attempt) {
     });
 
     connection.on('error', (err) => {
-        var msg = (err && err.message) || (typeof err === 'string' ? err : JSON.stringify(err)) || 'Unknown error';
-        console.error(`[TikTok Bridge] Error:`, msg);
+        var msg = shortenConnectError(err, username);
+        console.error(`[TikTok Bridge] Error:`, err && err.code, err && err.message);
         sendToBackend({ event: 'error', data: { message: msg, username } });
     });
 
@@ -274,15 +274,9 @@ async function tryConnect(username, options, attempt) {
             clearTimeout(connectTimeoutHandle);
             connectTimeoutHandle = null;
         }
-        var msg = '';
-        if (err && err.message) msg = err.message;
-        if (err && err.errors && Array.isArray(err.errors)) {
-            msg = err.errors.map(function(e) { return (e && e.message) || String(e); }).filter(Boolean).join('; ') || msg;
-        }
-        if (!msg) msg = String(err) || 'Connection failed';
-        console.error(`[TikTok Bridge] Attempt failed:`, msg);
+        console.error(`[TikTok Bridge] Attempt failed:`, err && err.code, err && err.message);
         try { connection.disconnect(); } catch (e) { }
-        return { success: false, error: msg };
+        return { success: false, error: shortenConnectError(err, username) };
     }
 }
 
@@ -292,6 +286,42 @@ async function disconnectFromTikTok() {
         currentConnection = null; currentUsername = null;
         sendToBackend({ event: 'disconnected', data: { reason: 'user_disconnect' } });
     }
+}
+
+/**
+ * Reduce an axios/Euler error into a short, user-friendly message.
+ * Raw errors contain the full request config and serialize into a
+ * multi-line JSON blob that used to get rendered straight into the UI.
+ */
+function shortenConnectError(err, username) {
+    if (!err) return 'Connection failed';
+    var code = err.code || (err.cause && err.cause.code) || '';
+    var status = (err.response && err.response.status) || err.status || 0;
+    var raw = (err && typeof err.message === 'string') ? err.message : '';
+
+    if (/timeout|ETIMEDOUT/i.test(code) || /timeout/i.test(raw)) {
+        return 'Connection timeout — user may not be live or unreachable.';
+    }
+    if (code === 'ECONNRESET' || code === 'ECONNREFUSED') {
+        return 'TikTok signing service refused the connection. Try again shortly.';
+    }
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+        return 'Network error — cannot reach TikTok servers.';
+    }
+    if (status === 404 || /not.*found|no such user/i.test(raw)) {
+        return 'TikTok user @' + (username || 'unknown') + ' not found or not live.';
+    }
+    if (status === 429 || /rate.?limit/i.test(raw)) {
+        return 'Rate-limited by TikTok. Wait a minute and try again.';
+    }
+    if (status >= 500) {
+        return 'TikTok service error (' + status + '). Try again shortly.';
+    }
+
+    // Fallback: one short line, no stack traces or JSON dumps.
+    var firstLine = raw.split('\n')[0] || 'Connection failed';
+    if (firstLine.length > 160) firstLine = firstLine.slice(0, 157) + '...';
+    return firstLine;
 }
 
 process.on('SIGINT', () => { disconnectFromTikTok(); wss.close(); process.exit(0); });

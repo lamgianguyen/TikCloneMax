@@ -22,6 +22,10 @@ public class Channel
     public DateTime? ChallengeStartAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? LastLoginAt { get; set; }
+    public string? LastLoginIp { get; set; }
+    public int FailedLoginCount { get; set; }
+    public DateTime? LockedUntil { get; set; }
 
     // Navigation
     public Subscription? Subscription { get; set; }

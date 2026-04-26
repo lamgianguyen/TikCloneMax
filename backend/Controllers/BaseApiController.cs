@@ -1,30 +1,32 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using TikFinityBackend.Data;
+using TikFinityBackend.Services;
 
 namespace TikFinityBackend.Controllers;
 
 public abstract class BaseApiController : ControllerBase
 {
-    // Default channelId for anonymous/local users (first channel in DB)
     private static int? _defaultChannelId;
 
+    /// <summary>
+    /// Returns a channelId to use for the current request. Prefers the
+    /// authenticated JWT claim; otherwise falls back to the first channel
+    /// in the DB (single-user local mode). Does not validate tokens — use
+    /// <see cref="TryAuthenticate"/> when you need a verified principal.
+    /// </summary>
     protected int GetChannelId()
     {
         var claim = User.FindFirst("channelId");
-        if (claim != null)
+        if (claim != null && int.TryParse(claim.Value, out var claimId) && claimId > 0)
         {
-            var claimId = int.Parse(claim.Value);
-            // Verify channel exists (token might be from old DB)
-            if (claimId > 0)
+            var db = HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+            if (db.Channels.Any(c => c.ChannelId == claimId))
             {
-                var db = HttpContext.RequestServices.GetRequiredService<AppDbContext>();
-                if (db.Channels.Any(c => c.ChannelId == claimId)) return claimId;
+                return claimId;
             }
         }
 
-        // Fallback: use first channel in DB
         if (_defaultChannelId.HasValue) return _defaultChannelId.Value;
 
         var dbFallback = HttpContext.RequestServices.GetRequiredService<AppDbContext>();
@@ -33,13 +35,51 @@ public abstract class BaseApiController : ControllerBase
         return first;
     }
 
-    protected string GetChannelName()
-    {
-        return User.FindFirst("channelName")?.Value ?? "";
-    }
+    protected string GetChannelName() =>
+        User.FindFirst("channelName")?.Value ?? "";
 
-    protected bool GetIsPro()
+    protected bool GetIsPro() =>
+        User.FindFirst("isPro")?.Value == "true";
+
+    /// <summary>
+    /// Validates the Authorization header and returns the authenticated principal
+    /// together with the channelId from its claims, or null if the token is
+    /// missing, invalid, or revoked.
+    /// </summary>
+    protected (ClaimsPrincipal Principal, int ChannelId)? TryAuthenticate()
     {
-        return User.FindFirst("isPro")?.Value == "true" || true; // Local dev: always pro
+        var header = Request.Headers.Authorization.ToString();
+        if (string.IsNullOrWhiteSpace(header) || !header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var token = header["Bearer ".Length..].Trim();
+        if (string.IsNullOrEmpty(token))
+        {
+            return null;
+        }
+
+        var jwt = HttpContext.RequestServices.GetRequiredService<JwtService>();
+        var principal = jwt.ValidateToken(token);
+        if (principal == null)
+        {
+            return null;
+        }
+
+        var jti = principal.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti)?.Value;
+        var revocation = HttpContext.RequestServices.GetRequiredService<TokenRevocationService>();
+        if (revocation.IsRevoked(jti))
+        {
+            return null;
+        }
+
+        var idClaim = principal.FindFirst("channelId")?.Value;
+        if (!int.TryParse(idClaim, out var channelId) || channelId <= 0)
+        {
+            return null;
+        }
+
+        return (principal, channelId);
     }
 }

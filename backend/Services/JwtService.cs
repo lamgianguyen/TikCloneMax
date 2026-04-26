@@ -5,45 +5,62 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace TikFinityBackend.Services;
 
-public class JwtService
+public sealed class JwtService
 {
-    private readonly IConfiguration _config;
+    public static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromDays(7);
+
+    private readonly SymmetricSecurityKey _signingKey;
+    private readonly string _issuer;
+    private readonly string _audience;
 
     public JwtService(IConfiguration config)
     {
-        _config = config;
+        var secret = config["Jwt:Secret"];
+        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32)
+        {
+            throw new InvalidOperationException(
+                "Jwt:Secret is missing or too short (min 32 chars). " +
+                "Set a strong secret in appsettings.json or the JWT_SECRET environment variable before starting the server.");
+        }
+
+        _signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+        _issuer = config["Jwt:Issuer"] ?? "TikFinityBackend";
+        _audience = config["Jwt:Audience"] ?? "TikFinityFrontend";
     }
 
-    public string GenerateToken(int channelId, string channelName, string email, bool isPro)
+    public SymmetricSecurityKey SigningKey => _signingKey;
+    public string Issuer => _issuer;
+    public string Audience => _audience;
+
+    public (string Token, string Jti, DateTime ExpiresAt) GenerateToken(
+        int channelId, string channelName, string email, bool isPro)
     {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
-            _config["Jwt:Secret"] ?? "TikFinityBackendSuperSecretKey2024!@#$%^&*()"));
+        var jti = Guid.NewGuid().ToString("N");
+        var expiresAt = DateTime.UtcNow.Add(AccessTokenLifetime);
 
         var claims = new[]
         {
             new Claim("channelId", channelId.ToString()),
             new Claim("channelName", channelName),
             new Claim(ClaimTypes.Email, email),
-            new Claim("isPro", isPro.ToString().ToLower()),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            new Claim("isPro", isPro ? "true" : "false"),
+            new Claim(JwtRegisteredClaimNames.Jti, jti)
         };
 
         var token = new JwtSecurityToken(
-            issuer: _config["Jwt:Issuer"] ?? "TikFinityBackend",
-            audience: _config["Jwt:Audience"] ?? "TikFinityFrontend",
+            issuer: _issuer,
+            audience: _audience,
             claims: claims,
-            expires: DateTime.UtcNow.AddDays(30),
-            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256)
+            notBefore: DateTime.UtcNow,
+            expires: expiresAt,
+            signingCredentials: new SigningCredentials(_signingKey, SecurityAlgorithms.HmacSha256)
         );
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return (new JwtSecurityTokenHandler().WriteToken(token), jti, expiresAt);
     }
 
     public string GenerateFeaturebaseToken(string name, string email, string userId)
     {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
-            _config["Jwt:Secret"] ?? "TikFinityBackendSuperSecretKey2024!@#$%^&*()"));
-
         var now = DateTimeOffset.UtcNow;
         var claims = new List<Claim>
         {
@@ -61,7 +78,7 @@ public class JwtService
             claims: claims,
             notBefore: now.UtcDateTime,
             expires: now.AddDays(30).UtcDateTime,
-            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256)
+            signingCredentials: new SigningCredentials(_signingKey, SecurityAlgorithms.HmacSha256)
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
@@ -69,21 +86,19 @@ public class JwtService
 
     public ClaimsPrincipal? ValidateToken(string token)
     {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
-            _config["Jwt:Secret"] ?? "TikFinityBackendSuperSecretKey2024!@#$%^&*()"));
-
         try
         {
             var handler = new JwtSecurityTokenHandler();
             return handler.ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = key,
+                IssuerSigningKey = _signingKey,
                 ValidateIssuer = true,
-                ValidIssuer = _config["Jwt:Issuer"] ?? "TikFinityBackend",
+                ValidIssuer = _issuer,
                 ValidateAudience = true,
-                ValidAudience = _config["Jwt:Audience"] ?? "TikFinityFrontend",
-                ValidateLifetime = true
+                ValidAudience = _audience,
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromMinutes(1)
             }, out _);
         }
         catch

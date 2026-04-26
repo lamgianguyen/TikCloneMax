@@ -62,6 +62,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // --- Services ---
 builder.Services.AddScoped<ChannelService>();
 builder.Services.AddSingleton<JwtService>();
+builder.Services.AddSingleton<PasswordHasher>();
+builder.Services.AddSingleton<TokenRevocationService>();
+builder.Services.AddSingleton<LoginRateLimiter>();
 
 // --- Response compression ---
 builder.Services.AddResponseCompression(options =>
@@ -75,7 +78,13 @@ builder.Services.AddResponseCompression(options =>
 });
 
 // --- Authentication ---
-var jwtSecret = builder.Configuration["Jwt:Secret"] ?? "TikFinityBackendSuperSecretKey2024!@#$%^&*()LongEnoughForHmacSha256";
+var jwtSecret = builder.Configuration["Jwt:Secret"];
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Length < 32)
+{
+    throw new InvalidOperationException(
+        "Jwt:Secret is missing or too short (min 32 chars). " +
+        "Configure it in appsettings.json, environment variable Jwt__Secret, or user secrets.");
+}
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "TikFinityBackend";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "TikFinityFrontend";
 
@@ -94,7 +103,8 @@ builder.Services.AddAuthentication(options =>
         ValidIssuer = jwtIssuer,
         ValidateAudience = true,
         ValidAudience = jwtAudience,
-        ValidateLifetime = true
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.FromMinutes(1)
     };
     options.Events = new JwtBearerEvents
     {
@@ -105,6 +115,16 @@ builder.Services.AddAuthentication(options =>
             if (!string.IsNullOrEmpty(token) && path.StartsWithSegments("/hub"))
             {
                 context.Token = token;
+            }
+            return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            var jti = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti)?.Value;
+            var revocation = context.HttpContext.RequestServices.GetRequiredService<TokenRevocationService>();
+            if (revocation.IsRevoked(jti))
+            {
+                context.Fail("Token has been revoked");
             }
             return Task.CompletedTask;
         }
@@ -1055,21 +1075,74 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
     var blockScript = """
     <script>
     (function(){
-      // AUTO-LOGIN: set auth tokens so the app boots as authenticated user
-      // Backend checks tf_login_token cookie (>= 10 chars) for authenticated session
-      if (!document.cookie.includes('tf_login_token=')) {
-        var fakeToken = 'tf_local_dev_token_2024';
-        document.cookie = 'tf_login_token=' + fakeToken + '; path=/; max-age=2592000; SameSite=Lax';
-        document.cookie = 'tf_channelid=1; path=/; max-age=2592000; SameSite=Lax';
-        document.cookie = 'tf_channelname=user; path=/; max-age=2592000; SameSite=Lax';
-        document.cookie = 'tf_ispro=true; path=/; max-age=2592000; SameSite=Lax';
-        try {
-          localStorage.setItem('setting_loginaccesstoken', fakeToken);
-          localStorage.setItem('setting_channelid', '1');
-          localStorage.setItem('setting_channelname', 'user');
-          localStorage.setItem('setting_ispro', 'true');
-        } catch(e) {}
-      }
+      // One-time cleanup: purge the legacy hardcoded dev token so users
+      // who previously had auto-login fall back to the real login flow.
+      try {
+        var legacy = 'tf_local_dev_token_2024';
+        var existing = localStorage.getItem('setting_loginaccesstoken');
+        if (existing === legacy) {
+          localStorage.removeItem('setting_loginaccesstoken');
+          localStorage.removeItem('setting_loginaccesstokenprovider');
+          localStorage.removeItem('setting_pendinglogin');
+          localStorage.removeItem('setting_channelid');
+          localStorage.removeItem('setting_channelname');
+          localStorage.removeItem('setting_ispro');
+          document.cookie = 'tf_login_token=; path=/; max-age=0';
+          document.cookie = 'tf_channelid=; path=/; max-age=0';
+          document.cookie = 'tf_channelname=; path=/; max-age=0';
+          document.cookie = 'tf_ispro=; path=/; max-age=0';
+        }
+      } catch(e) {}
+
+      // Hide the top-of-app "Connection failed" banner that the obfuscated bundle
+      // renders whenever a TikTok connect attempt fails. The styles target the
+      // bundle's notification bars (colors `bg-red*`, role=alert, etc.) and the
+      // observer below force-removes any banner whose text matches our denylist.
+      (function suppressBridgeBanner(){
+        var style = document.createElement('style');
+        style.textContent = [
+          '.v-snackbar__wrapper:has(> .v-snackbar__content:is([data-tf-hide="1"])) { display:none !important; }',
+          '[data-tf-hide="1"] { display:none !important; }'
+        ].join('\n');
+        (document.head || document.documentElement).appendChild(style);
+
+        var DENY = /^(connection failed|connectFailed|econnreset|econnrefused|etimedout|enotfound|disconnected)$/i;
+        function hideIfMatch(node) {
+          if (!node || node.nodeType !== 1) return;
+          var text = (node.textContent || '').trim();
+          if (!text) return;
+          if (DENY.test(text) || /tiktok.eulerstream\.com|axios.*error|handleRequestError/i.test(text)) {
+            node.setAttribute('data-tf-hide', '1');
+          }
+        }
+        var mo = new MutationObserver(function(muts){
+          for (var i=0; i<muts.length; i++) {
+            var m = muts[i];
+            for (var j=0; j<m.addedNodes.length; j++) hideIfMatch(m.addedNodes[j]);
+          }
+        });
+        mo.observe(document.documentElement, { childList: true, subtree: true });
+      })();
+
+      // Clamp noisy TikTok-bridge error dumps before they hit any UI toast.
+      // The obfuscated bundle occasionally renders a raw axios error object,
+      // producing a wall of JSON at the top of the screen. We keep the first
+      // sentence and drop the rest.
+      (function shortenBridgeErrors(){
+        function shorten(msg) {
+          if (typeof msg !== 'string') return msg;
+          if (msg.length <= 240) return msg;
+          var firstLine = msg.split(/\r?\n/)[0];
+          if (firstLine.length > 200) firstLine = firstLine.slice(0, 197) + '...';
+          return firstLine;
+        }
+        var origError = console.error.bind(console);
+        console.error = function() {
+          var args = Array.prototype.map.call(arguments, shorten);
+          return origError.apply(console, args);
+        };
+        window.__tfShortenError = shorten;
+      })();
 
       // PATCH: _injectModules calls $.getScript('/combo/modules.js') but fails because
       // it's a babel async-generator scope issue in the obfuscated bundle.

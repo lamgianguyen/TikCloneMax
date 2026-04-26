@@ -389,6 +389,10 @@ public class TikTokBridgeService : BackgroundService
                         _currentUsername = failedUsername;
                     }
                     _logger.LogWarning("[TikTok] Connection failed: {Message}", msg);
+                    // Broadcast only a clean "disconnected" status. We deliberately do NOT
+                    // broadcast `connectFailed` because the obfuscated bundle renders its
+                    // message as a persistent red banner across the top of the app.
+                    // Clients can poll /api/tiktok/status if they want the last error.
                     await _socketManager.BroadcastEvent("channelStatus", new
                     {
                         connected = false,
@@ -397,14 +401,6 @@ public class TikTokBridgeService : BackgroundService
                         status = "disconnected",
                         tiktokUsername = failedUsername,
                         username = failedUsername
-                    });
-                    await _socketManager.BroadcastEvent("connectFailed", new
-                    {
-                        message = msg,
-                        username = failedUsername,
-                        uniqueId = failedUsername,
-                        tiktokUsername = failedUsername,
-                        channelName = failedUsername
                     });
                     await _socketManager.BroadcastEvent("status", new { connected = false, tiktok = false, connecting = false });
                     break;
