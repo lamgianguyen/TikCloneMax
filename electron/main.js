@@ -1,7 +1,8 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, dialog, ipcMain, session } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 
 const BACKEND_PORT = 5285;
 const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
@@ -160,19 +161,26 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
-        minWidth: 900,
-        minHeight: 600,
+        minWidth: 1230,
+        minHeight: 700,
+        show: false,
         title: 'TikFinity',
+        backgroundColor: '#212121',
         icon: path.join(__dirname, 'icon.png'),
         autoHideMenuBar: true,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            backgroundThrottling: false,
+            allowRunningInsecureContent: true,
             preload: path.join(__dirname, 'preload.js')
         }
     });
 
+    mainWindow.menuBarVisible = false;
+    mainWindow.maximize();
     mainWindow.loadURL(BACKEND_URL);
+    mainWindow.once('ready-to-show', () => mainWindow.show());
 
     // Minimize to tray instead of closing
     mainWindow.on('close', (e) => {
@@ -229,6 +237,90 @@ function createTray() {
         else createWindow();
     });
 }
+
+// --- IPC bridge: window.API.toMain(...) from preload ---
+// Mirrors the real TikFinity desktop app's bridge so frontend code that calls
+// API.fetchUrl / API.toMain doesn't silently fail.
+
+ipcMain.handle('toMain', async (_event, data) => {
+    if (!data || typeof data !== 'object') return;
+
+    switch (data.action) {
+        case 'fetchUrl': {
+            // Used by frontend as a CORS-bypass HTTP client. Forward via Node http(s).
+            try {
+                const url = data.url;
+                if (!url) throw new Error('fetchUrl: missing url');
+                const lib = url.startsWith('https:') ? https : http;
+                const reqOpts = {
+                    method: data.method || 'GET',
+                    headers: data.headers || {}
+                };
+                const body = data.data ? (typeof data.data === 'string' ? data.data : JSON.stringify(data.data)) : null;
+                if (body && !reqOpts.headers['Content-Type'] && !reqOpts.headers['content-type']) {
+                    reqOpts.headers['Content-Type'] = 'application/json';
+                }
+                const responseData = await new Promise((resolve, reject) => {
+                    const req = lib.request(url, reqOpts, (res) => {
+                        const chunks = [];
+                        res.on('data', (c) => chunks.push(c));
+                        res.on('end', () => {
+                            const buf = Buffer.concat(chunks).toString('utf-8');
+                            let parsed = buf;
+                            const ct = (res.headers['content-type'] || '').toLowerCase();
+                            if (ct.includes('application/json')) {
+                                try { parsed = JSON.parse(buf); } catch { parsed = buf; }
+                            }
+                            resolve({ status: res.statusCode, data: parsed });
+                        });
+                    });
+                    req.on('error', reject);
+                    if (body) req.write(body);
+                    req.end();
+                });
+                if (mainWindow) {
+                    mainWindow.webContents.send('fetchUrlResponse', {
+                        requestId: data.requestId,
+                        responseData: responseData.data,
+                        responseCode: responseData.status
+                    });
+                }
+            } catch (err) {
+                if (mainWindow) {
+                    mainWindow.webContents.send('fetchUrlResponse', {
+                        requestId: data.requestId,
+                        error: err.toString()
+                    });
+                }
+            }
+            break;
+        }
+
+        case 'setUniqueId':
+        case 'setChannelId':
+        case 'sendBrowserLog':
+        case 'onFeatureFlags':
+            // Quietly accept — the local .NET backend tracks these via its own session/JWT.
+            break;
+
+        case 'emitWs':
+            // Real app broadcasts to its local widget WebSocket. We use Socket.IO via .NET
+            // backend (port 5285) for that. Frontend's own widget pages connect to that
+            // directly, so the IPC path is a no-op in the clone.
+            break;
+
+        case 'execPsCommand':
+        case 'execAutoItCommand':
+        case 'initKeyboardListener':
+            // Native automation features (OBS auto-config, keyboard hooks) — not implemented
+            // in the clone. Silently no-op so the UI doesn't surface fake errors.
+            console.log(`[ipc] '${data.action}' not implemented in clone — ignored`);
+            break;
+
+        default:
+            console.warn(`[ipc] Unknown toMain action: ${data.action}`);
+    }
+});
 
 // --- App lifecycle ---
 

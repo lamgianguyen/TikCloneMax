@@ -75,6 +75,34 @@ public class TikTokBridgeService : BackgroundService
         _socketManager = socketManager;
     }
 
+    private static string ResolveBridgePath()
+    {
+        var envPath = Environment.GetEnvironmentVariable("TIKFINITY_BRIDGE_PATH");
+        if (!string.IsNullOrWhiteSpace(envPath) && File.Exists(Path.Combine(envPath, "index.js")))
+            return Path.GetFullPath(envPath);
+
+        var exeDir = AppContext.BaseDirectory;
+        var cwd = Directory.GetCurrentDirectory();
+
+        // Ordered: published exe (sibling of exe), dev (sibling of backend/), VS bin/Debug, electron resources.
+        var candidates = new[]
+        {
+            Path.Combine(exeDir, "tiktok-bridge"),
+            Path.Combine(cwd, "..", "tiktok-bridge"),
+            Path.Combine(cwd, "tiktok-bridge"),
+            Path.Combine(exeDir, "..", "tiktok-bridge"),
+        };
+
+        foreach (var candidate in candidates)
+        {
+            var resolved = Path.GetFullPath(candidate);
+            if (File.Exists(Path.Combine(resolved, "index.js")))
+                return resolved;
+        }
+
+        return Path.GetFullPath(Path.Combine(exeDir, "tiktok-bridge"));
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
@@ -96,10 +124,7 @@ public class TikTokBridgeService : BackgroundService
 
     private Task StartNodeProcess(CancellationToken ct)
     {
-        var bridgePath = Path.Combine(Directory.GetCurrentDirectory(), "..", "tiktok-bridge");
-        if (!Directory.Exists(bridgePath))
-            bridgePath = Path.Combine(Directory.GetCurrentDirectory(), "tiktok-bridge");
-
+        var bridgePath = ResolveBridgePath();
         var indexPath = Path.Combine(bridgePath, "index.js");
         if (!File.Exists(indexPath))
         {

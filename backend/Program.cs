@@ -40,20 +40,45 @@ var builder = WebApplication.CreateBuilder(args);
 // --- Listen on all interfaces for LAN access ---
 builder.WebHost.UseUrls("http://0.0.0.0:5285");
 
-// --- Frontend path (use project dir, not bin/Debug output dir) ---
-// Walk up from bin/Debug/net9.0 to project root, then to downloads/
-var frontendPath = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "downloads"));
-if (!Directory.Exists(frontendPath) || !File.Exists(Path.Combine(frontendPath, "index.html")))
+// --- Frontend path resolution (handles dev, published exe, and Visual Studio) ---
+string ResolveFrontendPath()
 {
-    // Fallback: try from solution root (handles Visual Studio launch)
-    frontendPath = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "..", "..", "downloads"));
+    // Allowed env override (deployment)
+    var envPath = Environment.GetEnvironmentVariable("TIKFINITY_FRONTEND_PATH");
+    if (!string.IsNullOrWhiteSpace(envPath) && File.Exists(Path.Combine(envPath, "index.html")))
+        return Path.GetFullPath(envPath);
+
+    var contentRoot = builder.Environment.ContentRootPath;
+    var exeDir = AppContext.BaseDirectory;
+
+    // Candidate locations, ordered from most-specific to fallback:
+    var candidates = new[]
+    {
+        // Published self-contained exe: downloads/ sits next to the exe (build-app.bat layout)
+        Path.Combine(exeDir, "downloads"),
+        // Dev: dotnet run from backend/, downloads/ is sibling of backend/
+        Path.Combine(contentRoot, "..", "downloads"),
+        // VS: bin/Debug/net9.0 → walk up 4 levels to repo root
+        Path.Combine(contentRoot, "..", "..", "..", "..", "downloads"),
+        // Electron packaged: process.resourcesPath/downloads
+        Path.Combine(exeDir, "..", "downloads"),
+    };
+
+    foreach (var candidate in candidates)
+    {
+        var resolved = Path.GetFullPath(candidate);
+        if (File.Exists(Path.Combine(resolved, "index.html")))
+            return resolved;
+    }
+
+    // Last resort: return the most expected location even if missing, so the warning is clear
+    return Path.GetFullPath(Path.Combine(exeDir, "downloads"));
 }
-if (!Directory.Exists(frontendPath) || !File.Exists(Path.Combine(frontendPath, "index.html")))
-{
-    // Absolute fallback
-    frontendPath = @"C:\Users\nguyenlg\Documents\clone\downloads";
-}
+
+var frontendPath = ResolveFrontendPath();
 Console.WriteLine($"[BOOT] Frontend path: {frontendPath}");
+if (!File.Exists(Path.Combine(frontendPath, "index.html")))
+    Console.WriteLine($"[BOOT][WARN] index.html not found at the resolved frontend path. Set TIKFINITY_FRONTEND_PATH or place 'downloads/' next to the executable.");
 
 // --- EF Core + SQLite ---
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -148,6 +173,9 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton<SocketManager>();
 builder.Services.AddSingleton<WidgetSettingsCache>();
 builder.Services.AddHostedService<TikTokBridgeService>();
+
+// --- HTTP client for license server ---
+builder.Services.AddHttpClient();
 
 // --- Controllers + SignalR ---
 builder.Services.AddControllers();
@@ -664,18 +692,6 @@ app.MapGet("/api/health", () => new { status = "ok", service = "TikFinity Backen
 app.MapGet("/appconfig", () => Results.Json(new { modules = Array.Empty<object>(), languages = Array.Empty<object>() }));
 // /appinit returns 404 on real site too, but our SPA fallback would serve HTML.
 app.MapGet("/appinit", () => Results.Json(new { locale = "en" }));
-app.MapGet("/api/modules", () => Results.Json(new[]
-{
-    new { id = "actions", name = "Actions & Events", sort = 1, enabled = true },
-    new { id = "tts", name = "Text to Speech", sort = 2, enabled = true },
-    new { id = "sounds", name = "Sound Alerts", sort = 3, enabled = true },
-    new { id = "media", name = "Media Share", sort = 4, enabled = true },
-    new { id = "timers", name = "Timers", sort = 5, enabled = true },
-    new { id = "commands", name = "Chat Commands", sort = 6, enabled = true },
-    new { id = "spotify", name = "Spotify Integration", sort = 7, enabled = true },
-    new { id = "webhooks", name = "Webhooks", sort = 8, enabled = true },
-    new { id = "overlays", name = "Overlays", sort = 9, enabled = true }
-}));
 
 // --- MyInstants proxy (forward to zerody's myinstants API locally) ---
 app.Map("/myinstants-proxy/{**path}", async (string path, HttpContext ctx) =>
@@ -2417,65 +2433,30 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       <div id="customLoginBox" style="position:relative;">
         <button class="auth-close" onclick="document.getElementById('customLoginOverlay').classList.remove('show')">&times;</button>
         <h2>TikFinity</h2>
-        <div class="auth-tabs">
-          <div class="auth-tab active" onclick="switchAuthTab('login')">Login</div>
-          <div class="auth-tab" onclick="switchAuthTab('register')">Register</div>
-        </div>
+        <div style="text-align:center; color:#7c7c7c; font-size:13px; margin:-10px 0 18px;">Đăng nhập bằng Serial Key</div>
 
-        <!-- LOGIN -->
+        <!-- KEY LOGIN -->
         <div id="panelLogin" class="auth-panel active">
           <div class="field">
-            <label>Username / Email</label>
-            <input type="text" id="loginUser" placeholder="Enter username or email" autocomplete="username" />
+            <label>Serial Key <span style="color:#d9534f;">*</span></label>
+            <input type="text" id="loginUser" placeholder="XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" style="font-family:monospace; letter-spacing:1px; text-transform:uppercase;" />
           </div>
           <div class="field">
-            <label>Password</label>
-            <input type="password" id="loginPass" placeholder="Enter password" autocomplete="current-password" />
+            <label>Key Code <span style="color:#7c7c7c; text-transform:none;">(tùy chọn)</span></label>
+            <input type="text" id="loginPass" placeholder="Bỏ trống nếu key chưa có code" autocomplete="off" autocapitalize="characters" spellcheck="false" style="font-family:monospace; letter-spacing:1px; text-transform:uppercase;" />
           </div>
-          <button class="auth-submit-btn" id="loginBtn" onclick="doLogin()">Login</button>
+          <button class="auth-submit-btn" id="loginBtn" onclick="doLogin()">Kích hoạt &amp; Đăng nhập</button>
           <div class="auth-error" id="loginError"></div>
           <div class="auth-success" id="loginSuccess"></div>
-        </div>
-
-        <!-- REGISTER -->
-        <div id="panelRegister" class="auth-panel">
-          <div class="field">
-            <label>Username</label>
-            <input type="text" id="regUser" placeholder="Choose a username" autocomplete="username" />
+          <div style="text-align:center; color:#7c7c7c; font-size:11px; margin-top:18px; line-height:1.6;">
+            Chưa có Serial Key? Liên hệ admin để mua/gia hạn gói TikFinity Pro.
           </div>
-          <div class="field">
-            <label>Email</label>
-            <input type="email" id="regEmail" placeholder="Enter email" autocomplete="email" />
-          </div>
-          <div class="field">
-            <label>Password</label>
-            <input type="password" id="regPass" placeholder="Create a password" autocomplete="new-password" />
-          </div>
-          <div class="field">
-            <label>Confirm Password</label>
-            <input type="password" id="regPass2" placeholder="Confirm password" autocomplete="new-password" />
-          </div>
-          <button class="auth-submit-btn" id="regBtn" onclick="doRegister()">Create Account</button>
-          <div class="auth-error" id="regError"></div>
-          <div class="auth-success" id="regSuccess"></div>
         </div>
       </div>
     </div>
 
     <script>
-    function switchAuthTab(tab) {
-      document.querySelectorAll('.auth-tab').forEach(function(t){ t.classList.remove('active'); });
-      document.querySelectorAll('.auth-panel').forEach(function(p){ p.classList.remove('active'); });
-      if (tab === 'login') {
-        document.querySelectorAll('.auth-tab')[0].classList.add('active');
-        document.getElementById('panelLogin').classList.add('active');
-      } else {
-        document.querySelectorAll('.auth-tab')[1].classList.add('active');
-        document.getElementById('panelRegister').classList.add('active');
-      }
-      // Clear messages
-      document.querySelectorAll('.auth-error, .auth-success').forEach(function(el){ el.style.display='none'; });
-    }
+    function switchAuthTab(_tab) { /* legacy stub — only key-login panel exists */ }
 
     function readPersistedUiValue(key, fallbackValue) {
       try {
@@ -2540,70 +2521,68 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
     }
 
     function doLogin() {
-      var user = document.getElementById('loginUser').value.trim();
-      var pass = document.getElementById('loginPass').value;
+      var keyId = (document.getElementById('loginUser').value || '').trim().toUpperCase();
+      var keyCode = (document.getElementById('loginPass').value || '').trim().toUpperCase();
       var btn = document.getElementById('loginBtn');
       var errDiv = document.getElementById('loginError');
       var okDiv = document.getElementById('loginSuccess');
       errDiv.style.display = 'none'; okDiv.style.display = 'none';
 
-      if (!user || !pass) { errDiv.textContent = 'Please enter username and password'; errDiv.style.display = 'block'; return; }
+      if (!keyId) {
+        errDiv.textContent = 'Vui lòng nhập Serial Key';
+        errDiv.style.display = 'block';
+        return;
+      }
 
-      btn.disabled = true; btn.textContent = 'Logging in...';
+      btn.disabled = true; btn.textContent = 'Đang xác thực...';
 
-      fetch('/api/v1/auth/login', {
+      var body = { keyId: keyId };
+      if (keyCode) body.keyCode = keyCode;
+
+      fetch('/api/auth/key-login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user, password: pass })
+        body: JSON.stringify(body)
       })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.status === 'ok' && data.accessToken) {
-          authSuccess(data, user);
+      .then(function(r) { return r.json().then(function(d){ return { status: r.status, body: d }; }); })
+      .then(function(res) {
+        var data = res.body || {};
+        if (res.status >= 200 && res.status < 300 && data.status === 'ok' && data.accessToken) {
+          if (data.license) {
+            try {
+              localStorage.setItem('setting_license_keyid', data.license.keyId || keyId);
+              if (data.license.expiredAt) localStorage.setItem('setting_license_expires_at', data.license.expiredAt);
+              if (typeof data.license.daysLeft === 'number') localStorage.setItem('setting_license_days_left', String(data.license.daysLeft));
+            } catch(e) {}
+          }
+          okDiv.textContent = data.license && data.license.daysLeft != null
+            ? 'Kích hoạt thành công — còn ' + data.license.daysLeft + ' ngày'
+            : 'Đăng nhập thành công';
+          okDiv.style.display = 'block';
+          authSuccess(data, data.channelName || keyId);
         } else {
-          errDiv.textContent = data.message || 'Login failed';
-          errDiv.style.display = 'block'; btn.disabled = false; btn.textContent = 'Login';
+          var msg = data.message || 'Serial Key không hợp lệ';
+          if (data.reason === 'UNREACHABLE')   msg = 'Không kết nối được tới license server.';
+          else if (data.reason === 'TIMEOUT')  msg = 'License server không phản hồi (timeout).';
+          else if (data.reason === 'EXPIRED')  msg = 'Serial Key đã hết hạn' + (data.expiredAt ? ' từ ' + new Date(data.expiredAt).toLocaleDateString('vi-VN') : '') + '.';
+          else if (data.reason === 'DISABLED') msg = 'Serial Key đã bị khóa.';
+          else if (data.reason === 'NOT_ACTIVATED') msg = 'Serial Key chưa được kích hoạt.';
+          else if (data.reason === 'NOT_FOUND') msg = 'Serial Key không tồn tại.';
+          errDiv.textContent = msg;
+          errDiv.style.display = 'block';
+          btn.disabled = false; btn.textContent = 'Kích hoạt & Đăng nhập';
         }
       })
-      .catch(function(e) { errDiv.textContent = 'Connection error'; errDiv.style.display = 'block'; btn.disabled = false; btn.textContent = 'Login'; });
-    }
-
-    function doRegister() {
-      var user = document.getElementById('regUser').value.trim();
-      var email = document.getElementById('regEmail').value.trim();
-      var pass = document.getElementById('regPass').value;
-      var pass2 = document.getElementById('regPass2').value;
-      var btn = document.getElementById('regBtn');
-      var errDiv = document.getElementById('regError');
-      var okDiv = document.getElementById('regSuccess');
-      errDiv.style.display = 'none'; okDiv.style.display = 'none';
-
-      if (!user || !email || !pass) { errDiv.textContent = 'Please fill in all fields'; errDiv.style.display = 'block'; return; }
-      if (pass !== pass2) { errDiv.textContent = 'Passwords do not match'; errDiv.style.display = 'block'; return; }
-      if (pass.length < 4) { errDiv.textContent = 'Password must be at least 4 characters'; errDiv.style.display = 'block'; return; }
-
-      btn.disabled = true; btn.textContent = 'Creating account...';
-
-      fetch('/api/v1/auth/register', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user, email: email, password: pass })
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.status === 'ok' && data.accessToken) {
-          authSuccess(data, user);
-        } else {
-          errDiv.textContent = data.message || 'Registration failed';
-          errDiv.style.display = 'block'; btn.disabled = false; btn.textContent = 'Create Account';
-        }
-      })
-      .catch(function(e) { errDiv.textContent = 'Connection error'; errDiv.style.display = 'block'; btn.disabled = false; btn.textContent = 'Create Account'; });
+      .catch(function(e) {
+        errDiv.textContent = 'Lỗi kết nối tới backend';
+        errDiv.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Kích hoạt & Đăng nhập';
+      });
     }
 
     // Enter key to submit
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && document.getElementById('customLoginOverlay').classList.contains('show')) {
-        var loginActive = document.getElementById('panelLogin').classList.contains('active');
-        if (loginActive) doLogin(); else doRegister();
+        doLogin();
       }
     });
 

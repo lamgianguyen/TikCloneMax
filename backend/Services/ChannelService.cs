@@ -205,6 +205,98 @@ public class ChannelService
             .FirstAsync(c => c.ChannelId == channel.ChannelId));
     }
 
+    public async Task<Channel> FindOrCreateByLicenseKey(string keyId, DateTime licenseExpiresAt)
+    {
+        // Synthesize a channel name fitting the 32-char limit: keyId minus dashes, lowercased,
+        // truncated. License keys are unique, so this is unique by construction.
+        var sanitized = keyId.Replace("-", "").ToLowerInvariant();
+        var channelName = sanitized.Length > 28 ? sanitized[..28] : sanitized;
+
+        var channel = await _db.Channels
+            .Include(c => c.Subscription)
+            .FirstOrDefaultAsync(c => c.ChannelName == channelName && c.SignupAuthProvider == "license");
+
+        var now = DateTime.UtcNow;
+        var licenseIsActive = licenseExpiresAt > now;
+
+        if (channel != null)
+        {
+            channel.UpdatedAt = now;
+            if (channel.Subscription != null)
+            {
+                channel.Subscription.IsPro = licenseIsActive;
+                channel.Subscription.Active = licenseIsActive;
+                channel.Subscription.Plan = licenseIsActive ? "pro" : "free";
+                channel.Subscription.ProExpireAt = licenseExpiresAt;
+                channel.Subscription.ProExpireSetBy = "license";
+                channel.Subscription.UpdatedAt = now;
+            }
+            await UpsertLicenseSetting(channel.ChannelId, keyId, licenseExpiresAt);
+            await _db.SaveChangesAsync();
+            return channel;
+        }
+
+        channel = new Channel
+        {
+            ChannelName = channelName,
+            ChannelSignature = GenerateSignature(),
+            Email = $"{channelName}@license.local",
+            Sub = $"license:{keyId}",
+            SignupAuthProvider = "license",
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        _db.Channels.Add(channel);
+        await _db.SaveChangesAsync();
+
+        _db.Subscriptions.Add(new Subscription
+        {
+            ChannelId = channel.ChannelId,
+            IsPro = licenseIsActive,
+            Plan = licenseIsActive ? "pro" : "free",
+            Active = licenseIsActive,
+            ProExpireAt = licenseExpiresAt,
+            ProExpireSetBy = "license"
+        });
+        _db.Profiles.Add(new Profile { ChannelId = channel.ChannelId, Name = "Default", Sort = 0 });
+        foreach (var (id, mName, sort) in GetDefaultModules())
+        {
+            _db.ChannelModules.Add(new ChannelModule
+            {
+                ChannelId = channel.ChannelId,
+                ModuleId = id,
+                Name = mName,
+                Sort = sort,
+                Enabled = true
+            });
+        }
+        await _db.SaveChangesAsync();
+        await UpsertLicenseSetting(channel.ChannelId, keyId, licenseExpiresAt);
+        await _db.SaveChangesAsync();
+
+        return await _db.Channels
+            .Include(c => c.Subscription)
+            .Include(c => c.Profiles)
+            .Include(c => c.Modules)
+            .FirstAsync(c => c.ChannelId == channel.ChannelId);
+    }
+
+    private async Task UpsertLicenseSetting(int channelId, string keyId, DateTime expiresAt)
+    {
+        async Task Upsert(string key, string value)
+        {
+            var existing = await _db.DynamicSettings
+                .FirstOrDefaultAsync(s => s.ChannelId == channelId && s.Key == key);
+            if (existing == null)
+                _db.DynamicSettings.Add(new DynamicSetting { ChannelId = channelId, Key = key, Value = value });
+            else
+                existing.Value = value;
+        }
+        await Upsert("license_keyid", keyId);
+        await Upsert("license_expires_at", expiresAt.ToString("O"));
+        await Upsert("license_validated_at", DateTime.UtcNow.ToString("O"));
+    }
+
     private static string GenerateSignature()
     {
         const string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";

@@ -33,19 +33,9 @@
     },
     "extraResources": [
       {
-        "from": "../node-backend",
-        "to": "node-backend",
+        "from": "../dist/app",
+        "to": "backend",
         "filter": ["**/*", "!node_modules/.cache/**"]
-      },
-      {
-        "from": "../tiktok-bridge",
-        "to": "tiktok-bridge",
-        "filter": ["**/*", "!node_modules/.cache/**"]
-      },
-      {
-        "from": "../downloads",
-        "to": "downloads",
-        "filter": ["**/*"]
       }
     ]
   }
