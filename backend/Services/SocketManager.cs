@@ -88,7 +88,8 @@ public class SocketManager
 
     private async Task BroadcastEventRaw(string eventName, string jsonData, Func<ClientInfo, bool>? filter)
     {
-        var frame = $"42[\"{eventName}\",{jsonData}]";
+        var encodedEventName = JsonSerializer.Serialize(eventName);
+        var frame = $"42[{encodedEventName},{jsonData}]";
         var bytes = Encoding.UTF8.GetBytes(frame);
         var deadSessions = new List<string>();
 
@@ -136,7 +137,8 @@ public class SocketManager
         if (ws.State != WebSocketState.Open) return;
 
         var json = JsonSerializer.Serialize(data);
-        var frame = $"42[\"{eventName}\",{json}]";
+        var encodedEventName = JsonSerializer.Serialize(eventName);
+        var frame = $"42[{encodedEventName},{json}]";
         var bytes = Encoding.UTF8.GetBytes(frame);
 
         try

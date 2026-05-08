@@ -24,6 +24,7 @@ public class TikTokBridgeService : BackgroundService
     private volatile bool _connected;
     private volatile bool _connecting;
     private volatile string? _currentUsername;
+    private volatile string? _lastFailedUsername;
     private volatile string? _lastConnectionError;
     private long _lastErrorAtUnixMs;
     private CancellationTokenSource? _connectWatchdogCts;
@@ -80,6 +81,7 @@ public class TikTokBridgeService : BackgroundService
     public bool IsConnectedToTikTok => _connected;
     public bool IsConnecting => _connecting;
     public string? CurrentUsername => _currentUsername;
+    public string? LastFailedUsername => _lastFailedUsername;
     public string? LastConnectionError => _lastConnectionError;
     public long LastErrorAtUnixMs => Interlocked.Read(ref _lastErrorAtUnixMs);
 
@@ -390,6 +392,7 @@ public class TikTokBridgeService : BackgroundService
                     _connected = true;
                     _connecting = false;
                     _lastConnectionError = null;
+                    _lastFailedUsername = null;
                     _currentUsername = data.TryGetProperty("username", out var un) ? un.GetString() : null;
                     _logger.LogInformation("[TikTok] Connected to @{Username}", _currentUsername);
 
@@ -443,6 +446,7 @@ public class TikTokBridgeService : BackgroundService
                     Interlocked.Exchange(ref _lastErrorAtUnixMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                     if (!string.IsNullOrWhiteSpace(failedUsername))
                     {
+                        _lastFailedUsername = failedUsername;
                         _currentUsername = failedUsername;
                     }
                     _logger.LogWarning("[TikTok] Connection failed: {Message}", msg);
@@ -868,6 +872,7 @@ public class TikTokBridgeService : BackgroundService
         _connecting = true;
         _lastConnectionError = null;
         _currentUsername = username;
+        _lastFailedUsername = username;
         // Don't broadcast "connecting" status — bundle's browserbridge would try its own
         // connect flow (popup → timeout → error). Only broadcast when actually connected/disconnected.
         // Frontend polls /api/tiktok/status instead.
@@ -878,6 +883,7 @@ public class TikTokBridgeService : BackgroundService
             _connecting = false;
             _connected = false;
             _lastConnectionError ??= "Bridge not connected";
+            _lastFailedUsername = username;
             Interlocked.Exchange(ref _lastErrorAtUnixMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             _logger.LogError("[TikTok] Bridge reconnect failed, cannot connect to @{Username}", username);
             return;
@@ -913,6 +919,7 @@ public class TikTokBridgeService : BackgroundService
             _connected = false;
             _connecting = false;
             _lastConnectionError = "Bridge timed out (no response in 30s). Try again or restart the app.";
+            _lastFailedUsername = username;
             Interlocked.Exchange(ref _lastErrorAtUnixMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
 
             try

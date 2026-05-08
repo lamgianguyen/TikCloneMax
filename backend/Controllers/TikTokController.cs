@@ -64,6 +64,25 @@ public class TikTokController : BaseApiController
             return BadRequest(new { status = "error", message = "Username is required" });
 
         var username = dto.Username.Trim().TrimStart('@');
+
+        // Fast-path dedupe to reduce noisy repeat /connect calls from frontend loops.
+        // TikTokBridgeService.ConnectToTikTok still does authoritative debouncing,
+        // so this block is only an optimization layer.
+        var currentBridgeUser = (_bridge.CurrentUsername ?? string.Empty).Trim().TrimStart('@');
+        if (!string.IsNullOrWhiteSpace(currentBridgeUser)
+            && string.Equals(currentBridgeUser, username, StringComparison.OrdinalIgnoreCase))
+        {
+            if (_bridge.IsConnectedToTikTok)
+            {
+                return Ok(new { status = "ok", username, tiktokUsername = username, message = $"Already connected to @{username}." });
+            }
+
+            if (_bridge.IsConnecting)
+            {
+                return Ok(new { status = "ok", username, tiktokUsername = username, message = $"Already connecting to @{username}." });
+            }
+        }
+
         // Save TikTok name to DB (non-blocking — don't fail connect if DB errors)
         try
         {
@@ -121,6 +140,7 @@ public class TikTokController : BaseApiController
             connected = _bridge.IsConnectedToTikTok,
             connecting = _bridge.IsConnecting,
             username = _bridge.CurrentUsername,
+            failedUsername = _bridge.LastFailedUsername,
             lastError = _bridge.LastConnectionError,
             lastErrorAt = _bridge.LastErrorAtUnixMs,
             clients = _socketManager.ConnectionCount

@@ -252,6 +252,199 @@ using (var scope = app.Services.CreateScope())
         db.SaveChanges();
         Console.WriteLine($"[BOOT] Seeded {seedNotifs.Length} welcome notifications for channel {ch.ChannelId}");
     }
+
+    // Auto-seed default actions (Gift Alert, Like Alert, Sub Alert) if none exist
+    if (ch != null && !db.Actions.Any(a => a.ChannelId == ch.ChannelId))
+    {
+        try
+        {
+            var exeDir2 = AppContext.BaseDirectory;
+            var contentRoot2 = builder.Environment.ContentRootPath;
+            var actionFileCandidates = new[]
+            {
+                Path.Combine(exeDir2, "downloads", "api", "rest", "action"),
+                Path.Combine(contentRoot2, "..", "downloads", "api", "rest", "action"),
+                Path.Combine(contentRoot2, "..", "..", "..", "..", "downloads", "api", "rest", "action"),
+            };
+            string? actionFilePath = null;
+            foreach (var c in actionFileCandidates)
+            {
+                var r = Path.GetFullPath(c);
+                if (File.Exists(r)) { actionFilePath = r; break; }
+            }
+            if (actionFilePath != null)
+            {
+                var actionJson = await File.ReadAllTextAsync(actionFilePath);
+                var actionDoc = System.Text.Json.JsonDocument.Parse(actionJson);
+                if (actionDoc.RootElement.TryGetProperty("actions", out var actionsEl))
+                {
+                    int sort = 0;
+                    foreach (var a in actionsEl.EnumerateArray())
+                    {
+                        var aName = a.TryGetProperty("name", out var n) ? n.GetString() ?? "Action" : "Action";
+                        db.Actions.Add(new TikFinityBackend.Models.ActionItem
+                        {
+                            ChannelId = ch.ChannelId,
+                            Name = aName,
+                            Type = a.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "",
+                            ConfigJson = a.GetRawText(),
+                            Enabled = true,
+                            Sort = sort++,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                    db.SaveChanges();
+                    Console.WriteLine($"[BOOT] Seeded {sort} default actions for channel {ch.ChannelId}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BOOT][WARN] Could not seed default actions: {ex.Message}");
+        }
+    }
+
+    // Ensure Follow Alert + default Events exist for first-run onboarding.
+    // Events are stored as JSON string in DynamicSettings key "events".
+    if (ch != null)
+    {
+        try
+        {
+            using var seedTx = db.Database.BeginTransaction();
+
+            var hasFollowAlert = db.Actions.Any(a =>
+              a.ChannelId == ch.ChannelId
+              && a.Name != null
+              && a.Name.ToLower() == "follow alert");
+
+            if (!hasFollowAlert)
+            {
+                var nextSort = db.Actions
+                    .Where(a => a.ChannelId == ch.ChannelId)
+                    .Select(a => (int?)a.Sort)
+                    .Max() ?? 0;
+
+                db.Actions.Add(new TikFinityBackend.Models.ActionItem
+                {
+                    ChannelId = ch.ChannelId,
+                    Name = "Follow Alert",
+                    Type = "manual",
+                    ConfigJson = "{\"screenId\":1,\"duration\":5,\"text\":\"Thanks for following!\",\"animationUrl\":\"/assets/lotties/11438-starburst-animation.json\",\"enableFadeEffect\":true}",
+                    Enabled = true,
+                    Sort = nextSort + 1,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                db.SaveChanges();
+                Console.WriteLine($"[BOOT] Added default Follow Alert action for channel {ch.ChannelId}");
+            }
+
+            var eventsRow = db.DynamicSettings
+                .FirstOrDefault(d => d.ChannelId == ch.ChannelId && d.Key == "events");
+
+            var currentEvents = eventsRow?.Value?.Trim();
+            var shouldSeedEvents = string.IsNullOrWhiteSpace(currentEvents)
+              || currentEvents == "[]"
+              || currentEvents == "{}"
+              || string.Equals(currentEvents, "null", StringComparison.OrdinalIgnoreCase);
+
+            if (shouldSeedEvents)
+            {
+                var channelActions = db.Actions
+                    .Where(a => a.ChannelId == ch.ChannelId)
+                    .Select(a => new { a.Id, a.Name })
+                    .ToList();
+
+                int? FindActionId(string name) => channelActions
+                    .Where(a => string.Equals(a.Name, name, StringComparison.OrdinalIgnoreCase))
+                    .Select(a => (int?)a.Id)
+                    .FirstOrDefault();
+
+                var subActionId = FindActionId("Sub Alert");
+                var giftActionId = FindActionId("Gift Alert");
+                var likeActionId = FindActionId("Like Alert");
+                var followActionId = FindActionId("Follow Alert");
+
+                if (subActionId.HasValue && giftActionId.HasValue && likeActionId.HasValue && followActionId.HasValue)
+                {
+                    var defaultEvents = new object[]
+                    {
+                        new
+                        {
+                            whichUserId = 1,
+                            triggerTypeId = 10,
+                            active = true,
+                            actionIds = new[] { subActionId.Value },
+                            actionRandomIds = Array.Empty<int>(),
+                            id = Guid.NewGuid().ToString(),
+                            isImported = true
+                        },
+                        new
+                        {
+                            whichUserId = 1,
+                            triggerTypeId = 7,
+                            active = true,
+                            minLikesAmount = 100,
+                            actionIds = new[] { likeActionId.Value },
+                            actionRandomIds = Array.Empty<int>(),
+                            id = Guid.NewGuid().ToString(),
+                            isImported = true
+                        },
+                        new
+                        {
+                            whichUserId = 1,
+                            triggerTypeId = 3,
+                            active = true,
+                            minBarsAmount = 1,
+                            actionIds = new[] { giftActionId.Value },
+                            actionRandomIds = Array.Empty<int>(),
+                            id = Guid.NewGuid().ToString(),
+                            isImported = true
+                        },
+                        new
+                        {
+                            whichUserId = 1,
+                            triggerTypeId = 9,
+                            active = true,
+                            actionIds = new[] { followActionId.Value },
+                            actionRandomIds = Array.Empty<int>(),
+                            id = Guid.NewGuid().ToString(),
+                            isImported = true
+                        }
+                    };
+
+                    var eventsJson = System.Text.Json.JsonSerializer.Serialize(defaultEvents);
+
+                    if (eventsRow == null)
+                    {
+                        db.DynamicSettings.Add(new TikFinityBackend.Models.DynamicSetting
+                        {
+                            ChannelId = ch.ChannelId,
+                            Key = "events",
+                            Value = eventsJson
+                        });
+                    }
+                    else
+                    {
+                        eventsRow.Value = eventsJson;
+                    }
+
+                    db.SaveChanges();
+                    Console.WriteLine($"[BOOT] Seeded default events for channel {ch.ChannelId}");
+                }
+                else
+                {
+                    Console.WriteLine("[BOOT][WARN] Skip default event seed because one or more actions are missing");
+                }
+            }
+
+            seedTx.Commit();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BOOT][WARN] Could not seed onboarding action/events: {ex.Message}");
+        }
+    }
 }
 
 // =============================================
@@ -456,7 +649,12 @@ app.Use(async (context, next) =>
                             var eventName = arr[0].GetString() ?? "";
                             var eventData = arr.GetArrayLength() > 1 ? arr[1] : default;
 
-                            Console.WriteLine($"[SIO] Event: {eventName}");
+                            var isNoisyEvent = string.Equals(eventName, "reportWidgetState", StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(eventName, "distributeEvent", StringComparison.OrdinalIgnoreCase);
+                            if (!isNoisyEvent)
+                            {
+                              Console.WriteLine($"[SIO] Event: {eventName}");
+                            }
 
                             if (eventName == "login" && eventData.ValueKind == System.Text.Json.JsonValueKind.Object)
                             {
@@ -552,7 +750,12 @@ app.Use(async (context, next) =>
                 {
                     var eventName = arr[0].GetString() ?? "";
                     var eventData = arr.GetArrayLength() > 1 ? arr[1] : default;
-                    Console.WriteLine($"[SIO-Poll] Event: {eventName}");
+                    var isNoisyPollingEvent = string.Equals(eventName, "reportWidgetState", StringComparison.OrdinalIgnoreCase)
+                      || string.Equals(eventName, "distributeEvent", StringComparison.OrdinalIgnoreCase);
+                    if (!isNoisyPollingEvent)
+                    {
+                      Console.WriteLine($"[SIO-Poll] Event: {eventName}");
+                    }
                     await HandleClientEvent(eventName, eventData, tikTokBridge);
                 }
             }
@@ -642,6 +845,15 @@ static async Task HandleClientEvent(string eventName, System.Text.Json.JsonEleme
     // Also handle explicit REST-style events.
     var nameLower = eventName.ToLowerInvariant();
 
+    if (nameLower == "distributeevent")
+    {
+      if (TryExtractDistributedEvent(eventData, out var nestedEventName, out var nestedPayloadJson))
+      {
+        await bridge.BroadcastWidgetEventRaw(nestedEventName, nestedPayloadJson);
+      }
+      return;
+    }
+
     // Connect to TikTok - match various possible event names
     if (nameLower.Contains("settiktok") || nameLower.Contains("connecttiktok") ||
         nameLower.Contains("setlive") || nameLower.Contains("connectlive") ||
@@ -662,21 +874,74 @@ static async Task HandleClientEvent(string eventName, System.Text.Json.JsonEleme
         await bridge.DisconnectFromTikTok();
         return;
     }
-
-    // Catch-all: if any event contains a username-like field, treat it as a connect request
-    if (eventData.ValueKind == System.Text.Json.JsonValueKind.Object)
-    {
-        var username = TryExtractUsername(eventData);
-        if (!string.IsNullOrEmpty(username) && username.Length >= 2 && !username.Contains(" "))
-        {
-            // Check if this looks like a TikTok username event
-            if (eventData.TryGetProperty("uniqueId", out _) || eventData.TryGetProperty("tiktokUsername", out _))
-            {
-                await bridge.ConnectToTikTok(username);
-            }
-        }
-    }
 }
+
+  static bool TryExtractDistributedEvent(System.Text.Json.JsonElement data, out string eventName, out string payloadJson)
+  {
+    eventName = string.Empty;
+    payloadJson = "{}";
+
+    if (data.ValueKind != System.Text.Json.JsonValueKind.Object)
+    {
+      return false;
+    }
+
+    foreach (var eventNameKey in new[] { "eventName", "event", "name", "type" })
+    {
+      if (data.TryGetProperty(eventNameKey, out var candidate)
+        && candidate.ValueKind == System.Text.Json.JsonValueKind.String)
+      {
+        var value = candidate.GetString();
+        if (!string.IsNullOrWhiteSpace(value) && IsSafeSocketEventName(value))
+        {
+          eventName = value;
+          break;
+        }
+      }
+    }
+
+    if (string.IsNullOrWhiteSpace(eventName))
+    {
+      return false;
+    }
+
+    foreach (var payloadKey in new[] { "data", "payload", "eventData", "args" })
+    {
+      if (data.TryGetProperty(payloadKey, out var payloadCandidate))
+      {
+        payloadJson = payloadCandidate.ValueKind == System.Text.Json.JsonValueKind.Undefined
+          ? "{}"
+          : payloadCandidate.GetRawText();
+        return true;
+      }
+    }
+
+    payloadJson = "{}";
+    return true;
+  }
+
+  static bool IsSafeSocketEventName(string eventName)
+  {
+    if (string.IsNullOrWhiteSpace(eventName) || eventName.Length > 128)
+    {
+      return false;
+    }
+
+    foreach (var c in eventName)
+    {
+      var isAllowed = (c >= 'a' && c <= 'z')
+        || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9')
+        || c == ':' || c == '_' || c == '-' || c == '.';
+
+      if (!isAllowed)
+      {
+        return false;
+      }
+    }
+
+    return true;
+  }
 
 static string? TryExtractUsername(System.Text.Json.JsonElement data)
 {
@@ -703,11 +968,12 @@ static string? TryExtractUsername(System.Text.Json.JsonElement data)
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
+  var isTikTokStatusPoll = string.Equals(path, "/api/tiktok/status", StringComparison.OrdinalIgnoreCase);
     if (!path.StartsWith("/socket.io") &&
         !path.StartsWith("/combo") && !path.StartsWith("/js/") && !path.StartsWith("/css/") &&
         !path.StartsWith("/img/") && !path.StartsWith("/fa/") && !path.StartsWith("/dx/") &&
         !path.StartsWith("/vue/") && !path.StartsWith("/widget/") && !path.StartsWith("/assets/") &&
-        !path.StartsWith("/config/") && path != "/" && path != "/favicon.ico")
+    !path.StartsWith("/config/") && path != "/" && path != "/favicon.ico" && !isTikTokStatusPoll)
     {
         Console.WriteLine($"[REQ] {context.Request.Method} {path} {context.Request.QueryString}");
     }
@@ -1285,7 +1551,11 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         var prevConnecting = false;
         var prevConnected = false;
         var connectStartedAt = 0;
+        var lastPopupShownTime = 0;  // Debounce: don't spam popups
         var WATCHDOG_MS = 25000;
+        var POPUP_DEBOUNCE_MS = 5000;  // Min 5s between error popups
+        var STARTUP_GRACE_MS = 10000;  // Don't show errors in first 10s
+        var pageLoadTime = Date.now();
         window.__tfPopup = { ready: true, polls: 0, lastState: null };
         console.log('[tf-popup] script loaded');
 
@@ -1545,7 +1815,7 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
             var at = Number(s && s.lastErrorAt) || 0;
             var connecting = Boolean(s && s.connecting);
             var connected = Boolean(s && s.connected);
-            var username = s && s.username;
+            var username = (s && (s.failedUsername || s.username)) || '';
             window.__tfPopup.polls++;
             window.__tfPopup.lastState = { at, connecting, connected, username, lastShownAt, firstPollDone };
 
@@ -1572,12 +1842,21 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
 
             removeToast();
 
-            // New error from the bridge → centre modal.
-            if (at > 0 && at !== lastShownAt) {
-              console.log('[tf-popup] firing error popup, lastError=', s.lastError);
-              lastShownAt = at;
-              removeToast();
-              showPopup(s.lastError, username);
+            // SUPPRESS popups during startup grace period (first 10s)
+            var isInGracePeriod = (Date.now() - pageLoadTime) < STARTUP_GRACE_MS;
+
+            // New error from the bridge → centre modal (with debounce + grace period).
+            if (at > 0 && at !== lastShownAt && !isInGracePeriod) {
+              var timeSinceLastPopup = Date.now() - lastPopupShownTime;
+              
+              // Only show popup if enough time has passed since last one (debounce)
+              if (timeSinceLastPopup >= POPUP_DEBOUNCE_MS) {
+                console.log('[tf-popup] firing error popup, lastError=', s.lastError);
+                lastShownAt = at;
+                lastPopupShownTime = Date.now();
+                removeToast();
+                showPopup(s.lastError, username);
+              }
             }
 
             // Watchdog: connect hung for >25s with no error/success.

@@ -67,6 +67,7 @@ let splashWindow = null;
 let loginWindow = null;
 let tray = null;
 let backendProcess = null;
+let backendLogStream = null;
 let isQuitting = false;
 let powerSaveBlockerId = null;
 let liveStatusTimer = null;
@@ -242,9 +243,9 @@ function getBackendLaunchConfig() {
     const projDir = path.join(__dirname, '..', 'backend');
     return {
         command: isWin ? 'dotnet.exe' : 'dotnet',
-        args: ['run', '--project', projDir, '--no-launch-profile'],
+        args: ['run', '--project', projDir, '--no-launch-profile', '--no-build'],
         cwd: projDir,
-        label: `dotnet run --project ${projDir}`
+        label: `dotnet run --project ${projDir} --no-build`
     };
 }
 
@@ -257,8 +258,12 @@ function startBackend() {
     // when reporting issues. File rotates each app launch.
     const logPath = path.join(app.getPath('userData'), 'backend-debug.log');
     try { fs.unlinkSync(logPath); } catch { /* first run / not present */ }
-    const logStream = fs.createWriteStream(logPath, { flags: 'a' });
-    logStream.write(`\n=== Backend launch ${new Date().toISOString()} ===\n`);
+    if (backendLogStream) {
+        try { backendLogStream.end(); } catch { /* already closed */ }
+        backendLogStream = null;
+    }
+    backendLogStream = fs.createWriteStream(logPath, { flags: 'a' });
+    backendLogStream.write(`\n=== Backend launch ${new Date().toISOString()} ===\n`);
     console.log(`[Electron] Backend log file: ${logPath}`);
 
     try {
@@ -269,18 +274,23 @@ function startBackend() {
         });
         backendProcess.stdout.on('data', d => {
             const m = d.toString();
-            try { logStream.write(m); } catch { /* ignore */ }
+            try { backendLogStream && backendLogStream.write(m); } catch { /* ignore */ }
             const trimmed = m.trim();
             if (trimmed) console.log(`[Backend] ${trimmed}`);
         });
         backendProcess.stderr.on('data', d => {
             const m = d.toString();
-            try { logStream.write('[ERR] ' + m); } catch { /* ignore */ }
+            try { backendLogStream && backendLogStream.write('[ERR] ' + m); } catch { /* ignore */ }
             const trimmed = m.trim();
             if (trimmed) console.error(`[Backend ERR] ${trimmed}`);
         });
         backendProcess.on('exit', code => {
             console.log(`[Backend] exited with code ${code}`);
+            backendProcess = null;
+            if (backendLogStream) {
+                try { backendLogStream.end(); } catch { /* ignore */ }
+                backendLogStream = null;
+            }
             if (isQuitting) return;
             dialog.showMessageBox({
                 type: 'error',
@@ -340,6 +350,11 @@ function stopBackend() {
             if (backendProcess && !backendProcess.killed) backendProcess.kill('SIGKILL');
         }, 5000);
     }
+    backendProcess = null;
+    if (backendLogStream) {
+        try { backendLogStream.end(); } catch { /* already closed */ }
+        backendLogStream = null;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -394,13 +409,23 @@ function closeSplash() {
 // login window with a clear "cần kết nối server" message.
 //
 // Order:
-//   1. No cached token → login (NO_TOKEN).
-//   2. Server unreachable → login (SERVER_UNREACHABLE).
-//   3. Server says invalid/expired/revoked → clear cache, login.
-//   4. Server says valid → allow + refresh lastValidatedAt.
+//   1. No cached token → check TikTok session; if saved, allow offline entry.
+//   2. Cached token exists → validate with server.
+//   3. Server unreachable → login (SERVER_UNREACHABLE).
+//   4. Server says invalid/expired/revoked → clear cache, login.
+//   5. Server says valid → allow + refresh lastValidatedAt.
 async function decideAuthEntrypoint() {
     const cached = currentAuth;
-    if (!cached) return { allow: false, reason: 'NO_TOKEN' };
+    
+    // If no Serial Key but TikTok session exists, allow offline entry with saved session
+    if (!cached) {
+        const ttSession = tiktokSessionStore.load();
+        if (ttSession && ttSession.sessionId) {
+            console.log('[Auth] No Serial Key, but TikTok session exists — allowing offline entry');
+            return { allow: true, offline: true, reason: 'TT_SESSION_ONLY' };
+        }
+        return { allow: false, reason: 'NO_TOKEN' };
+    }
 
     sendSplashStatus('Đang xác thực Serial Key với server...');
     const remote = await remoteValidateToken(cached);
@@ -731,7 +756,7 @@ ipcMain.handle('auth:quit', () => {
 });
 
 ipcMain.handle('auth:logout', () => {
-    performLogout();
+    performLogout({ relaunchApp: true });
 });
 
 // ── TikTok inline sign-in (passport flow) ──
@@ -765,7 +790,9 @@ ipcMain.handle('tiktok:clear-session', () => {
  * new Serial Key. Does NOT quit the app — the user expects to land back on
  * the same login screen they used at startup, not have to relaunch.
  */
-function performLogout() {
+function performLogout(options = {}) {
+    const relaunchApp = options.relaunchApp === true;
+
     authStore.clear();
     currentAuth = null;
     clearRendererAuthSeed();
@@ -783,6 +810,36 @@ function performLogout() {
         try { mainWindow.removeAllListeners('close'); mainWindow.destroy(); }
         catch { /* race */ }
         mainWindow = null;
+    }
+
+    if (relaunchApp) {
+        isQuitting = true;
+
+        closeSplash();
+        closeLoginWindow();
+
+        if (tray && !tray.isDestroyed()) {
+            try { tray.destroy(); } catch { /* already destroyed */ }
+            tray = null;
+        }
+
+        if (dapi) {
+            try { dapi.stop(); } catch { /* already stopped */ }
+            dapi = null;
+        }
+
+        stopBackend();
+
+        try {
+            app.relaunch();
+            app.exit(0);
+            return;
+        } catch (err) {
+            isQuitting = false;
+            console.warn('[Auth] app.relaunch failed, fallback to in-app login window:', err && err.message ? err.message : err);
+            createLoginWindow('LOGOUT');
+            return;
+        }
     }
 
     createLoginWindow('LOGOUT');
