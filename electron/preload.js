@@ -1,9 +1,66 @@
-// Preload — exposes the same `window.API` shape that the real TikFinity desktop app
-// provides, so the bundled frontend (downloads/) doesn't crash when it calls into it.
-// Most actions are stubbed because our local .NET backend already handles equivalents
-// (Socket.IO broadcast replaces emitWs, local server replaces fetchUrl-as-CORS-bypass).
+// Preload — exposes window.API matching the original TikFinity desktop bridge
+// shape so the bundled frontend (downloads/) doesn't crash when it calls in.
+//
+// Most actions are forwarded to main.js via IPC; the renderer never sees raw
+// Node APIs. Event names mirror the original app exactly so any obfuscated
+// bundle code that listens for `isLiveDetected`, `spotifyAuthToken`, etc.
+// still works.
 
 const { contextBridge, ipcRenderer } = require('electron');
+
+function seedRendererAuth() {
+    let seed = null;
+
+    try {
+        seed = ipcRenderer.sendSync('auth:get-renderer-seed');
+    } catch {
+        return;
+    }
+
+    if (!seed || typeof seed !== 'object') return;
+
+    try {
+        if (typeof localStorage === 'undefined' || typeof document === 'undefined') {
+            throw new Error('storage-unavailable');
+        }
+
+        const set = (key, value) => {
+            if (localStorage.getItem(key) !== value) {
+                localStorage.setItem(key, value);
+            }
+        };
+
+        set('tfs_authed', '1');
+        set('tfs_user', seed.userPayload);
+        set('setting_loginaccesstoken', seed.tokenForBundle);
+        set('setting_ispro', 'true');
+        set('setting_channelid', '1');
+        set('setting_channelname', seed.displayName);
+        set('setting_email', seed.displayName);
+
+        if (!localStorage.getItem('setting_locale')) {
+            localStorage.setItem('setting_locale', 'vi');
+        }
+
+        if (!/(?:^|;\s*)tf_login_token=/.test(document.cookie)) {
+            const maxAge = 60 * 60 * 24 * 30;
+            document.cookie = `tf_login_token=${encodeURIComponent(seed.tokenForBundle)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+            document.cookie = `tf_ispro=true; path=/; max-age=${maxAge}; SameSite=Lax`;
+            document.cookie = `tf_channelid=1; path=/; max-age=${maxAge}; SameSite=Lax`;
+            document.cookie = `tf_channelname=${encodeURIComponent(seed.displayName)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+        }
+        window.__tfsAuthSeeded = true;
+    } catch {
+        if (!window.__tfsAuthSeedRetryScheduled) {
+            window.__tfsAuthSeedRetryScheduled = true;
+            window.addEventListener('DOMContentLoaded', () => {
+                if (!window.__tfsAuthSeeded) seedRendererAuth();
+            }, { once: true });
+        }
+    }
+}
+
+seedRendererAuth();
 
 let newRoomIdHandler = null;
 let isLiveHandler = null;
@@ -19,11 +76,10 @@ contextBridge.exposeInMainWorld('API', {
     toMain: (args) => ipcRenderer.invoke('toMain', args),
 
     fetchUrl: (requestConfig, callback) => {
-        const requestId = Math.random() * 10000000000000000;
-        requestConfig.requestId = requestId;
-        requestConfig.action = 'fetchUrl';
+        const requestId = Math.floor(Math.random() * 1e16);
+        const cfg = { ...requestConfig, requestId, action: 'fetchUrl' };
         if (typeof callback === 'function') fetchUrlQueue.set(requestId, callback);
-        ipcRenderer.invoke('toMain', requestConfig);
+        ipcRenderer.invoke('toMain', cfg);
     },
 
     setNewRoomIdHandler:           (fn) => { newRoomIdHandler = fn; },
@@ -35,59 +91,67 @@ contextBridge.exposeInMainWorld('API', {
     setDapiClientConnectedHandler: (fn) => { dapiClientConnectedHandler = fn; }
 });
 
-// Backward compat: keep the older custom shape we previously exposed
+// Lightweight diagnostics object for clone-specific code.
 contextBridge.exposeInMainWorld('electronAPI', {
     isElectron: true,
     platform: process.platform,
     version: process.env.npm_package_version || '1.0.0'
 });
 
-ipcRenderer.on('newRoomIdDetected', () => {
-    if (typeof newRoomIdHandler === 'function') {
-        try { newRoomIdHandler(); } catch (e) { console.error('[preload] newRoomIdHandler', e); }
-    }
+// Auth + TikTok session control surface for renderer.
+contextBridge.exposeInMainWorld('TFS', {
+    getAuthState: () => ipcRenderer.invoke('auth:get-state'),
+    logout:       () => ipcRenderer.invoke('auth:logout'),
+
+    // TikTok sign-in (passport flow). Renderer calls these from the
+    // injected "TikTok Login required" modal when the user clicks Connect
+    // without a saved sessionid cookie.
+    tiktokGetStatus:  () => ipcRenderer.invoke('tiktok:get-signin-status'),
+    tiktokSignIn:     () => ipcRenderer.invoke('tiktok:sign-in'),
+    tiktokClear:      () => ipcRenderer.invoke('tiktok:clear-session')
 });
 
-ipcRenderer.on('isLiveChanged', (_evt, isLive) => {
-    if (typeof isLiveHandler === 'function') {
-        try { isLiveHandler(isLive); } catch (e) { console.error('[preload] isLiveHandler', e); }
-    }
+// ---- IPC event fan-out ----------------------------------------------------
+
+ipcRenderer.on('newRoomIdDetected', (_evt, payload) => {
+    if (typeof newRoomIdHandler !== 'function') return;
+    try { newRoomIdHandler(payload); } catch (e) { console.error('[preload] newRoomIdHandler', e); }
+});
+
+ipcRenderer.on('isLiveDetected', (_evt, payload) => {
+    if (typeof isLiveHandler !== 'function') return;
+    try { isLiveHandler(payload); } catch (e) { console.error('[preload] isLiveHandler', e); }
 });
 
 ipcRenderer.on('execPsCommandResult', (_evt, payload) => {
-    if (typeof execPsCommandResultHandler === 'function') {
-        try { execPsCommandResultHandler(payload); } catch (e) { console.error('[preload] execPsCommandResult', e); }
-    }
+    if (typeof execPsCommandResultHandler !== 'function') return;
+    try { execPsCommandResultHandler(payload); } catch (e) { console.error('[preload] execPsCommandResult', e); }
 });
 
 ipcRenderer.on('autoItNotInstalled', () => {
-    if (typeof autoItNotInstalledListener === 'function') {
-        try { autoItNotInstalledListener(); } catch (e) { console.error('[preload] autoItNotInstalled', e); }
-    }
+    if (typeof autoItNotInstalledListener !== 'function') return;
+    try { autoItNotInstalledListener(); } catch (e) { console.error('[preload] autoItNotInstalled', e); }
 });
 
-ipcRenderer.on('spotifyAuth', (_evt, payload) => {
-    if (typeof spotifyAuthListener === 'function') {
-        try { spotifyAuthListener(payload); } catch (e) { console.error('[preload] spotifyAuth', e); }
-    }
+ipcRenderer.on('spotifyAuthToken', (_evt, payload) => {
+    if (typeof spotifyAuthListener !== 'function') return;
+    try { spotifyAuthListener(payload?.authToken || payload); } catch (e) { console.error('[preload] spotifyAuthToken', e); }
 });
 
 ipcRenderer.on('keyboardEvent', (_evt, payload) => {
-    if (typeof keyboardListener === 'function') {
-        try { keyboardListener(payload); } catch (e) { console.error('[preload] keyboardEvent', e); }
-    }
+    if (typeof keyboardListener !== 'function') return;
+    try { keyboardListener(payload); } catch (e) { console.error('[preload] keyboardEvent', e); }
 });
 
-ipcRenderer.on('dapiClientConnected', () => {
-    if (typeof dapiClientConnectedHandler === 'function') {
-        try { dapiClientConnectedHandler(); } catch (e) { console.error('[preload] dapiClientConnected', e); }
-    }
+ipcRenderer.on('dapiClientConnected', (_evt, payload) => {
+    if (typeof dapiClientConnectedHandler !== 'function') return;
+    try { dapiClientConnectedHandler(payload); } catch (e) { console.error('[preload] dapiClientConnected', e); }
 });
 
 ipcRenderer.on('fetchUrlResponse', (_evt, payload) => {
+    if (!payload || typeof payload.requestId === 'undefined') return;
     const cb = fetchUrlQueue.get(payload.requestId);
-    if (cb) {
-        fetchUrlQueue.delete(payload.requestId);
-        try { cb(payload); } catch (e) { console.error('[preload] fetchUrlResponse', e); }
-    }
+    if (!cb) return;
+    fetchUrlQueue.delete(payload.requestId);
+    try { cb(payload); } catch (e) { console.error('[preload] fetchUrlResponse', e); }
 });

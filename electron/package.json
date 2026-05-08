@@ -8,11 +8,14 @@
     "start": "electron .",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
-    "build:portable": "electron-builder --win portable"
+    "build:portable": "electron-builder --win portable",
+    "build:installer": "electron-builder --win nsis"
   },
-  "dependencies": {},
+  "dependencies": {
+    "ws": "^8.20.0"
+  },
   "devDependencies": {
-    "electron": "^33.0.0",
+    "electron": "^33.4.11",
     "electron-builder": "^25.0.0"
   },
   "build": {
@@ -21,21 +24,47 @@
     "directories": {
       "output": "dist"
     },
+    "files": [
+      "main.js",
+      "preload.js",
+      "preload-splash.js",
+      "preload-login.js",
+      "splash.html",
+      "splash-logo.png",
+      "login.html",
+      "auth-store.js",
+      "wsserver.js",
+      "icon.ico",
+      "icon.png",
+      "node_modules/**/*"
+    ],
     "win": {
-      "target": ["portable"],
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "icon.ico",
       "sign": "./nosign.js",
       "signingHashAlgorithms": []
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
+      "shortcutName": "TikFinity",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "extraResources": [
       {
         "from": "../dist/app",
         "to": "backend",
-        "filter": ["**/*", "!node_modules/.cache/**"]
+        "filter": [
+          "**/*",
+          "!node_modules/.cache/**"
+        ]
       }
     ]
   }

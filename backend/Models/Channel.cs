@@ -41,4 +41,5 @@ public class Channel
     public List<ChatCommand> Commands { get; set; } = [];
     public List<Goal> Goals { get; set; } = [];
     public List<TimerItem> Timers { get; set; } = [];
+    public List<Webhook> Webhooks { get; set; } = [];
 }

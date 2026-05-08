@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>TikFinity — Đăng nhập</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #212121;
+    background-image:
+      radial-gradient(circle at 20% 10%, rgba(255, 0, 80, 0.18) 0%, transparent 40%),
+      radial-gradient(circle at 90% 90%, rgba(0, 242, 234, 0.14) 0%, transparent 45%),
+      linear-gradient(160deg, #1a1a1a 0%, #1a0e1a 100%);
+    color: #fff;
+    user-select: none;
+    -webkit-user-select: none;
+    display: flex;
+    flex-direction: column;
+  }
+  .titlebar {
+    height: 36px;
+    -webkit-app-region: drag;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 0 8px;
+    flex-shrink: 0;
+  }
+  .titlebar .actions { -webkit-app-region: no-drag; display: flex; gap: 4px; }
+  .titlebar button {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: #9aa0a6;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: background 0.15s;
+  }
+  .titlebar button:hover { background: rgba(255, 255, 255, 0.08); }
+  .titlebar button.close:hover { background: #e81123; color: #fff; }
+
+  .container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 32px 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 380px;
+    text-align: center;
+  }
+
+  .logo {
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 12px;
+    display: block;
+    filter: drop-shadow(0 4px 16px rgba(255, 0, 80, 0.35));
+  }
+  .brand {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    background: linear-gradient(90deg, #ff0050, #00f2ea);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .tagline {
+    font-size: 10px;
+    color: #9aa0a6;
+    margin-top: 4px;
+    margin-bottom: 24px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+
+  .tabs {
+    display: flex;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 20px;
+    gap: 4px;
+  }
+  .tab {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    color: #9aa0a6;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .tab.active {
+    background: linear-gradient(135deg, #ff0050, #ff3370);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(255, 0, 80, 0.3);
+  }
+  .tab:hover:not(.active) { background: rgba(255, 255, 255, 0.06); color: #c4c7c5; }
+
+  .field {
+    margin-bottom: 12px;
+    text-align: left;
+  }
+  .field label {
+    display: block;
+    font-size: 11px;
+    color: #9aa0a6;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .field input {
+    width: 100%;
+    padding: 11px 14px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    font-family: 'Consolas', 'Courier New', monospace;
+  }
+  .field input:focus {
+    border-color: rgba(255, 0, 80, 0.5);
+    box-shadow: 0 0 0 3px rgba(255, 0, 80, 0.1);
+  }
+  .field input::placeholder { color: #5f6368; font-family: inherit; }
+
+  .pane { display: none; }
+  .pane.active { display: block; }
+
+  .btn-primary {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, #ff0050 0%, #ff3370 100%);
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(255, 0, 80, 0.35);
+    transition: transform 0.1s, box-shadow 0.15s;
+    margin-top: 8px;
+  }
+  .btn-primary:hover { box-shadow: 0 6px 20px rgba(255, 0, 80, 0.45); }
+  .btn-primary:active { transform: translateY(1px); }
+  .btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .status {
+    min-height: 18px;
+    font-size: 11px;
+    margin-top: 12px;
+    text-align: center;
+    letter-spacing: 0.2px;
+  }
+  .status.error { color: #ff5577; }
+  .status.success { color: #00d4aa; }
+  .status.info { color: #c4c7c5; }
+
+  .footer {
+    text-align: center;
+    font-size: 10px;
+    color: #5f6368;
+    margin-top: 18px;
+    letter-spacing: 0.5px;
+  }
+  .footer a { color: #9aa0a6; text-decoration: none; }
+  .footer a:hover { color: #ff0050; }
+
+  .spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    border-top-color: #ff0050;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="titlebar">
+    <div class="actions">
+      <button class="close" id="btnQuit" title="Thoát">✕</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <img class="logo" src="splash-logo.png" alt="TikFinity" draggable="false">
+      <div class="brand">TikFinity</div>
+      <div class="tagline">Local Stream Studio</div>
+
+      <div class="tabs">
+        <button class="tab active" data-pane="key">🔑 Serial Key</button>
+        <button class="tab" data-pane="user">👤 Tài khoản</button>
+      </div>
+
+      <!-- License key activation -->
+      <form id="paneKey" class="pane active" autocomplete="off">
+        <div class="field">
+          <label>Serial Key</label>
+          <input type="text" id="keyId" placeholder="TKFN-XXXX-XXXX-XXXX" autofocus spellcheck="false">
+        </div>
+        <div class="field">
+          <label>Key Code <span style="color:#5f6368;font-size:10px;text-transform:none;letter-spacing:0">(không bắt buộc)</span></label>
+          <input type="text" id="keyCode" placeholder="Mã xác nhận của key" spellcheck="false">
+        </div>
+        <button type="submit" class="btn-primary" id="btnActivate">Kích hoạt</button>
+      </form>
+
+      <!-- User login -->
+      <form id="paneUser" class="pane" autocomplete="off">
+        <div class="field">
+          <label>Tên đăng nhập</label>
+          <input type="text" id="username" placeholder="username" spellcheck="false">
+        </div>
+        <div class="field">
+          <label>Mật khẩu</label>
+          <input type="password" id="password" placeholder="••••••••">
+        </div>
+        <button type="submit" class="btn-primary" id="btnLogin">Đăng nhập</button>
+      </form>
+
+      <div id="status" class="status"></div>
+
+      <div class="footer">
+        © 2026 TikFinity · <a href="#" id="contactLink">Liên hệ hỗ trợ</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const status = $('status');
+
+    function setStatus(msg, kind) {
+      status.className = 'status' + (kind ? ' ' + kind : '');
+      status.innerHTML = msg || '';
+    }
+    function setBusy(busy, label) {
+      [$('btnActivate'), $('btnLogin')].forEach(b => { b.disabled = busy; });
+      if (busy) setStatus('<span class="spinner"></span>' + (label || 'Đang xử lý...'), 'info');
+    }
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(t => {
+      t.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+        document.querySelectorAll('.pane').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+        $(`pane${t.dataset.pane.charAt(0).toUpperCase() + t.dataset.pane.slice(1)}`).classList.add('active');
+        setStatus('');
+      });
+    });
+
+    // License key activation
+    $('paneKey').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const keyId = $('keyId').value.trim();
+      const keyCode = $('keyCode').value.trim();
+      if (!keyId) { setStatus('Vui lòng nhập Serial Key.', 'error'); return; }
+      setBusy(true, 'Đang xác thực key...');
+      try {
+        const result = await window.AUTH.validateKey(keyId, keyCode);
+        if (result && result.ok) {
+          setStatus('Kích hoạt thành công — đang vào ứng dụng...', 'success');
+        } else {
+          setBusy(false);
+          setStatus(result?.message || 'Key không hợp lệ.', 'error');
+        }
+      } catch (err) {
+        setBusy(false);
+        setStatus('Lỗi kết nối server: ' + (err?.message || err), 'error');
+      }
+    });
+
+    // User login
+    $('paneUser').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = $('username').value.trim();
+      const password = $('password').value;
+      if (!username || !password) { setStatus('Nhập đầy đủ tài khoản và mật khẩu.', 'error'); return; }
+      setBusy(true, 'Đang đăng nhập...');
+      try {
+        const result = await window.AUTH.loginUser(username, password);
+        if (result && result.ok) {
+          setStatus('Đăng nhập thành công — đang vào ứng dụng...', 'success');
+        } else {
+          setBusy(false);
+          setStatus(result?.message || 'Sai tài khoản hoặc mật khẩu.', 'error');
+        }
+      } catch (err) {
+        setBusy(false);
+        setStatus('Lỗi kết nối server: ' + (err?.message || err), 'error');
+      }
+    });
+
+    // Quit
+    $('btnQuit').addEventListener('click', () => window.AUTH.quit());
+
+    // Receive auth state changes pushed from main (e.g., server unreachable)
+    window.AUTH.onState((s) => {
+      if (s?.message) setStatus(s.message, s.kind || 'info');
+    });
+
+    // Prefill last-used Serial Key
+    window.AUTH.getState().then(state => {
+      if (state?.keyId) $('keyId').value = state.keyId;
+      if (state?.username) $('username').value = state.username;
+    });
+  </script>
+</body>
+</html>

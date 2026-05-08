@@ -1,37 +1,234 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, dialog, ipcMain, session } = require('electron');
-const { spawn } = require('child_process');
+// TikFinity Desktop — Electron main process.
+//
+// Architecture:
+//   1. Spawn the local .NET backend (TikFinityBackend) on port 5285.
+//   2. Show splash window while backend warms up (~2-5s on first run).
+//   3. Configure session header rewriting + UA spoofing so embedded TikTok /
+//      Spotify / Younow / Easemob / Agora flows pass anti-bot heuristics.
+//   4. Launch a Desktop API WebSocket server on 127.0.0.1:21213 so external
+//      plugins (Streamerbot, etc.) can subscribe to TikTok events.
+//   5. Open the main window pointing at http://localhost:5285.
+//   6. Poll backend status every 15s; when live, hold powerSaveBlocker so the
+//      OS doesn't sleep. Notify renderer via newRoomIdDetected / isLiveDetected.
+//   7. Mirror window-open behaviour from the original TikFinity Electron app
+//      so #tfbridge / #ttlogin / #electron popups stay in-app instead of
+//      bouncing to the user's default browser.
+//
+// Future: TikfinityServer (cloud auth + license + studio assets) at
+//   process.env.TIKFINITY_AUTH_HOST will own login. This file already exposes
+//   AUTH_HOST so the renderer can target it for /api/auth/login flows.
+
+const {
+    app, BrowserWindow, Tray, Menu, nativeImage, dialog, ipcMain, session,
+    shell, protocol, powerSaveBlocker
+} = require('electron');
+const { spawn, spawnSync, exec } = require('child_process');
 const path = require('path');
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
+const authStore = require('./auth-store');
+const tiktokSessionStore = require('./tiktok-session-store');
+const tiktokSignin = require('./tiktok-signin');
 
-const BACKEND_PORT = 5285;
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+const BACKEND_PORT = Number(process.env.TIKMAX_BACKEND_PORT) || 5285;
 const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
+const BACKEND_HEALTH = `${BACKEND_URL}/api/health`;
+const BACKEND_STATUS = `${BACKEND_URL}/api/tiktok/status`;
+
+// Cloud TikfinityServer (auth + license + studio assets). Renderer will hit
+// this for login once integration lands; main only needs it to recognize
+// in-app navigation targets.
+const AUTH_HOST = process.env.TIKFINITY_AUTH_HOST || 'http://127.0.0.1:5194';
+
+const DAPI_PORT = Number(process.env.TIKMAX_DAPI_PORT) || 21213;
+
+// User-Agent for popup windows (TikTok login, etc.). Matches Zerody so that
+// any TikTok endpoint allow-listing this app keeps working.
+const TIKFINITY_UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+    '(KHTML, like Gecko) TikTokLIVEStudio/0.32.2-beta Chrome/104.0.5112.102 ' +
+    'Electron/20.1.0-tt.6.release.mssdk.8 TTElectron/20.1.0-tt.6.release.mssdk.8 Safari/537.36';
+
+const isWin = process.platform === 'win32';
+const LIVE_POLL_INTERVAL_MS = 15000;
+const BACKEND_HEALTH_TIMEOUT_S = 30;
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
 
 let mainWindow = null;
+let splashWindow = null;
+let loginWindow = null;
 let tray = null;
 let backendProcess = null;
 let isQuitting = false;
+let powerSaveBlockerId = null;
+let liveStatusTimer = null;
+let authReCheckTimer = null;
+let currentUniqueId = null;
+let currentRoomId = null;
+let currentChannelId = null;
+let dapi = null;
+let originalUA = null;
+let currentAuth = null;  // { type, token, keyId, username, expiresAt, lastValidatedAt }
+let cachedBundleJwt = null;  // wsAuthToken fetched from /api/me for the bundle
+let rendererAuthSeedPromise = null;
+const AUTH_RECHECK_INTERVAL_MS = 60 * 60 * 1000; // 1h
 
-// Prevent multiple instances
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
+// ---------------------------------------------------------------------------
+// Crash diagnostics — log every reason main process or renderer might die.
+// Without these, electron silently exits and we have no clue why.
+// ---------------------------------------------------------------------------
+
+process.on('uncaughtException', (err) => {
+    console.error('[CRASH] uncaughtException:', err && err.stack || err);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('[CRASH] unhandledRejection:', reason && reason.stack || reason);
+});
+app.on('render-process-gone', (_e, wc, details) => {
+    console.error('[CRASH] render-process-gone:', JSON.stringify(details));
+});
+app.on('child-process-gone', (_e, details) => {
+    console.error('[CRASH] child-process-gone:', JSON.stringify(details));
+});
+app.on('before-quit', () => { console.log('[LIFECYCLE] before-quit'); });
+app.on('will-quit', () => { console.log('[LIFECYCLE] will-quit'); });
+app.on('quit', (_e, code) => { console.log('[LIFECYCLE] quit code=' + code); });
+
+// ---------------------------------------------------------------------------
+// Single instance
+// ---------------------------------------------------------------------------
+
+if (!app.requestSingleInstanceLock()) {
     app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+        } else {
+            createMainWindow();
+        }
+    });
+    bootstrap();
 }
 
-app.on('second-instance', () => {
-    if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
-    }
-});
+// ---------------------------------------------------------------------------
+// Bootstrap
+// ---------------------------------------------------------------------------
 
-// --- Backend process management ---
+function bootstrap() {
+    originalUA = app.userAgentFallback;
+    app.userAgentFallback = TIKFINITY_UA;
+
+    app.whenReady().then(async () => {
+        console.log('[Electron] App ready');
+
+        authStore.init(app.getPath('userData'));
+        currentAuth = authStore.load();
+
+        // TikTok session cookie store. hydrateEnv() pushes the saved cookie
+        // into process.env.TIKTOK_SESSIONID so the bridge spawn (which is a
+        // child of the backend, which is a child of this process) inherits
+        // it. Without this the bridge has to fall back to Eulerstream signing
+        // and gets rate-limited / IP-flagged.
+        tiktokSessionStore.init(app.getPath('userData'));
+        await tiktokSignin.hydrateEnv();
+
+        createSplash();
+        configureSession();
+        registerBytedanceProtocol();
+
+        // DAPI WS server can start immediately — independent of backend.
+        try {
+            dapi = require('./wsserver');
+            dapi.start({
+                port: DAPI_PORT,
+                onConnection: () => {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('dapiClientConnected', {
+                            count: dapi.getClientCount()
+                        });
+                    }
+                }
+            });
+        } catch (err) {
+            console.error('[DAPI] failed to load:', err.message);
+        }
+
+        startBackend();
+        createTray();
+
+        try {
+            await waitForBackend(BACKEND_HEALTH_TIMEOUT_S, 1000);
+            sendSplashStatus('Đang kiểm tra phiên đăng nhập...');
+        } catch (err) {
+            closeSplash();
+            console.error('[Electron] Backend startup failed:', err.message);
+            dialog.showErrorBox(
+                'Startup Error',
+                'Không thể khởi động TikFinity backend.\n\n' +
+                `Hãy chắc chắn .NET 9 đã cài đặt và port ${BACKEND_PORT} đang rảnh.\n\n` +
+                err.message
+            );
+            app.quit();
+            return;
+        }
+
+        // Auth gate: re-validate cached token if any; otherwise show login.
+        const decision = await decideAuthEntrypoint();
+        console.log('[Auth] gate decision:', decision);
+        if (decision.allow) {
+            sendSplashStatus(decision.offline
+                ? 'Đang vào ứng dụng (chế độ offline)...'
+                : 'Đăng nhập đã xác thực — đang vào ứng dụng...');
+            createMainWindow();
+            startLivePolling();
+            startAuthReCheck();
+            setTimeout(setHighPriority, 5000);
+        } else {
+            sendSplashStatus('Cần đăng nhập để tiếp tục...');
+            console.log('[Auth] showing login window, reason:', decision.reason);
+            createLoginWindow(decision.reason);
+        }
+    });
+
+    app.on('before-quit', () => {
+        isQuitting = true;
+        if (liveStatusTimer) { clearInterval(liveStatusTimer); liveStatusTimer = null; }
+        if (authReCheckTimer) { clearInterval(authReCheckTimer); authReCheckTimer = null; }
+        if (powerSaveBlockerId !== null) {
+            try { powerSaveBlocker.stop(powerSaveBlockerId); } catch { /* already stopped */ }
+            powerSaveBlockerId = null;
+        }
+        if (dapi) { try { dapi.stop(); } catch { /* not running */ } }
+        stopBackend();
+    });
+
+    app.on('window-all-closed', () => {
+        // Keep running in tray (matches TikFinity's behaviour). User must use
+        // Tray → Thoát or app.quit() to fully exit.
+    });
+
+    app.on('activate', () => {
+        if (mainWindow) mainWindow.show();
+        else createMainWindow();
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Backend process
+// ---------------------------------------------------------------------------
 
 function getBackendLaunchConfig() {
-    // The real backend is the .NET project in ../backend. Electron spawns it
-    // via `dotnet run` in dev, or the self-contained publish in a packaged app.
-    const isWin = process.platform === 'win32';
-
     if (app.isPackaged) {
         const exeName = isWin ? 'TikFinityBackend.exe' : 'TikFinityBackend';
         const exePath = path.join(process.resourcesPath, 'backend', exeName);
@@ -42,97 +239,95 @@ function getBackendLaunchConfig() {
             label: exePath
         };
     }
-
-    const backendProjectDir = path.join(__dirname, '..', 'backend');
+    const projDir = path.join(__dirname, '..', 'backend');
     return {
         command: isWin ? 'dotnet.exe' : 'dotnet',
-        args: ['run', '--project', backendProjectDir, '--no-launch-profile'],
-        cwd: backendProjectDir,
-        label: `dotnet run --project ${backendProjectDir}`
+        args: ['run', '--project', projDir, '--no-launch-profile'],
+        cwd: projDir,
+        label: `dotnet run --project ${projDir}`
     };
 }
 
 function startBackend() {
-    const backend = getBackendLaunchConfig();
+    const cfg = getBackendLaunchConfig();
+    console.log(`[Electron] Starting backend: ${cfg.label}`);
+    sendSplashStatus('Đang khởi động backend...');
 
-    console.log(`[Electron] Starting backend: ${backend.label}`);
+    // Tee backend + bridge output to a log file the user can grab and share
+    // when reporting issues. File rotates each app launch.
+    const logPath = path.join(app.getPath('userData'), 'backend-debug.log');
+    try { fs.unlinkSync(logPath); } catch { /* first run / not present */ }
+    const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+    logStream.write(`\n=== Backend launch ${new Date().toISOString()} ===\n`);
+    console.log(`[Electron] Backend log file: ${logPath}`);
 
     try {
-        backendProcess = spawn(backend.command, backend.args, {
-            cwd: backend.cwd,
-            env: {
-                ...process.env,
-                PORT: String(BACKEND_PORT)
-            },
+        backendProcess = spawn(cfg.command, cfg.args, {
+            cwd: cfg.cwd,
+            env: { ...process.env, PORT: String(BACKEND_PORT) },
             stdio: ['ignore', 'pipe', 'pipe']
         });
-
-        backendProcess.stdout.on('data', (data) => {
-            const msg = data.toString().trim();
-            if (msg) console.log(`[Backend] ${msg}`);
+        backendProcess.stdout.on('data', d => {
+            const m = d.toString();
+            try { logStream.write(m); } catch { /* ignore */ }
+            const trimmed = m.trim();
+            if (trimmed) console.log(`[Backend] ${trimmed}`);
         });
-
-        backendProcess.stderr.on('data', (data) => {
-            const msg = data.toString().trim();
-            if (msg) console.error(`[Backend ERR] ${msg}`);
+        backendProcess.stderr.on('data', d => {
+            const m = d.toString();
+            try { logStream.write('[ERR] ' + m); } catch { /* ignore */ }
+            const trimmed = m.trim();
+            if (trimmed) console.error(`[Backend ERR] ${trimmed}`);
         });
-
-        backendProcess.on('exit', (code) => {
-            console.log(`[Backend] Process exited with code ${code}`);
-            if (!isQuitting) {
-                // Backend crashed - show error and restart option
-                dialog.showMessageBox({
-                    type: 'error',
-                    title: 'TikFinity Backend Error',
-                    message: `Backend process exited unexpectedly (code: ${code}).`,
-                    buttons: ['Restart', 'Quit'],
-                    defaultId: 0
-                }).then(({ response }) => {
-                    if (response === 0) {
-                        startBackend();
-                        waitForBackend().then(createWindow);
-                    } else {
-                        app.quit();
-                    }
-                });
-            }
+        backendProcess.on('exit', code => {
+            console.log(`[Backend] exited with code ${code}`);
+            if (isQuitting) return;
+            dialog.showMessageBox({
+                type: 'error',
+                title: 'TikFinity Backend Error',
+                message: `Backend đã thoát bất ngờ (code: ${code}).`,
+                buttons: ['Khởi động lại', 'Thoát'],
+                defaultId: 0
+            }).then(({ response }) => {
+                if (response === 0) {
+                    startBackend();
+                    waitForBackend(BACKEND_HEALTH_TIMEOUT_S, 1000)
+                        .then(() => { if (mainWindow) mainWindow.reload(); })
+                        .catch((e) => console.error('[Backend] restart failed:', e.message));
+                } else {
+                    app.quit();
+                }
+            });
         });
-
-        backendProcess.on('error', (err) => {
-            console.error(`[Backend] Failed to start:`, err.message);
+        backendProcess.on('error', err => {
+            console.error('[Backend] failed to spawn:', err.message);
         });
-
     } catch (err) {
-        console.error(`[Electron] Failed to spawn backend:`, err);
+        console.error('[Electron] Failed to spawn backend:', err);
     }
 }
 
-function waitForBackend(maxRetries = 30, delayMs = 1000) {
+function waitForBackend(maxRetries, delayMs) {
     return new Promise((resolve, reject) => {
         let attempt = 0;
-
-        function check() {
+        const check = () => {
             attempt++;
-            http.get(`${BACKEND_URL}/api/health`, (res) => {
-                if (res.statusCode === 200) {
-                    console.log(`[Electron] Backend ready after ${attempt} attempts`);
-                    resolve();
-                } else {
-                    retry();
-                }
-            }).on('error', () => {
-                retry();
+            sendSplashStatus(`Đang chờ backend (${attempt}/${maxRetries})...`);
+            const req = http.get(BACKEND_HEALTH, res => {
+                if (res.statusCode === 200) resolve();
+                else retry();
+                res.resume();
             });
-        }
-
-        function retry() {
+            req.on('error', retry);
+            req.setTimeout(2000, () => { req.destroy(); retry(); });
+        };
+        const retry = () => {
             if (attempt >= maxRetries) {
-                reject(new Error(`Backend not ready after ${maxRetries} attempts`));
-                return;
+                reject(new Error(`Backend không phản hồi sau ${maxRetries} lần thử`));
+            } else {
+                setTimeout(check, delayMs);
             }
-            setTimeout(check, delayMs);
-        }
-
+        };
         check();
     });
 }
@@ -141,19 +336,677 @@ function stopBackend() {
     if (backendProcess && !backendProcess.killed) {
         console.log('[Electron] Stopping backend...');
         backendProcess.kill('SIGTERM');
-        // Force kill after 5 seconds
         setTimeout(() => {
-            if (backendProcess && !backendProcess.killed) {
-                backendProcess.kill('SIGKILL');
-            }
+            if (backendProcess && !backendProcess.killed) backendProcess.kill('SIGKILL');
         }, 5000);
     }
 }
 
-// --- Window management ---
+// ---------------------------------------------------------------------------
+// Splash
+// ---------------------------------------------------------------------------
 
-function createWindow() {
-    if (mainWindow) {
+function createSplash() {
+    splashWindow = new BrowserWindow({
+        width: 420,
+        height: 300,
+        frame: false,
+        resizable: false,
+        movable: true,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+        backgroundColor: '#1a1a1a',
+        icon: getIconPath(),
+        webPreferences: {
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload-splash.js')
+        }
+    });
+    splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+    splashWindow.once('ready-to-show', () => {
+        if (splashWindow && !splashWindow.isDestroyed()) {
+            splashWindow.webContents.send('splash:version', app.getVersion());
+        }
+    });
+    splashWindow.on('closed', () => { splashWindow = null; });
+}
+
+function sendSplashStatus(text) {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+        try { splashWindow.webContents.send('splash:status', text); } catch { /* race with close */ }
+    }
+}
+
+function closeSplash() {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+        try { splashWindow.close(); } catch { /* already closed */ }
+    }
+    splashWindow = null;
+}
+
+// ---------------------------------------------------------------------------
+// Auth gate
+// ---------------------------------------------------------------------------
+
+// Decide what to show after splash: main app, or the login window.
+// STRICT mode: server validation is mandatory on every launch — no offline
+// grace period. If TikfinityServer is unreachable, the user lands on the
+// login window with a clear "cần kết nối server" message.
+//
+// Order:
+//   1. No cached token → login (NO_TOKEN).
+//   2. Server unreachable → login (SERVER_UNREACHABLE).
+//   3. Server says invalid/expired/revoked → clear cache, login.
+//   4. Server says valid → allow + refresh lastValidatedAt.
+async function decideAuthEntrypoint() {
+    const cached = currentAuth;
+    if (!cached) return { allow: false, reason: 'NO_TOKEN' };
+
+    sendSplashStatus('Đang xác thực Serial Key với server...');
+    const remote = await remoteValidateToken(cached);
+
+    if (!remote.reachable) {
+        // No silent offline pass — keep the auth.json so the user doesn't have
+        // to re-type the key, but force a fresh validation by routing through
+        // the login window. They can re-submit the same key once the server
+        // comes back online.
+        return { allow: false, reason: 'SERVER_UNREACHABLE' };
+    }
+
+    if (!remote.valid) {
+        authStore.clear();
+        currentAuth = null;
+        return { allow: false, reason: remote.reason || 'INVALID' };
+    }
+
+    currentAuth = authStore.save({
+        ...cached,
+        expiresAt: remote.expiresAt || cached.expiresAt,
+        lastValidatedAt: new Date().toISOString()
+    });
+    return { allow: true, offline: false };
+}
+
+/**
+ * Periodic key revalidation while the app is running. If the key expires or
+ * gets revoked mid-session, we clear auth and quit cleanly (next launch will
+ * land on the login window). Runs every AUTH_RECHECK_INTERVAL_MS.
+ */
+function startAuthReCheck() {
+    if (authReCheckTimer) return;
+    authReCheckTimer = setInterval(async () => {
+        if (!currentAuth) return;
+
+        // Local expiry check first — cheap, doesn't need server.
+        if (currentAuth.expiresAt) {
+            const exp = Date.parse(currentAuth.expiresAt);
+            if (Number.isFinite(exp) && exp <= Date.now()) {
+                console.log('[Auth] Key expired during session — kicking back to login.');
+                showExpiryNotice('⏰ Serial Key đã hết hạn',
+                    'Vui lòng nhập key mới hoặc gia hạn.');
+                setTimeout(() => performLogout(), 2500);
+                return;
+            }
+        }
+
+        // Remote re-validation — only if server is reachable. Tolerant of brief
+        // network blips (don't kick user out on every transient error).
+        try {
+            const remote = await remoteValidateToken(currentAuth);
+            if (remote.reachable && !remote.valid) {
+                console.log(`[Auth] Server says invalid (${remote.reason}) — kicking back to login.`);
+                showExpiryNotice('🚫 Serial Key không còn hợp lệ',
+                    `Lý do: ${describeAuthReason(remote.reason) || remote.reason}.`);
+                setTimeout(() => performLogout(), 2500);
+            } else if (remote.reachable && remote.valid) {
+                // Refresh stored expiry so tray label / next-launch grace period stay accurate.
+                currentAuth = authStore.save({
+                    ...currentAuth,
+                    expiresAt: remote.expiresAt || currentAuth.expiresAt,
+                    lastValidatedAt: new Date().toISOString()
+                });
+                refreshTrayMenu();
+            }
+        } catch { /* network blip — ignore until next tick */ }
+    }, AUTH_RECHECK_INTERVAL_MS);
+}
+
+function showExpiryNotice(title, body) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+            dialog.showMessageBox(mainWindow, {
+                type: 'warning',
+                title: 'TikFinity',
+                message: title,
+                detail: body,
+                buttons: ['OK']
+            });
+        } catch { /* dialog races with app.quit */ }
+    }
+}
+
+// Hit TikfinityServer to confirm a cached token is still valid. Returns
+// { reachable, valid, reason?, expiresAt? }.
+async function remoteValidateToken(cached) {
+    if (!AUTH_HOST) return { reachable: false, valid: false };
+
+    if (cached.type === 'key' && cached.keyId) {
+        try {
+            const res = await tfsRequest('POST', '/api/keys/validate', { keyId: cached.keyId });
+            if (!res || !res.ok) return { reachable: false, valid: false };
+            const body = res.body || {};
+            return {
+                reachable: true,
+                valid: body.valid === true,
+                reason: body.reason,
+                expiresAt: body.expiredAt || null
+            };
+        } catch {
+            return { reachable: false, valid: false };
+        }
+    }
+
+    if (cached.type === 'user' && cached.token) {
+        try {
+            const res = await tfsRequest('GET', '/api/auth/validate', null, {
+                Authorization: `Bearer ${cached.token}`
+            });
+            if (!res || !res.ok) return { reachable: false, valid: false };
+            const body = res.body || {};
+            return { reachable: true, valid: body.valid === true };
+        } catch {
+            return { reachable: false, valid: false };
+        }
+    }
+
+    return { reachable: true, valid: false, reason: 'UNKNOWN_TYPE' };
+}
+
+// Lightweight HTTP client targeted at TikfinityServer. Returns
+// { ok: boolean, status: number, body: any } or throws on transport error.
+function tfsRequest(method, path, body, extraHeaders) {
+    return new Promise((resolve, reject) => {
+        const url = AUTH_HOST.replace(/\/+$/, '') + path;
+        const lib = url.startsWith('https:') ? https : http;
+        const opts = {
+            method,
+            headers: {
+                'Accept': 'application/json',
+                ...(extraHeaders || {})
+            },
+            // Self-signed certs are common on dev TikfinityServer.
+            rejectUnauthorized: false
+        };
+        const payload = body ? JSON.stringify(body) : null;
+        if (payload) {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.headers['Content-Length'] = Buffer.byteLength(payload);
+        }
+        const req = lib.request(url, opts, res => {
+            const chunks = [];
+            res.on('data', c => chunks.push(c));
+            res.on('end', () => {
+                const buf = Buffer.concat(chunks).toString('utf-8');
+                let parsed = buf;
+                const ct = (res.headers['content-type'] || '').toLowerCase();
+                if (ct.includes('application/json')) {
+                    try { parsed = JSON.parse(buf); } catch { /* keep raw */ }
+                }
+                resolve({
+                    ok: res.statusCode >= 200 && res.statusCode < 300,
+                    status: res.statusCode,
+                    body: parsed
+                });
+            });
+        });
+        req.on('error', reject);
+        req.setTimeout(8000, () => req.destroy(new Error('TIMEOUT')));
+        if (payload) req.write(payload);
+        req.end();
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Login window
+// ---------------------------------------------------------------------------
+
+function createLoginWindow(reason) {
+    if (loginWindow && !loginWindow.isDestroyed()) {
+        loginWindow.show();
+        loginWindow.focus();
+        return;
+    }
+
+    loginWindow = new BrowserWindow({
+        width: 480,
+        height: 660,
+        frame: false,
+        resizable: false,
+        maximizable: false,
+        minimizable: true,
+        movable: true,
+        show: false,
+        skipTaskbar: false,
+        title: 'TikFinity — Đăng nhập',
+        backgroundColor: '#1a1a1a',
+        icon: getIconPath(),
+        webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            preload: path.join(__dirname, 'preload-login.js')
+        }
+    });
+
+    loginWindow.loadFile(path.join(__dirname, 'login.html'));
+
+    loginWindow.once('ready-to-show', () => {
+        if (loginWindow && !loginWindow.isDestroyed()) loginWindow.show();
+        closeSplash();
+        if (reason && reason !== 'NO_TOKEN') {
+            const msg = describeAuthReason(reason);
+            if (msg && loginWindow && !loginWindow.isDestroyed()) {
+                loginWindow.webContents.send('auth:state', { kind: 'error', message: msg });
+            }
+        }
+    });
+
+    loginWindow.on('closed', () => {
+        loginWindow = null;
+        // If user closed login without authenticating and no main window is up,
+        // quit. Otherwise the app would be left running headless in tray.
+        if (!mainWindow && !isQuitting) {
+            isQuitting = true;
+            app.quit();
+        }
+    });
+}
+
+function describeAuthReason(reason) {
+    switch (reason) {
+        case 'EXPIRED':            return '⏰ Serial Key đã hết hạn. Vui lòng gia hạn hoặc nhập key mới.';
+        case 'INVALID':            return 'Serial Key không hợp lệ. Vui lòng nhập lại.';
+        case 'SERVER_UNREACHABLE': return '🌐 Không kết nối được server xác thực. Hãy kiểm tra mạng / chạy TikfinityServer rồi thử lại.';
+        case 'OFFLINE_EXPIRED':    return 'Đã hơn 7 ngày offline. Cần kết nối server để xác thực Serial Key.';
+        case 'DISABLED':           return '🚫 Serial Key đã bị khoá. Liên hệ admin để mở lại.';
+        case 'NOT_FOUND':          return 'Serial Key không tồn tại trong hệ thống.';
+        case 'NOT_ACTIVATED':      return 'Serial Key chưa được kích hoạt (chưa có chủ sở hữu).';
+        case 'INVALID_KEY_CODE':   return 'Key Code không khớp với Serial Key.';
+        case 'LOGOUT':             return null;  // user-initiated, không cần thông báo
+        default:                   return null;
+    }
+}
+
+function closeLoginWindow() {
+    if (loginWindow && !loginWindow.isDestroyed()) {
+        try { loginWindow.close(); } catch { /* already closed */ }
+    }
+    loginWindow = null;
+}
+
+// IPC: validate a license key with TikfinityServer.
+ipcMain.handle('auth:validate-key', async (_evt, payload) => {
+    const keyId = (payload?.keyId || '').trim();
+    const keyCode = (payload?.keyCode || '').trim();
+    if (!keyId) return { ok: false, message: 'Vui lòng nhập Serial Key.' };
+
+    try {
+        const res = await tfsRequest('POST', '/api/keys/validate', {
+            keyId,
+            keyCode: keyCode || null
+        });
+        if (!res || !res.ok) {
+            return { ok: false, message: `Server trả lỗi (HTTP ${res?.status || 'unknown'}).` };
+        }
+        const body = res.body || {};
+        if (!body.valid) {
+            return { ok: false, message: body.message || describeAuthReason(body.reason) || 'Key không hợp lệ.' };
+        }
+        currentAuth = authStore.save({
+            type: 'key',
+            token: body.keyId || keyId,        // server doesn't issue JWT for keys; use keyId as the bearer
+            keyId: body.keyId || keyId,
+            keyCode: keyCode || null,
+            expiresAt: body.expiredAt || null,
+            lastValidatedAt: new Date().toISOString()
+        });
+        clearRendererAuthSeed();
+        finishLogin();
+        return { ok: true, daysLeft: body.daysLeft };
+    } catch (err) {
+        return { ok: false, message: 'Không kết nối được server license.' };
+    }
+});
+
+// IPC: login with username + password.
+ipcMain.handle('auth:login-user', async (_evt, payload) => {
+    const username = (payload?.username || '').trim();
+    const password = payload?.password || '';
+    if (!username || !password) return { ok: false, message: 'Nhập đầy đủ tài khoản và mật khẩu.' };
+
+    try {
+        const res = await tfsRequest('POST', '/api/auth/login', { username, password });
+        if (!res) return { ok: false, message: 'Không kết nối được server.' };
+        if (!res.ok) {
+            return {
+                ok: false,
+                message: res.body?.message || `Đăng nhập thất bại (HTTP ${res.status}).`
+            };
+        }
+        const body = res.body || {};
+        if (!body.token) return { ok: false, message: 'Server không trả token.' };
+
+        currentAuth = authStore.save({
+            type: 'user',
+            token: body.token,
+            username: body.username || username,
+            userId: body.id || null,
+            roles: body.roles || [],
+            lastValidatedAt: new Date().toISOString()
+        });
+        clearRendererAuthSeed();
+        finishLogin();
+        return { ok: true };
+    } catch (err) {
+        return { ok: false, message: 'Không kết nối được server.' };
+    }
+});
+
+ipcMain.handle('auth:get-state', () => {
+    if (!currentAuth) return null;
+    return {
+        type: currentAuth.type,
+        keyId: currentAuth.keyId || null,
+        username: currentAuth.username || null,
+        expiresAt: currentAuth.expiresAt || null
+    };
+});
+
+ipcMain.on('auth:get-renderer-seed', (event) => {
+    event.returnValue = buildRendererAuthSeed();
+});
+
+ipcMain.handle('auth:quit', () => {
+    isQuitting = true;
+    app.quit();
+});
+
+ipcMain.handle('auth:logout', () => {
+    performLogout();
+});
+
+// ── TikTok inline sign-in (passport flow) ──
+//
+// Renderer calls these to drive the "TikTok Login required" modal. The
+// captured sessionid is persisted to <userData>/tiktok-session.json and
+// piped into process.env.TIKTOK_SESSIONID so the bridge picks it up on
+// the next connect attempt without an app restart.
+
+ipcMain.handle('tiktok:get-signin-status', () => {
+    return tiktokSessionStore.getStatus();
+});
+
+ipcMain.handle('tiktok:sign-in', async () => {
+    try {
+        const result = await tiktokSignin.openSignIn(mainWindow);
+        return result;
+    } catch (err) {
+        return { ok: false, error: err && err.message ? err.message : String(err) };
+    }
+});
+
+ipcMain.handle('tiktok:clear-session', () => {
+    tiktokSignin.clearSession();
+    return { ok: true };
+});
+
+/**
+ * Sign-out routine. Clears auth.json, closes the main window, stops the
+ * in-session re-check, and pops the login window so the user can enter a
+ * new Serial Key. Does NOT quit the app — the user expects to land back on
+ * the same login screen they used at startup, not have to relaunch.
+ */
+function performLogout() {
+    authStore.clear();
+    currentAuth = null;
+    clearRendererAuthSeed();
+
+    if (authReCheckTimer) { clearInterval(authReCheckTimer); authReCheckTimer = null; }
+    if (liveStatusTimer)  { clearInterval(liveStatusTimer);  liveStatusTimer = null; }
+    if (powerSaveBlockerId !== null) {
+        try { powerSaveBlocker.stop(powerSaveBlockerId); } catch { /* already stopped */ }
+        powerSaveBlockerId = null;
+    }
+
+    refreshTrayMenu();
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        try { mainWindow.removeAllListeners('close'); mainWindow.destroy(); }
+        catch { /* race */ }
+        mainWindow = null;
+    }
+
+    createLoginWindow('LOGOUT');
+}
+
+// Called when login flow succeeds — closes login, opens main.
+function finishLogin() {
+    closeLoginWindow();
+    refreshTrayMenu();
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        createMainWindow();
+        startLivePolling();
+        setTimeout(setHighPriority, 5000);
+    } else {
+        clearRendererAuthSeed();
+        prepareRendererAuthSeed()
+            .catch((err) => console.warn('[tfs] renderer auth refresh failed:', err.message))
+            .finally(() => {
+                if (!mainWindow || mainWindow.isDestroyed()) return;
+                mainWindow.reload();
+                mainWindow.show();
+                mainWindow.focus();
+            });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Session: header rewriting + UA spoofing for plugin compatibility
+// ---------------------------------------------------------------------------
+
+function configureSession() {
+    const sess = session.defaultSession;
+    let lastEasemobOrigin = null;
+
+    // Log any 404 from our local backend so we can spot missing assets.
+    sess.webRequest.onCompleted({ urls: ['http://localhost:5285/*'] }, (details) => {
+        if (details.statusCode === 404) {
+            console.log(`[ASSET-404] ${details.url}`);
+        }
+    });
+
+
+    // Strip CSP / open CORS for the third-party domains TikFinity plugins hit.
+    sess.webRequest.onHeadersReceived({
+        urls: [
+            'https://*.tiktok.com/*',
+            'https://accounts.spotify.com/*',
+            'https://clienttoken.spotify.com/*',
+            'https://api-partner.spotify.com/*',
+            'https://*.easemob.com/*',
+            'https://*.agora.io/*'
+        ]
+    }, (details, callback) => {
+        const headers = details.responseHeaders || {};
+
+        if (details.url.startsWith('https://www.tiktok.com/')) {
+            // Embedded TikTok views need scripts/iframes that CSP blocks by default.
+            delete headers['content-security-policy'];
+            delete headers['Content-Security-Policy'];
+            delete headers['content-security-policy-report-only'];
+            delete headers['Content-Security-Policy-Report-Only'];
+        }
+
+        // Extend Spotify cookie lifetime so re-auth doesn't fire mid-stream.
+        if (details.url.startsWith('https://accounts.spotify.com/')) {
+            const setCookie = headers['set-cookie'] || headers['Set-Cookie'];
+            if (Array.isArray(setCookie)) {
+                for (let i = 0; i < setCookie.length; i++) {
+                    if (setCookie[i].startsWith('sp_') &&
+                        !/expires|max-age/i.test(setCookie[i])) {
+                        setCookie[i] += ';Max-Age=999999999';
+                    }
+                }
+            }
+        }
+
+        // Spotify partner / clienttoken APIs need wide-open CORS for the bundle to read JSON.
+        if (details.url.includes('clienttoken.spotify.com') ||
+            details.url.includes('api-partner.spotify.com')) {
+            delete headers['Access-Control-Allow-Origin'];
+            delete headers['access-control-allow-origin'];
+            headers['access-control-allow-origin'] = '*';
+            headers['access-control-allow-credentials'] = 'true';
+            headers['access-control-allow-methods'] = 'GET,POST,OPTIONS,PUT,DELETE,HEAD';
+            headers['access-control-allow-headers'] = '*';
+        }
+
+        // Easemob/Agora chat (younow plugin) — preserve original Origin from request.
+        if (details.url.includes('agora') || details.url.includes('easemob')) {
+            headers['access-control-allow-origin'] = lastEasemobOrigin || '*';
+            delete headers['Access-Control-Allow-Origin'];
+        }
+
+        callback({ responseHeaders: headers });
+    });
+
+    sess.webRequest.onBeforeSendHeaders({
+        urls: [
+            'https://*.spotify.com/*',
+            'https://*.younow.com/*',
+            'https://*.algolia.net/*',
+            'https://*.propsproject.com/*',
+            'https://*.easemob.com/*',
+            'https://*.agora.io/*'
+        ]
+    }, (details, callback) => {
+        const h = details.requestHeaders || {};
+
+        if (details.url.startsWith('https://api.spotify.com/') ||
+            details.url.startsWith('https://clienttoken.spotify.com/') ||
+            details.url.startsWith('https://api-partner.spotify.com/')) {
+            h['Origin'] = 'https://open.spotify.com';
+            h['Referer'] = 'https://open.spotify.com/';
+            h['User-Agent'] =
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+                '(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36';
+        }
+
+        const masquerade =
+            details.url.includes('younow.com') ||
+            details.url.includes('algolia') ||
+            details.url.includes('propsproject') ||
+            details.url.includes('agora') ||
+            details.url.includes('easemob');
+
+        if (masquerade) {
+            if (details.url.includes('easemob') || details.url.includes('agora')) {
+                lastEasemobOrigin = h['Origin'] || h['origin'] || lastEasemobOrigin;
+            }
+            const chromeMajor = randomInt(125, 134);
+            h['User-Agent'] =
+                `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ` +
+                `(KHTML, like Gecko) Chrome/${chromeMajor}.0.0.0 Safari/537.36`;
+            h['Referer'] = 'https://www.younow.com/';
+            h['Origin'] = 'https://www.younow.com';
+        }
+
+        callback({ requestHeaders: h });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// bytedance:// protocol — silently block deep-link attempts from embedded views.
+// ---------------------------------------------------------------------------
+
+function registerBytedanceProtocol() {
+    try {
+        protocol.registerHttpProtocol('bytedance', (request, callback) => {
+            console.log(`[Electron] Blocked bytedance:// URL: ${request.url}`);
+            try { callback({ cancel: true }); } catch { /* electron version difference */ }
+        });
+    } catch (err) {
+        console.warn('[Electron] bytedance protocol register failed:', err.message);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Main window
+// ---------------------------------------------------------------------------
+
+function clearRendererAuthSeed() {
+    cachedBundleJwt = null;
+    rendererAuthSeedPromise = null;
+}
+
+function buildRendererAuthSeed() {
+    if (!currentAuth) return null;
+
+    const displayName = currentAuth.username || currentAuth.keyId || 'User';
+    return {
+        displayName,
+        tokenForBundle: cachedBundleJwt || currentAuth.token || currentAuth.keyId || 'tfs-session',
+        userPayload: JSON.stringify({
+            type: currentAuth.type,
+            keyId: currentAuth.keyId || null,
+            username: currentAuth.username || null,
+            expiresAt: currentAuth.expiresAt || null
+        })
+    };
+}
+
+function fetchBundleJwt() {
+    return new Promise((resolve, reject) => {
+        const req = http.get(`${BACKEND_URL}/api/me`, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => {
+                try {
+                    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+                    resolve(parsed?.wsAuthToken || null);
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        });
+
+        req.on('error', reject);
+        req.setTimeout(3000, () => req.destroy(new Error('TIMEOUT')));
+    });
+}
+
+async function prepareRendererAuthSeed() {
+    if (!currentAuth) return null;
+    if (cachedBundleJwt) return buildRendererAuthSeed();
+    if (rendererAuthSeedPromise) return rendererAuthSeedPromise;
+
+    rendererAuthSeedPromise = (async () => {
+        try {
+            const wsAuthToken = await fetchBundleJwt();
+            if (wsAuthToken) cachedBundleJwt = wsAuthToken;
+        } catch (err) {
+            console.warn('[tfs] /api/me wsAuthToken fetch failed:', err.message);
+        } finally {
+            rendererAuthSeedPromise = null;
+        }
+
+        return buildRendererAuthSeed();
+    })();
+
+    return rendererAuthSeedPromise;
+}
+
+function createMainWindow() {
+    if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.show();
         return;
     }
@@ -166,7 +1019,7 @@ function createWindow() {
         show: false,
         title: 'TikFinity',
         backgroundColor: '#212121',
-        icon: path.join(__dirname, 'icon.png'),
+        icon: getIconPath(),
         autoHideMenuBar: true,
         webPreferences: {
             nodeIntegration: false,
@@ -177,183 +1030,551 @@ function createWindow() {
         }
     });
 
-    mainWindow.menuBarVisible = false;
-    mainWindow.maximize();
-    mainWindow.loadURL(BACKEND_URL);
-    mainWindow.once('ready-to-show', () => mainWindow.show());
+    // Use Chromium's default UA on the main window — only popups (TikTok login,
+    // bridge windows) need the spoofed TikTokLIVEStudio UA from app.userAgentFallback.
+    if (originalUA) mainWindow.webContents.setUserAgent(originalUA);
 
-    // Minimize to tray instead of closing
-    mainWindow.on('close', (e) => {
+    mainWindow.menuBarVisible = false;
+    mainWindow.setMenuBarVisibility(false);
+
+    mainWindow.once('ready-to-show', () => {
+        try { mainWindow.webContents.setZoomFactor(1); } catch { /* page not ready */ }
+        mainWindow.show();
+        closeSplash();
+        if (process.env.TIKMAX_DEVTOOLS === '1') {
+            try { mainWindow.webContents.openDevTools({ mode: 'detach' }); } catch { /* ignore */ }
+        }
+    });
+
+    // After every navigation/reload, replace the bundled guest topbar with a
+    // "logged in" indicator that reflects the TikfinityServer auth we already
+    // verified. The bundle has no native concept of this auth, so we patch it
+    // in-place via DOM manipulation.
+    mainWindow.webContents.on('did-finish-load', applyAuthOverlay);
+
+    // Forward renderer warnings and errors to main log (kept for ongoing
+    // diagnosis). TF-TRACE uses console.warn (level 2) so we must include
+    // level >= 2. Cap at 2000 chars to keep stacks readable.
+    mainWindow.webContents.on('console-message', (_evt, level, message) => {
+        if (typeof message !== 'string') return;
+        if (level < 2) return;
+        const trimmed = message.length > 2000 ? message.slice(0, 1997) + '...' : message;
+        const prefix = level >= 3 ? '[Renderer ERR]' : '[Renderer WARN]';
+        console.log(`${prefix} ${trimmed}`);
+    });
+
+    // Also count fetches per second by URL — exposed on a loop in the renderer.
+    mainWindow.webContents.on('did-navigate', (_e, url) => {
+        console.log(`[Renderer NAV] ${url}`);
+    });
+    mainWindow.webContents.on('did-navigate-in-page', (_e, url) => {
+        console.log(`[Renderer SPA-NAV] ${url}`);
+    });
+
+
+
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        // External payment / OAuth pages shouldn't replace the main app shell.
+        if (url.startsWith('https://www.paypal.com/') ||
+            url.startsWith('https://www.sandbox.paypal.com/')) {
+            event.preventDefault();
+            shell.openExternal(url);
+        }
+    });
+
+    // Reload-loop guard at network layer. The embedded bundle now performs
+    // up to two bootstrap self-reloads during a healthy authenticated startup,
+    // so allow those early same-path navigations and only block the loop after.
+    const MAX_BOOTSTRAP_MAINFRAME_LOADS = 3;
+    const MAINFRAME_LOOP_GUARD_WINDOW_MS = 30000;
+    let _mainNavCount = 0;
+    let _firstNavTs = 0;
+
+    function resetMainNavWindow() {
+        _mainNavCount = 0;
+        _firstNavTs = 0;
+    }
+
+    function isBackendMainUrl(url) {
+        return typeof url === 'string' && url.startsWith(BACKEND_URL);
+    }
+
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        if (!isBackendMainUrl(url)) return;
+
+        const now = Date.now();
+        if (_firstNavTs && now - _firstNavTs > MAINFRAME_LOOP_GUARD_WINDOW_MS) {
+            resetMainNavWindow();
+            return;
+        }
+
+        const nextCount = _mainNavCount + 1;
+        if (nextCount <= MAX_BOOTSTRAP_MAINFRAME_LOADS) return;
+
+        const sinceFirst = _firstNavTs ? now - _firstNavTs : 0;
+        console.warn(`[Main-Guard] Prevented reload (#${nextCount} at ${(sinceFirst / 1000).toFixed(1)}s after first) url=${url}`);
+        event.preventDefault();
+    });
+    mainWindow.webContents.on('did-start-navigation', (_e, url, isInPlace, isMainFrame) => {
+        if (!isMainFrame || isInPlace) return;
+        if (!isBackendMainUrl(url)) {
+            console.log(`[Main-Diag] did-start-navigation url=${url}`);
+            return;
+        }
+
+        const now = Date.now();
+        if (_firstNavTs && now - _firstNavTs > MAINFRAME_LOOP_GUARD_WINDOW_MS) {
+            resetMainNavWindow();
+        }
+
+        _mainNavCount += 1;
+        if (_mainNavCount === 1) {
+            _firstNavTs = now;
+            console.log(`[Main-Diag] First mainFrame load (allowed) url=${url}`);
+            return;
+        }
+
+        if (_mainNavCount <= MAX_BOOTSTRAP_MAINFRAME_LOADS) {
+            console.log(`[Main-Diag] Bootstrap reload #${_mainNavCount - 1} (allowed) url=${url}`);
+            return;
+        }
+
+        console.log(`[Main-Diag] Late mainFrame nav (#${_mainNavCount}, ${((now - _firstNavTs) / 1000).toFixed(0)}s after first, allowed) url=${url}`);
+    });
+    mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
+        console.error(`[Main-Diag] did-fail-load code=${code} desc=${desc} url=${url}`);
+    });
+    mainWindow.webContents.on('unresponsive', () => {
+        console.error('[Main-Diag] webContents unresponsive');
+    });
+    mainWindow.webContents.on('responsive', () => {
+        console.log('[Main-Diag] webContents responsive');
+    });
+
+    mainWindow.webContents.setWindowOpenHandler(handleWindowOpen);
+
+    mainWindow.on('close', e => {
         if (!isQuitting) {
             e.preventDefault();
             mainWindow.hide();
         }
     });
+    mainWindow.on('closed', () => { mainWindow = null; });
 
-    mainWindow.on('closed', () => {
-        mainWindow = null;
-    });
-
-    // Remove the menu bar
-    mainWindow.setMenuBarVisibility(false);
+    prepareRendererAuthSeed()
+        .catch((err) => console.warn('[tfs] renderer auth seed prepare failed:', err.message))
+        .finally(() => {
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+            mainWindow.loadURL(BACKEND_URL);
+        });
 }
 
-function createTray() {
-    // Create a simple tray icon (1x1 pixel as fallback)
-    const iconPath = path.join(__dirname, 'icon.png');
-    let icon;
-    try {
-        icon = nativeImage.createFromPath(iconPath);
-        if (icon.isEmpty()) throw new Error('empty');
-    } catch {
-        // Create a simple 16x16 icon as fallback
-        icon = nativeImage.createEmpty();
+/**
+ * Post-load DOM cleanup only. Storage and cookies are now seeded from preload
+ * so the bundle sees auth before it boots.
+ */
+function applyAuthOverlay() {
+    if (!mainWindow || mainWindow.isDestroyed() || !currentAuth) return;
+    const persist = `
+    (function() {
+      try {
+        if (document.body.classList.contains('tf-logged-out')) {
+          document.body.classList.remove('tf-logged-out');
+        }
+        if (!document.body.classList.contains('tf-logged-in')) {
+          document.body.classList.add('tf-logged-in');
+        }
+
+        var guest = document.getElementById('tf-guest-topbar');
+        if (guest && guest.style.display !== 'none') guest.style.display = 'none';
+
+        // Remove leftover dev mounts only on first run.
+        if (!window.__tfOverlayCleaned) {
+          window.__tfOverlayCleaned = true;
+          ['tf-topbar-mount', 'tf-topbar-style', 'tf-pro-badge', 'tf-pro-style'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.remove();
+          });
+          document.body.style.paddingTop = '';
+        }
+      } catch (e) {}
+    })();
+    `;
+    mainWindow.webContents.executeJavaScript(persist, true).catch(() => { /* page navigated mid-inject */ });
+}
+
+function handleWindowOpen(details) {
+    const { url } = details;
+    const isTikTokUrl = url.startsWith('https://www.tiktok.com/');
+    let hash = '';
+    let pathname = '';
+
+    if (isTikTokUrl) {
+        try {
+            const parsed = new URL(url);
+            hash = parsed.hash || '';
+            pathname = (parsed.pathname || '').toLowerCase();
+        } catch {
+            hash = '';
+            pathname = '';
+        }
     }
+
+    const lowerHash = hash.toLowerCase();
+    const wantsTikTokLogin =
+        lowerHash.includes('ttlogin') ||
+        pathname.startsWith('/login') ||
+        pathname === '/passport/web/login' ||
+        pathname.startsWith('/passport/web/login/');
+    const wantsTikTokLogout = lowerHash.includes('ttlogout');
+
+    // TikTok bridge — invisible window for cookie / chat connection setup.
+    if (url.startsWith('https://www.tiktok.com/') && url.includes('#tfbridge')) {
+        const signInStatus = tiktokSessionStore.getStatus();
+        if (!signInStatus || !signInStatus.signedIn) {
+            setImmediate(() => {
+                const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+                tiktokSignin.openSignIn(parentWindow).catch((err) => {
+                    console.error('[TikTok Login] Failed to open sign-in from tfbridge:', err.message);
+                });
+            });
+            return { action: 'deny' };
+        }
+
+        return {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+                show: url.includes('show=1'),
+                height: randomInt(900, 1200),
+                width: randomInt(1800, 2300),
+                webPreferences: {
+                    contextIsolation: false,
+                    backgroundThrottling: false
+                }
+            }
+        };
+    }
+
+    // TikTok login must go through the dedicated Passport flow window instead
+    // of a generic TikTok popup, otherwise TikTok often lands on the feed.
+    if (isTikTokUrl && wantsTikTokLogin) {
+        setImmediate(() => {
+            const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+            tiktokSignin.openSignIn(parentWindow).catch((err) => {
+                console.error('[TikTok Login] Failed to open dedicated sign-in window:', err.message);
+            });
+        });
+        return { action: 'deny' };
+    }
+
+    if (isTikTokUrl && wantsTikTokLogout) {
+        setImmediate(() => {
+            try {
+                tiktokSignin.clearSession();
+            } catch (err) {
+                console.error('[TikTok Logout] Failed to clear session:', err.message);
+            }
+        });
+        return { action: 'deny' };
+    }
+
+    // In-app popups (settings panes, widget previews, future TikfinityServer login).
+    if (url.includes('#electron')) {
+        return {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+                show: !url.includes('#hidden')
+            }
+        };
+    }
+
+    // TikfinityServer login window — keep in-app once integration lands.
+    if (AUTH_HOST && url.startsWith(AUTH_HOST)) {
+        return {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+                width: 800,
+                height: 700,
+                modal: true,
+                parent: mainWindow || undefined
+            }
+        };
+    }
+
+    // Anything else (donate, docs, social) → user's default browser.
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+        shell.openExternal(url);
+    }
+    return { action: 'deny' };
+}
+
+// ---------------------------------------------------------------------------
+// Tray
+// ---------------------------------------------------------------------------
+
+// 16×16 PNG fallback so the tray slot isn't blank if the icon file is missing.
+const TRAY_FALLBACK_PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAi0lEQVR42q2TwQ3AIAhFnYAR3M' +
+    'ARGMERHIENGMERHCGuwAh+Q5MmprHmS96FwHsJEgAcgAjwAobxAjbAAGS8gKM0+gI24AKsm9' +
+    '4XUC95NUqf6QssrwaIAU6T1Ml4AVVS+QJWFHwBVvSFL7BVfYHX6QtolHwBjZIvoFHyBTRKvo' +
+    'BG2ReYBKzAA0gATsLpA2nZAAAAAElFTkSuQmCC',
+    'base64'
+);
+
+function createTray() {
+    let icon = nativeImage.createFromPath(getIconPath());
+    if (icon.isEmpty()) icon = nativeImage.createFromBuffer(TRAY_FALLBACK_PNG);
 
     tray = new Tray(icon);
     tray.setToolTip('TikFinity');
-
-    const contextMenu = Menu.buildFromTemplate([
-        {
-            label: 'Show TikFinity',
-            click: () => {
-                if (mainWindow) mainWindow.show();
-                else createWindow();
-            }
-        },
-        { type: 'separator' },
-        {
-            label: 'Quit',
-            click: () => {
-                isQuitting = true;
-                app.quit();
-            }
-        }
-    ]);
-
-    tray.setContextMenu(contextMenu);
-    tray.on('double-click', () => {
-        if (mainWindow) mainWindow.show();
-        else createWindow();
-    });
+    refreshTrayMenu();
+    tray.on('double-click', () => mainWindow ? mainWindow.show() : createMainWindow());
 }
 
-// --- IPC bridge: window.API.toMain(...) from preload ---
-// Mirrors the real TikFinity desktop app's bridge so frontend code that calls
-// API.fetchUrl / API.toMain doesn't silently fail.
+function refreshTrayMenu() {
+    if (!tray) return;
+    const who = currentAuth?.username || currentAuth?.keyId || null;
+    const items = [
+        { label: 'Hiện cửa sổ', click: () => mainWindow ? mainWindow.show() : createMainWindow() },
+        { type: 'separator' }
+    ];
+    if (who) {
+        items.push({ label: `Đã đăng nhập: ${who}`, enabled: false });
+        // Show days remaining if we know the expiry.
+        if (currentAuth?.expiresAt) {
+            const exp = Date.parse(currentAuth.expiresAt);
+            if (Number.isFinite(exp)) {
+                const daysLeft = Math.max(0, Math.ceil((exp - Date.now()) / (1000 * 60 * 60 * 24)));
+                const expiryLabel = daysLeft <= 0
+                    ? '⏰ Key đã hết hạn'
+                    : daysLeft <= 7
+                        ? `⚠️ Còn ${daysLeft} ngày — sắp hết hạn`
+                        : `Còn ${daysLeft} ngày`;
+                items.push({ label: expiryLabel, enabled: false });
+            }
+        }
+        items.push({
+            label: 'Đăng xuất',
+            click: async () => {
+                const { response } = await dialog.showMessageBox({
+                    type: 'question',
+                    buttons: ['Đăng xuất', 'Hủy'],
+                    defaultId: 1,
+                    cancelId: 1,
+                    title: 'TikFinity',
+                    message: 'Đăng xuất khỏi ứng dụng?',
+                    detail: 'Bạn sẽ phải nhập lại Serial Key để dùng tiếp.'
+                });
+                if (response === 0) {
+                    performLogout();
+                }
+            }
+        });
+        items.push({ type: 'separator' });
+    }
+    items.push({ label: 'Khởi động lại backend', click: () => { stopBackend(); startBackend(); } });
+    items.push({ type: 'separator' });
+    items.push({ label: 'Thoát', click: () => { isQuitting = true; app.quit(); } });
+    tray.setContextMenu(Menu.buildFromTemplate(items));
+}
 
-ipcMain.handle('toMain', async (_event, data) => {
+// ---------------------------------------------------------------------------
+// Live-status polling — drives isLive UI badge + powerSaveBlocker.
+// ---------------------------------------------------------------------------
+
+function startLivePolling() {
+    if (liveStatusTimer) return;
+    liveStatusTimer = setInterval(pollLiveStatus, LIVE_POLL_INTERVAL_MS);
+    pollLiveStatus();
+}
+
+function pollLiveStatus() {
+    const req = http.get(BACKEND_STATUS, res => {
+        let buf = '';
+        res.on('data', d => buf += d);
+        res.on('end', () => {
+            let status;
+            try { status = JSON.parse(buf); } catch { return; }
+            const isLive = status?.connected === true;
+            const roomId = status?.roomId || null;
+
+            if (roomId && roomId !== currentRoomId) {
+                currentRoomId = roomId;
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('newRoomIdDetected', { roomId });
+                }
+            }
+
+            if (isLive) {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('isLiveDetected', { roomId });
+                }
+                if (powerSaveBlockerId === null) {
+                    try { powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension'); }
+                    catch (e) { console.warn('[powerSaveBlocker] start:', e.message); }
+                }
+            } else if (powerSaveBlockerId !== null) {
+                try { powerSaveBlocker.stop(powerSaveBlockerId); }
+                catch { /* already stopped */ }
+                powerSaveBlockerId = null;
+            }
+        });
+    });
+    req.on('error', () => { /* backend not reachable yet — silent */ });
+    req.setTimeout(3000, () => req.destroy());
+}
+
+// ---------------------------------------------------------------------------
+// Process priority (Windows) — reduces gift-animation jitter.
+// ---------------------------------------------------------------------------
+
+function setHighPriority() {
+    if (!isWin) return;
+    const exeName = path.basename(process.execPath);
+    exec(
+        `wmic process where name="${exeName}" CALL setpriority "high priority"`,
+        (err) => {
+            if (err) console.warn('[Electron] WMIC priority failed:', err.message);
+            else console.log('[Electron] Process priority set to high');
+        }
+    );
+}
+
+// ---------------------------------------------------------------------------
+// PowerShell exec — exposed via window.API.toMain({ action: 'execPsCommand' }).
+// ---------------------------------------------------------------------------
+
+function execPsCommand(command, returnResult) {
+    if (!isWin || !command) return;
+    const { stdout, stderr, status } = spawnSync('powershell', ['-NoProfile', '-Command', command]);
+    if (returnResult && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('execPsCommandResult', {
+            command,
+            stdout: stdout ? stdout.toString() : '',
+            stderr: stderr ? stderr.toString() : '',
+            status
+        });
+    }
+    if (status !== 0 && stderr && stderr.toString()) {
+        console.warn('[PS] error:', stderr.toString().trim());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// IPC bridge — window.API.toMain(...)
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('toMain', async (_evt, data) => {
     if (!data || typeof data !== 'object') return;
 
     switch (data.action) {
-        case 'fetchUrl': {
-            // Used by frontend as a CORS-bypass HTTP client. Forward via Node http(s).
-            try {
-                const url = data.url;
-                if (!url) throw new Error('fetchUrl: missing url');
-                const lib = url.startsWith('https:') ? https : http;
-                const reqOpts = {
-                    method: data.method || 'GET',
-                    headers: data.headers || {}
-                };
-                const body = data.data ? (typeof data.data === 'string' ? data.data : JSON.stringify(data.data)) : null;
-                if (body && !reqOpts.headers['Content-Type'] && !reqOpts.headers['content-type']) {
-                    reqOpts.headers['Content-Type'] = 'application/json';
-                }
-                const responseData = await new Promise((resolve, reject) => {
-                    const req = lib.request(url, reqOpts, (res) => {
-                        const chunks = [];
-                        res.on('data', (c) => chunks.push(c));
-                        res.on('end', () => {
-                            const buf = Buffer.concat(chunks).toString('utf-8');
-                            let parsed = buf;
-                            const ct = (res.headers['content-type'] || '').toLowerCase();
-                            if (ct.includes('application/json')) {
-                                try { parsed = JSON.parse(buf); } catch { parsed = buf; }
-                            }
-                            resolve({ status: res.statusCode, data: parsed });
-                        });
-                    });
-                    req.on('error', reject);
-                    if (body) req.write(body);
-                    req.end();
-                });
-                if (mainWindow) {
-                    mainWindow.webContents.send('fetchUrlResponse', {
-                        requestId: data.requestId,
-                        responseData: responseData.data,
-                        responseCode: responseData.status
-                    });
-                }
-            } catch (err) {
-                if (mainWindow) {
-                    mainWindow.webContents.send('fetchUrlResponse', {
-                        requestId: data.requestId,
-                        error: err.toString()
-                    });
-                }
-            }
-            break;
-        }
+        case 'fetchUrl':
+            return await handleFetchUrl(data);
 
         case 'setUniqueId':
-        case 'setChannelId':
-        case 'sendBrowserLog':
-        case 'onFeatureFlags':
-            // Quietly accept — the local .NET backend tracks these via its own session/JWT.
+            currentUniqueId = data.uniqueId || null;
+            console.log('[ipc] setUniqueId', currentUniqueId);
             break;
 
-        case 'emitWs':
-            // Real app broadcasts to its local widget WebSocket. We use Socket.IO via .NET
-            // backend (port 5285) for that. Frontend's own widget pages connect to that
-            // directly, so the IPC path is a no-op in the clone.
+        case 'setChannelId':
+            currentChannelId = data.channelId || null;
+            console.log('[ipc] setChannelId', currentChannelId);
             break;
 
         case 'execPsCommand':
+            execPsCommand(data.command, data.returnResult);
+            break;
+
         case 'execAutoItCommand':
+            // AutoIt automation isn't shipped — tell renderer so it can show install prompt.
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('autoItNotInstalled', {});
+            }
+            break;
+
         case 'initKeyboardListener':
-            // Native automation features (OBS auto-config, keyboard hooks) — not implemented
-            // in the clone. Silently no-op so the UI doesn't surface fake errors.
-            console.log(`[ipc] '${data.action}' not implemented in clone — ignored`);
+            // Native global keyboard hook isn't shipped with the clone yet.
+            console.log('[ipc] initKeyboardListener — not implemented');
+            break;
+
+        case 'emitWs':
+            if (dapi) dapi.broadcast(data.payload);
+            break;
+
+        case 'sendBrowserLog':
+        case 'onFeatureFlags':
+            // Accepted, no-op (cloud-only telemetry from the original app).
             break;
 
         default:
-            console.warn(`[ipc] Unknown toMain action: ${data.action}`);
+            console.warn('[ipc] unknown toMain action:', data.action);
     }
 });
 
-// --- App lifecycle ---
-
-app.whenReady().then(async () => {
-    console.log('[Electron] App ready, starting backend...');
-
-    startBackend();
-    createTray();
-
+async function handleFetchUrl(data) {
     try {
-        await waitForBackend();
-        createWindow();
+        const url = data.url;
+        if (!url) throw new Error('fetchUrl: missing url');
+        const lib = url.startsWith('https:') ? https : http;
+        const reqOpts = {
+            method: data.method || 'GET',
+            headers: { ...(data.headers || {}) }
+        };
+        let body = null;
+        if (data.data !== undefined && data.data !== null) {
+            body = typeof data.data === 'string' ? data.data : JSON.stringify(data.data);
+            if (!reqOpts.headers['Content-Type'] && !reqOpts.headers['content-type']) {
+                reqOpts.headers['Content-Type'] = 'application/json';
+            }
+        }
+        const responseData = await new Promise((resolve, reject) => {
+            const req = lib.request(url, reqOpts, res => {
+                const chunks = [];
+                res.on('data', c => chunks.push(c));
+                res.on('end', () => {
+                    const buf = Buffer.concat(chunks).toString('utf-8');
+                    const ct = (res.headers['content-type'] || '').toLowerCase();
+                    let parsed = buf;
+                    if (ct.includes('application/json')) {
+                        try { parsed = JSON.parse(buf); } catch { /* keep raw */ }
+                    }
+                    resolve({ status: res.statusCode, data: parsed });
+                });
+            });
+            req.on('error', reject);
+            req.setTimeout(30000, () => { req.destroy(new Error('Request timeout')); });
+            if (body) req.write(body);
+            req.end();
+        });
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('fetchUrlResponse', {
+                requestId: data.requestId,
+                responseData: responseData.data,
+                responseCode: responseData.status
+            });
+        }
     } catch (err) {
-        console.error('[Electron] Backend startup failed:', err.message);
-        dialog.showErrorBox('Startup Error',
-            'Could not start the TikFinity backend.\n\n' +
-            'Make sure Node.js is installed and port 5285 is available.\n\n' +
-            err.message
-        );
-        app.quit();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('fetchUrlResponse', {
+                requestId: data.requestId,
+                error: err.toString()
+            });
+        }
     }
-});
+}
 
-app.on('before-quit', () => {
-    isQuitting = true;
-    stopBackend();
-});
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-app.on('window-all-closed', () => {
-    // Don't quit - keep running in tray
-});
+function getIconPath() {
+    const ico = path.join(__dirname, 'icon.ico');
+    const png = path.join(__dirname, 'icon.png');
+    if (isWin && fs.existsSync(ico)) return ico;
+    if (fs.existsSync(png)) return png;
+    return ico; // Electron will fall back gracefully if neither exists.
+}
 
-app.on('activate', () => {
-    if (mainWindow) mainWindow.show();
-    else createWindow();
-});
+function randomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1) + min);
+}

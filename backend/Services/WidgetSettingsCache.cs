@@ -81,6 +81,40 @@ public class WidgetSettingsCache
         + ",\"timer_fontType\":\"\",\"timer_fontSize\":50,\"timer_fontLineSpacing\":50,\"timer_fontLetterSpacing\":50"
         + ",\"emojify_fontType\":\"\",\"emojify_fontSize\":50,\"emojify_fontLineSpacing\":50,\"emojify_fontLetterSpacing\":50"
         + ",\"gifts_usernameWaveSpeed\":\"normal\""
+        // coinjar — toast donor on top, leaderboard at bottom, ranks, totals
+        + ",\"coinjar_displayAlert\":true,\"coinjar_alertDuration\":5"
+        + ",\"coinjar_displayLeaderboard\":true,\"coinjar_leaderboardDuration\":10,\"coinjar_leaderboardDisplayFormat\":\"single\""
+        + ",\"coinjar_displayRankBadges\":true,\"coinjar_numberOfRanks\":5"
+        + ",\"coinjar_showTotalCoins\":true,\"coinjar_scale\":50,\"coinjar_giftScale\":50"
+        + ",\"coinjar_xOffset\":0,\"coinjar_yOffset\":0"
+        // wheelofactions — show base wheel even when idle
+        + ",\"wheelofactions_showBase\":true,\"wheelofactions_announceDuration\":5,\"wheelofactions_spinDuration\":8,\"wheelofactions_waitDuration\":3"
+        // coinmatch
+        + ",\"coinmatch_backgroundColor\":\"rgba(0,0,0,0.5)\",\"coinmatch_fontColor\":\"#ffffff\""
+        + ",\"coinmatch_countdown\":60,\"coinmatch_countdownStartDelay\":3,\"coinmatch_hideAfter\":10"
+        + ",\"coinmatch_enableSlowCountdown\":true,\"coinmatch_randomizedSlowCountdown\":true"
+        + ",\"coinmatch_enableSnipeMode\":false,\"coinmatch_shouldAutoScroll\":true,\"coinmatch_showParticipantsCount\":true"
+        // commandinfo
+        + ",\"commandinfo_fontColor\":\"#ffffff\",\"commandinfo_headerColor\":\"#ffcc00\",\"commandinfo_priceColor\":\"#4ade80\""
+        + ",\"commandinfo_showBoxShadow\":true,\"commandinfo_boxShadowColor\":\"rgba(0,0,0,0.5)\""
+        + ",\"commandinfo_rightToLeft\":false,\"commandinfo_showCustomCommands\":true"
+        // lastx
+        + ",\"lastXFadeDuration\":250"
+        // ranking levels
+        + ",\"levelPoints\":1000,\"levelMultiplikator\":1.5"
+        // songrequests
+        + ",\"songrequests_fontColor\":\"#ffffff\",\"songrequests_titleColor\":\"#ffcc00\""
+        + ",\"songrequests_showBoxShadow\":true,\"songrequests_boxShadowColor\":\"rgba(0,0,0,0.5)\",\"songrequests_rightToLeft\":false"
+        // topgifter extras
+        + ",\"topgifter_showCrown\":true,\"topgifter_showCoinSymbol\":true"
+        // topliker extras
+        + ",\"topliker_showCrown\":true,\"topliker_showHeartSymbol\":true,\"topliker_pulseHeartSymbol\":true"
+        // transactionviewer
+        + ",\"transactionviewer_fontColor\":\"#ffffff\",\"transactionviewer_fontColor_positive\":\"#4ade80\",\"transactionviewer_fontColor_negative\":\"#ef5350\""
+        + ",\"transactionviewer_showBoxShadow\":true,\"transactionviewer_boxShadowColor\":\"rgba(0,0,0,0.5)\",\"transactionviewer_showChatMinutes\":true"
+        // userinfo
+        + ",\"userinfo_usernameColor\":\"#ffffff\",\"userinfo_pointsColor\":\"#ffcc00\",\"userinfo_rankColor\":\"#aaaaaa\",\"userinfo_levelColor\":\"#aaaaaa\""
+        + ",\"userinfo_showBoxShadow\":true,\"userinfo_boxShadowColor\":\"rgba(0,0,0,0.5)\",\"userinfo_rightToLeft\":false"
         + "}";
 
     public WidgetSettingsCache(

@@ -135,7 +135,7 @@ var lastFontType = null;
 var urlParams = new URLSearchParams(location.search);
 
 channelId = urlParams.get("cid") ? parseInt(urlParams.get("cid")) : 0;
-screenId = urlParams.get("screen") ? parseInt(urlParams.get("screen")) : 0;
+screenId = urlParams.get("screen") ? parseInt(urlParams.get("screen")) : 1;
 
 
 if (typeof SharedIO === "function" && typeof SharedWorker === "function" && urlParams.get("disableSharedIO") !== "1") {
@@ -812,12 +812,8 @@ if (typeof module !== 'undefined' && module.exports) {
     <script>
 
         var nothumb = "/img/nothumb.webp";
-        var myX = new URLSearchParams(location.search).get("x");
+        var myX = new URLSearchParams(location.search).get("x") || "1";
         var currentUser = {};
-
-        if (!myX) {
-            throw new Error("Missing required param x");
-        }
 
         function getSetting(name) {
             return settings["lastx" + myX + "_" + name]

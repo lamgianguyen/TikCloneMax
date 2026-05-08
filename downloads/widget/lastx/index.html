@@ -84,12 +84,8 @@
     <script>
 
         var nothumb = "/img/nothumb.webp";
-        var myX = new URLSearchParams(location.search).get("x");
+        var myX = new URLSearchParams(location.search).get("x") || "1";
         var currentUser = {};
-
-        if (!myX) {
-            throw new Error("Missing required param x");
-        }
 
         function getSetting(name) {
             return settings["lastx" + myX + "_" + name]

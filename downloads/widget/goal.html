@@ -135,7 +135,7 @@ var lastFontType = null;
 var urlParams = new URLSearchParams(location.search);
 
 channelId = urlParams.get("cid") ? parseInt(urlParams.get("cid")) : 0;
-screenId = urlParams.get("screen") ? parseInt(urlParams.get("screen")) : 0;
+screenId = urlParams.get("screen") ? parseInt(urlParams.get("screen")) : 1;
 
 
 if (typeof SharedIO === "function" && typeof SharedWorker === "function" && urlParams.get("disableSharedIO") !== "1") {
@@ -968,7 +968,7 @@ if (typeof module !== 'undefined' && module.exports) {
     </style>
 
     <script>
-        var goalMetric = new URLSearchParams(location.search).get("metric");
+        var goalMetric = new URLSearchParams(location.search).get("metric") || "likes";
         var currentProgressbarValue = 0;
         var progressBarUpdateInterval = null;
         var testing = false;
@@ -1122,17 +1122,26 @@ if (typeof module !== 'undefined' && module.exports) {
             if (testing) return;
 
             function getConfigValue(key) {
-                return goalStatus.config["goal_" + goalMetric + "_" + key];
+                const config = goalStatus && goalStatus.config ? goalStatus.config : {};
+                return config["goal_" + goalMetric + "_" + key];
             }
 
             function getStatusValue(key) {
-                return goalStatus.status[goalMetric][key];
+                const status = goalStatus && goalStatus.status && goalStatus.status[goalMetric]
+                    ? goalStatus.status[goalMetric]
+                    : {};
+                return status[key];
             }
 
-            var text = getConfigValue("title") !== "" ? (getConfigValue("title") + " - ") : "";
-            $(".progressBarTitleMain").text(getConfigValue("title"))
+            const goalTitle = getConfigValue("title") || "";
+            const goalValue = Number(getConfigValue("value") ?? 0);
+            const goalCurrent = Number(getStatusValue("current") ?? 0);
+            const goalPercent = Number(getStatusValue("percentage") ?? 0);
 
-            if (getConfigValue("value") !== lastGoalValue && lastGoalValue > 0) {
+            var text = goalTitle !== "" ? (goalTitle + " - ") : "";
+            $(".progressBarTitleMain").text(goalTitle)
+
+            if (goalValue !== lastGoalValue && lastGoalValue > 0) {
                 $('.widget').addClass('flip');
                 setTimeout(() => {
                     $('.widget').removeClass('flip');
@@ -1146,8 +1155,8 @@ if (typeof module !== 'undefined' && module.exports) {
                 }, 1100)
             }
 
-            let fullHit = getStatusValue("percentage") && getStatusValue("percentage") !== lastPercentValue && lastPercentValue < 100 && getStatusValue("percentage") >= 100;
-            let bigHit = getStatusValue("percentage") && getStatusValue("percentage") > (lastPercentValue + 40);
+            let fullHit = goalPercent && goalPercent !== lastPercentValue && lastPercentValue < 100 && goalPercent >= 100;
+            let bigHit = goalPercent && goalPercent > (lastPercentValue + 40);
 
             if (fullHit || bigHit) {
                 $('.widget').addClass('shake');
@@ -1156,37 +1165,37 @@ if (typeof module !== 'undefined' && module.exports) {
                 }, 1600)
             }
 
-            lastGoalValue = getConfigValue("value");
-            lastPercentValue = getStatusValue("percentage");
+            lastGoalValue = goalValue;
+            lastPercentValue = goalPercent;
 
             switch (goalMetric) {
                 case "subs":
-                    text += "{val} / " + getConfigValue("value").toLocaleString() + " Subs";
+                    text += "{val} / " + goalValue.toLocaleString() + " Subs";
                     break;
                 case "chestlikes":
-                    text += "{val} / " + getConfigValue("value").toLocaleString() + " Chest Likes";
+                    text += "{val} / " + goalValue.toLocaleString() + " Chest Likes";
                     break;
                 case "viewer":
-                    text += "{val} / " + getConfigValue("value").toLocaleString() + " Viewers";
+                    text += "{val} / " + goalValue.toLocaleString() + " Viewers";
                     break;
                 case "custom1":
                 case "custom2":
                 case "custom3":
-                    text += "{val} / " + getConfigValue("value").toLocaleString();
+                    text += "{val} / " + goalValue.toLocaleString();
                     break;
                 default:
-                    text += "{val} / " + getConfigValue("value").toLocaleString() + " " + goalMetric.charAt(0).toUpperCase() + goalMetric.slice(1)
+                    text += "{val} / " + goalValue.toLocaleString() + " " + goalMetric.charAt(0).toUpperCase() + goalMetric.slice(1)
             }
             
-            $(".progressBarProgressGoal").text(getConfigValue("value").toLocaleString());
+            $(".progressBarProgressGoal").text(goalValue.toLocaleString());
 
-            updateGoalValueWithAnimation(text, getStatusValue("current"))
+            updateGoalValueWithAnimation(text, goalCurrent)
             // $(".goalText").text(text);
 
-            setProgressBarValue(getStatusValue("percentage"));
+            setProgressBarValue(goalPercent);
             
 
-            if (getConfigValue('increaseSelect') === "3" && getStatusValue("percentage") >= 100) {
+            if (getConfigValue('increaseSelect') === "3" && goalPercent >= 100) {
                 hideTimeout = setTimeout(() => {
                     $('.widget').slideUp(500);
                 }, 10000);
@@ -1211,7 +1220,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
             lastValueSet = newValue;
 
-            newValue = Math.floor(newValue);
+            newValue = Math.floor(Number(newValue) || 0);
 
             if (progressBarUpdateInterval) clearInterval(progressBarUpdateInterval);
             var increaseValue = newValue - currentProgressbarValue;

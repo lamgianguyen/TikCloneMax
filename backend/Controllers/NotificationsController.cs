@@ -58,6 +58,29 @@ public class NotificationsController : BaseApiController
         return Ok(new { status = 200 });
     }
 
+    [HttpPost("markAllRead")]
+    public async Task<IActionResult> MarkAllRead()
+    {
+        var channelId = GetChannelId();
+        var unread = await _db.Notifications
+            .Where(n => n.ChannelId == channelId && !n.IsSeen)
+            .ToListAsync();
+        foreach (var n in unread) { n.IsRead = true; n.IsSeen = true; }
+        if (unread.Count > 0) await _db.SaveChangesAsync();
+        return Ok(new { status = 200, marked = unread.Count });
+    }
+
+    [HttpPost("clear")]
+    [HttpDelete("")]
+    public async Task<IActionResult> ClearAll()
+    {
+        var channelId = GetChannelId();
+        var all = await _db.Notifications.Where(n => n.ChannelId == channelId).ToListAsync();
+        _db.Notifications.RemoveRange(all);
+        await _db.SaveChangesAsync();
+        return Ok(new { status = 200, cleared = all.Count });
+    }
+
     private static object MapNotification(Notification notification)
     {
         var payload = ParsePayload(notification);

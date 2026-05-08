@@ -123,37 +123,14 @@ public class DataController : BaseApiController
     {
         _cachedGifts ??= LoadCachedFile("getAllGifts");
 
-        // Frontend expects an OBJECT with gift list inside, NOT a raw array.
-        // If cache is a raw array, wrap it properly to prevent crash on response[0].
+        // Keep parity with original payload shape: a raw array response.
         if (_cachedGifts.Value.ValueKind == JsonValueKind.Array)
-        {
-            var giftsArray = _cachedGifts.Value;
-            return Ok(new
-            {
-                status = 200,
-                message = "OK",
-                gifts = giftsArray,
-                data = giftsArray,
-                results = giftsArray,
-                items = giftsArray,
-                list = giftsArray
-            });
-        }
+            return Content(_cachedGifts.Value.GetRawText(), "application/json");
 
         if (_cachedGifts.Value.ValueKind != JsonValueKind.Undefined)
             return Content(_cachedGifts.Value.GetRawText(), "application/json");
 
-        var empty = Array.Empty<object>();
-        return Ok(new
-        {
-            status = 200,
-            message = "OK",
-            gifts = empty,
-            data = empty,
-            results = empty,
-            items = empty,
-            list = empty
-        });
+        return Ok(Array.Empty<object>());
     }
 
     [HttpGet("getAllGiftsCached")]

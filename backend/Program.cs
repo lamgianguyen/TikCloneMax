@@ -172,6 +172,11 @@ builder.Services.AddCors(options =>
 // --- TikTok Bridge ---
 builder.Services.AddSingleton<SocketManager>();
 builder.Services.AddSingleton<WidgetSettingsCache>();
+builder.Services.AddSingleton<ChatBotService>();
+builder.Services.AddSingleton<PointsService>();
+builder.Services.AddHttpClient("webhooks");
+builder.Services.AddSingleton<WebhookService>();
+builder.Services.AddSingleton<ObsService>();
 builder.Services.AddHostedService<TikTokBridgeService>();
 
 // --- HTTP client for license server ---
@@ -193,6 +198,60 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
     var ch = db.Channels.OrderBy(c => c.ChannelId).FirstOrDefault();
     if (ch != null) { defaultChannelId = ch.ChannelId; defaultChannelName = ch.ChannelName; }
+
+    // Seed welcome notifications once per channel so the bell isn't empty on
+    // first run. Real Tikfinity does the same — bell shows team announcements.
+    if (ch != null && !db.Notifications.Any(n => n.ChannelId == ch.ChannelId))
+    {
+        var seedNotifs = new[]
+        {
+            new TikFinityBackend.Models.Notification
+            {
+                ChannelId = ch.ChannelId,
+                Subject = "TikFinity Team",
+                Category = "announcements",
+                Body = "Chào mừng đến với TikFinity Local! Mọi tính năng Pro đã được mở khoá nhờ Serial Key của bạn. Hãy kết nối tài khoản TikTok LIVE và thử các widget overlay trong OBS.",
+                DataJson = System.Text.Json.JsonSerializer.Serialize(new {
+                    title = "✨ Chào mừng đến với TikFinity Local",
+                    category = "announcements",
+                    sender = "TikFinity Team",
+                    avatarUrl = "/favicon.ico"
+                }),
+                CreatedAt = DateTime.UtcNow
+            },
+            new TikFinityBackend.Models.Notification
+            {
+                ChannelId = ch.ChannelId,
+                Subject = "Hướng dẫn nhanh",
+                Category = "tips",
+                Body = "Mở OBS → thêm Browser source → URL: http://localhost:5285/widget/chat?cid=1 (hoặc cannon, gifts, firework, wheel...). Tất cả widget chạy real-time qua Socket.IO khi bạn LIVE.",
+                DataJson = System.Text.Json.JsonSerializer.Serialize(new {
+                    title = "📺 Cách thêm widget vào OBS",
+                    category = "tips",
+                    sender = "TikFinity Team",
+                    avatarUrl = "/favicon.ico"
+                }),
+                CreatedAt = DateTime.UtcNow.AddMinutes(-1)
+            },
+            new TikFinityBackend.Models.Notification
+            {
+                ChannelId = ch.ChannelId,
+                Subject = "Streamer.bot ready",
+                Category = "announcements",
+                Body = "Plugin Desktop API đang lắng nghe ở 127.0.0.1:21213. Cấu hình Streamer.bot trỏ tới đó là sub được mọi event TikTok (gift, follow, like, share...).",
+                DataJson = System.Text.Json.JsonSerializer.Serialize(new {
+                    title = "🔌 Streamer.bot plugin sẵn sàng",
+                    category = "announcements",
+                    sender = "TikFinity Team",
+                    avatarUrl = "/favicon.ico"
+                }),
+                CreatedAt = DateTime.UtcNow.AddMinutes(-2)
+            }
+        };
+        db.Notifications.AddRange(seedNotifs);
+        db.SaveChanges();
+        Console.WriteLine($"[BOOT] Seeded {seedNotifs.Length} welcome notifications for channel {ch.ChannelId}");
+    }
 }
 
 // =============================================
@@ -420,6 +479,13 @@ app.Use(async (context, next) =>
                                 {
                                     var widgetSettingsJson = await settingsCache.GetJsonForChannel(requestedChannelId);
                                     await WsSend($"42[\"widgetSettings\",{widgetSettingsJson}]");
+
+                                    // Push current goal/aggregate state immediately so the widget has
+                                    // data to render before any new gift/follower event arrives. Without
+                                    // this a freshly-loaded /widget/goal page sits empty until something
+                                    // changes in the bridge.
+                                    try { await tikTokBridge.EmitInitialGoalStatusAsync(); }
+                                    catch (Exception emitEx) { Console.WriteLine($"[SIO] EmitInitialGoalStatus failed: {emitEx.Message}"); }
                                 }
                             }
 
@@ -686,6 +752,41 @@ app.MapHub<TikFinityHub>("/hub/tikfinity");
 // --- Health check ---
 app.MapGet("/api/health", () => new { status = "ok", service = "TikFinity Backend", version = "1.0.0" });
 
+// Legacy widget avatar fallback path used by userinfo and a few old overlays.
+// Resolve avatar from live TikTok caches when possible, else serve nothumb.
+app.MapGet("/img/user/{channelId}/{userId}", (
+  string channelId,
+  string userId,
+  HttpContext context) =>
+{
+  var bridgeService = context.RequestServices
+    .GetServices<IHostedService>()
+    .OfType<TikTokBridgeService>()
+    .FirstOrDefault();
+
+  if (bridgeService is null)
+  {
+    return Results.NotFound();
+  }
+
+  var avatarUrl = bridgeService.GetProfilePictureUrlByUserId(userId);
+  if (!string.IsNullOrWhiteSpace(avatarUrl) &&
+    Uri.TryCreate(avatarUrl, UriKind.Absolute, out var uri) &&
+    (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+  {
+    return Results.Redirect(avatarUrl, permanent: false);
+  }
+
+  var nothumbPath = Path.Combine(frontendPath, "img", "nothumb.webp");
+  if (File.Exists(nothumbPath))
+  {
+    context.Response.Headers.CacheControl = "public, max-age=3600";
+    return Results.File(nothumbPath, "image/webp");
+  }
+
+  return Results.NotFound();
+});
+
 // --- Boot endpoints the bundle's setAppConfig() expects ---
 // /appconfig is normally skipped (tfPageloadData.appConfig exists in index.html),
 // but serve empty JSON as safety net so jQuery doesn't get HTML from SPA fallback.
@@ -911,26 +1012,30 @@ app.Use(async (context, next) =>
         return;
     }
 
-    // Extensionless URL -> prefer widget directory index to match iframe behavior
+    // Extensionless URL -> prefer the .html sibling first (it's the canonical
+    // widget version — usually newer and updated for OBS overlay use, e.g.
+    // `chat.html` has background:transparent while `chat/index.html` doesn't).
+    // Fall back to /index.html if the .html sibling doesn't exist.
     if (string.IsNullOrEmpty(Path.GetExtension(normalizedReqPath)))
     {
-        var preferDirectoryIndex = normalizedReqPath.StartsWith("/widget/");
-        var firstLookup = preferDirectoryIndex ? normalizedReqPath + "/index.html" : normalizedReqPath + ".html";
-        var secondLookup = preferDirectoryIndex ? normalizedReqPath + ".html" : normalizedReqPath + "/index.html";
+        var firstLookup = normalizedReqPath + ".html";
+        var secondLookup = normalizedReqPath + "/index.html";
 
         if (memoryCache.TryGetValue(firstLookup, out var firstData))
         {
+            context.Response.StatusCode = 200;
             context.Response.ContentType = "text/html; charset=utf-8";
             context.Response.Headers["X-Served-From"] = firstLookup.EndsWith("/index.html") ? "memory-index" : "memory-html";
-            await context.Response.Body.WriteAsync(firstData);
+            await context.Response.Body.WriteAsync(MaybeInjectWidgetCss(normalizedReqPath, firstData));
             return;
         }
 
         if (memoryCache.TryGetValue(secondLookup, out var secondData))
         {
+            context.Response.StatusCode = 200;
             context.Response.ContentType = "text/html; charset=utf-8";
             context.Response.Headers["X-Served-From"] = secondLookup.EndsWith("/index.html") ? "memory-index" : "memory-html";
-            await context.Response.Body.WriteAsync(secondData);
+            await context.Response.Body.WriteAsync(MaybeInjectWidgetCss(normalizedReqPath, secondData));
             return;
         }
     }
@@ -1038,22 +1143,34 @@ app.MapGet("/logout", (HttpContext ctx) =>
     return ctx.Response.WriteAsync(html);
 });
 
-// SPA fallback - serve index.html for all non-API/hub/file routes that 404
+// SPA fallback — serve index.html only for SPA-style routes (extensionless or
+// .html). Static asset paths (.svg, .png, .css, .js, etc.) that 404 must STAY
+// 404 so the browser shows a broken-image icon instead of receiving HTML and
+// failing to decode it as the requested type.
+//
+// Without this guard, requests like /img/flags/vi.svg returned a 200+HTML body,
+// the bundle's <img> tags then silently failed to render → broken icons all
+// over the language picker, Pro tiers list, etc.
+var spaFallbackExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "", ".html", ".htm" };
+
 app.Use(async (context, next) =>
 {
     await next();
 
-    if (context.Response.StatusCode == 404 &&
-        !context.Response.HasStarted &&
-        !context.Request.Path.StartsWithSegments("/api") &&
-        !context.Request.Path.StartsWithSegments("/hub") &&
-        !context.Request.Path.StartsWithSegments("/socket.io") &&
-        !context.Request.Path.StartsWithSegments("/widget"))
-    {
-        context.Response.StatusCode = 200;
-        context.Response.ContentType = "text/html; charset=utf-8";
-        await context.Response.Body.WriteAsync(indexHtmlBytes);
-    }
+    if (context.Response.StatusCode != 404 || context.Response.HasStarted) return;
+    if (context.Request.Path.StartsWithSegments("/api") ||
+        context.Request.Path.StartsWithSegments("/hub") ||
+        context.Request.Path.StartsWithSegments("/socket.io") ||
+      context.Request.Path.StartsWithSegments("/img") ||
+        context.Request.Path.StartsWithSegments("/widget")) return;
+
+    var path = context.Request.Path.Value ?? "";
+    var ext = Path.GetExtension(path);
+    if (!spaFallbackExtensions.Contains(ext)) return;  // real asset → keep 404
+
+    context.Response.StatusCode = 200;
+    context.Response.ContentType = "text/html; charset=utf-8";
+    await context.Response.Body.WriteAsync(indexHtmlBytes);
 });
 
 Console.WriteLine($"\n==============================================");
@@ -1110,25 +1227,399 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         }
       } catch(e) {}
 
-      // Hide the top-of-app "Connection failed" banner that the obfuscated bundle
-      // renders whenever a TikTok connect attempt fails. The styles target the
-      // bundle's notification bars (colors `bg-red*`, role=alert, etc.) and the
-      // observer below force-removes any banner whose text matches our denylist.
-      (function suppressBridgeBanner(){
+      // Hide the top-of-app "Connection failed" / "Error while connecting" banner
+      // that the obfuscated bundle renders whenever a TikTok connect attempt
+      // fails. The styles target the bundle's notification bars (colors `bg-red*`,
+      // role=alert, etc.) and the observer below force-removes any banner whose
+      // text matches our denylist.
+      //
+      // We persist the same error in the notification bell instead, so the user
+      // can review it on demand without a flickering full-width red strip.
+      // Note: previously had a `suppressBridgeBanner` observer here that hid
+      // every connection-error banner (and a `data-tf-hide-account` CSS rule).
+      // Removed to restore the bundle's native popup behaviour — when a
+      // TikTok connect attempt fails the user now sees the standard
+      // "Connection Failed" dialog like the original Tikfinity. Only keep
+      // the dropdown-account-row hide rule, since logout still routes
+      // through electron's external Serial Key flow.
+      (function bridgeBannerStyles(){
         var style = document.createElement('style');
-        style.textContent = [
-          '.v-snackbar__wrapper:has(> .v-snackbar__content:is([data-tf-hide="1"])) { display:none !important; }',
-          '[data-tf-hide="1"] { display:none !important; }'
-        ].join('\n');
+        style.textContent = '[data-tf-hide-account="1"] { display:none !important; }';
         (document.head || document.documentElement).appendChild(style);
+      })();
 
-        var DENY = /^(connection failed|connectFailed|econnreset|econnrefused|etimedout|enotfound|disconnected)$/i;
+      // ──────────────────────────────────────────────────────────────────────
+      // window.getAllGifts shim — bundle's settings dialog (Wheel of Actions
+      // trigger dropdown, gift counter setup) calls window.getAllGifts() to
+      // populate the gift picker. The original Tikfinity cloud injected this
+      // from the server; we serve a static catalog from /api/tiktok/gifts.
+      // The function MUST exist before the bundle boots, otherwise the wheel
+      // list grid skips rendering entirely.
+      // ──────────────────────────────────────────────────────────────────────
+      (function tfGiftCatalog(){
+        var cache = null, inflight = null;
+        window.getAllGifts = function() {
+          if (cache) return Promise.resolve(cache);
+          if (inflight) return inflight;
+          inflight = fetch('/api/tiktok/gifts', { cache: 'no-store' })
+            .then(function(r){ return r.ok ? r.json() : []; })
+            .then(function(list){ cache = Array.isArray(list) ? list : (list && list.gifts) || []; return cache; })
+            .catch(function(){ cache = []; return cache; });
+          return inflight;
+        };
+        // Some bundle paths read window.getAllGiftsCached synchronously — give
+        // them a sane shape so they don't throw before the Promise resolves.
+        window.getAllGiftsCached = function() { return cache || []; };
+      })();
+
+      // ──────────────────────────────────────────────────────────────────────
+      // Friendly TikTok-connect feedback. Polls /api/tiktok/status every 1s.
+      //   - connecting → top-right "Connecting to @user..." toast (sticky)
+      //   - connected (rising edge) → "Connected!" success toast (auto-dismiss)
+      //   - lastErrorAt advances → centre error modal
+      //   - connecting >25s with no resolution → force timeout error modal
+      // ──────────────────────────────────────────────────────────────────────
+      (function tfConnectErrorPopup(){
+        var lastShownAt = 0;
+        var firstPollDone = false;
+        var prevConnecting = false;
+        var prevConnected = false;
+        var connectStartedAt = 0;
+        var WATCHDOG_MS = 25000;
+        window.__tfPopup = { ready: true, polls: 0, lastState: null };
+        console.log('[tf-popup] script loaded');
+
+        function ensureStyles() {
+          if (document.getElementById('tf-connect-popup-styles')) return;
+          var s = document.createElement('style');
+          s.id = 'tf-connect-popup-styles';
+          s.textContent = [
+            '#tf-connect-popup-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2147483646;display:flex;align-items:center;justify-content:center;animation:tfFadeIn .15s ease-out;}',
+            '#tf-connect-popup{background:#1a1a2e;color:#fff;border-radius:12px;padding:24px 28px;width:min(420px,92vw);box-shadow:0 16px 48px rgba(0,0,0,.5);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;animation:tfPop .18s cubic-bezier(.2,.9,.3,1.1);}',
+            '#tf-connect-popup .tfp-icon{width:48px;height:48px;display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 14px;}',
+            '#tf-connect-popup h3{margin:0 0 10px;font-size:18px;text-align:center;font-weight:700;}',
+            '#tf-connect-popup p{margin:0 0 6px;font-size:14px;color:#b8b8c8;text-align:left;line-height:1.5;word-break:break-word;}',
+            '#tf-connect-popup button{display:block;width:100%;padding:10px;border:0;border-radius:6px;background:#e91e63;color:#fff;font-size:14px;font-weight:600;cursor:pointer;}',
+            '#tf-connect-popup button:hover{background:#c2185b;}',
+            '#tf-connect-toast{position:fixed;top:18px;right:18px;z-index:2147483645;background:#1a1a2e;color:#fff;border-radius:10px;padding:12px 16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.4);display:flex;align-items:center;gap:10px;min-width:240px;max-width:320px;animation:tfSlideIn .2s ease-out;}',
+            '#tf-connect-toast.success{background:#16331f;border:1px solid #2d6e3d;}',
+            '#tf-connect-toast.connecting{background:#1a1a2e;border:1px solid #3a3a55;}',
+            '#tf-connect-toast .tft-spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.2);border-top-color:#e91e63;border-radius:50%;animation:tfSpin .8s linear infinite;flex-shrink:0;}',
+            '#tf-connect-toast .tft-check{color:#4ade80;font-weight:700;font-size:16px;flex-shrink:0;}',
+            '#tf-user-status{display:block;font-size:11px;font-weight:600;line-height:1.1;margin-top:2px;letter-spacing:.2px;}',
+            '#tf-user-status.live{color:#42a5f5;}',
+            '#tf-user-status.disconnected{color:#ef5350;}',
+            '#tf-user-status.connecting{color:#fbc02d;}',
+            '@keyframes tfBlink{0%,100%{opacity:1}50%{opacity:.3}}',
+            '@keyframes tfFadeIn{from{opacity:0}to{opacity:1}}',
+            '@keyframes tfPop{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}',
+            '@keyframes tfSlideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}',
+            '@keyframes tfSpin{to{transform:rotate(360deg)}}'
+          ].join('');
+          (document.head || document.documentElement).appendChild(s);
+        }
+
+        function removeToast() {
+          var t = document.getElementById('tf-connect-toast');
+          if (t) t.remove();
+        }
+
+        // Find the native status text node under the username avatar in the
+        // bundle's topbar. Bundle renders "Connecting..." / "Disconnected" /
+        // "LIVE" there itself when it gets the right state; we just locate
+        // it by walking up from any text matching those phrases and remember
+        // the element so we can keep updating it.
+        var cachedStatusEl = null;
+        function findStatusEl() {
+          if (cachedStatusEl && document.body.contains(cachedStatusEl)) return cachedStatusEl;
+          // Walk all elements; find one whose textContent (trimmed) is the
+          // exact bundle status word and whose parent looks like the topbar
+          // user pill (small element inside a dropdown trigger).
+          var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
+          var n;
+          while ((n = walker.nextNode())) {
+            if (n.children.length !== 0) continue;
+            var t = (n.textContent || '').trim();
+            if (t === 'Connecting...' || t === 'Connecting…' || t === 'Disconnected' || t === 'LIVE') {
+              cachedStatusEl = n;
+              return n;
+            }
+          }
+          return null;
+        }
+
+        // Find the username element in the topbar by exact text match. Bundle
+        // renders the @ handle there in a small <span>; we walk all elements
+        // with no children and match the text. Cached so we don't re-scan
+        // every poll.
+        var cachedUserEl = null;
+        function findUserEl(username) {
+          if (cachedUserEl && document.body.contains(cachedUserEl) &&
+              (cachedUserEl.textContent || '').trim() === username) return cachedUserEl;
+          if (!username) return null;
+          var els = document.body.querySelectorAll('span, div, a, p, button');
+          for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            if (el.children.length !== 0) continue;
+            var t = (el.textContent || '').trim();
+            if (t === username || t === '@' + username) {
+              // Avoid picking up the input field's @username if any.
+              if (el.closest('input, textarea')) continue;
+              // Only accept if inside the topbar (small viewport offset).
+              var rect = el.getBoundingClientRect();
+              if (rect.top < 80 && rect.right > window.innerWidth - 400) {
+                cachedUserEl = el;
+                return el;
+              }
+            }
+          }
+          return null;
+        }
+
+        function setStatusPill(state, username) {
+          ensureStyles();
+
+          var nativeEl = findStatusEl();
+          var ownEl = document.getElementById('tf-user-status');
+
+          // PREFER bundle's native status text node when it exists. The bundle
+          // re-renders that node automatically based on its own state, so we
+          // just hijack the text. Remove our injected sibling to avoid double.
+          if (nativeEl) {
+            if (ownEl) ownEl.remove();
+            if (state === 'live') {
+              nativeEl.textContent = 'LIVE';
+              nativeEl.style.color = '#42a5f5';
+            } else if (state === 'connecting') {
+              nativeEl.textContent = 'Connecting...';
+              nativeEl.style.color = '#fbc02d';
+            } else {
+              nativeEl.textContent = 'Disconnected';
+              nativeEl.style.color = '#ef5350';
+            }
+            return;
+          }
+
+          // Fallback: no native node yet (bundle never rendered status text).
+          // Inject our own sibling under the username so user always sees state.
+          var userEl = findUserEl(username);
+          if (!userEl) return;
+
+          if (!ownEl) {
+            ownEl = document.createElement('span');
+            ownEl.id = 'tf-user-status';
+            if (userEl.parentNode) {
+              if (userEl.nextSibling) userEl.parentNode.insertBefore(ownEl, userEl.nextSibling);
+              else userEl.parentNode.appendChild(ownEl);
+            }
+          } else if (ownEl.previousSibling !== userEl && userEl.parentNode) {
+            if (userEl.nextSibling) userEl.parentNode.insertBefore(ownEl, userEl.nextSibling);
+            else userEl.parentNode.appendChild(ownEl);
+          }
+
+          ownEl.className = state;
+          if (state === 'live') ownEl.textContent = 'LIVE';
+          else if (state === 'connecting') ownEl.textContent = 'Connecting...';
+          else ownEl.textContent = 'Disconnected';
+        }
+
+        function showToast(kind, text) {
+          ensureStyles();
+          removeToast();
+          var t = document.createElement('div');
+          t.id = 'tf-connect-toast';
+          t.className = kind;
+          var ico = document.createElement('span');
+          if (kind === 'success') { ico.className = 'tft-check'; ico.textContent = '✓'; }
+          else { ico.className = 'tft-spinner'; }
+          var msg = document.createElement('span');
+          msg.textContent = text;
+          t.appendChild(ico);
+          t.appendChild(msg);
+          (document.body || document.documentElement).appendChild(t);
+          return t;
+        }
+
+        function showPopup(message, username) {
+          ensureStyles();
+          var existing = document.getElementById('tf-connect-popup-overlay');
+          if (existing) existing.remove();
+
+          var overlay = document.createElement('div');
+          overlay.id = 'tf-connect-popup-overlay';
+
+          var box = document.createElement('div');
+          box.id = 'tf-connect-popup';
+
+          var icon = document.createElement('div');
+          icon.className = 'tfp-icon';
+          icon.textContent = '📡';
+
+          var msg = message || 'Unable to connect to TikTok LIVE.';
+          var isOffline = /offline|not.*live|live has ended/i.test(msg);
+          // Short error code for the "Details:" line — match Tikfinity gốc.
+          var detailCode = msg;
+          if (/rate.*limit|429/i.test(msg)) detailCode = 'rateLimited';
+          else if (/missing.*extension|missingextension/i.test(msg)) detailCode = 'missingExtension';
+          else if (/timed?.*out|timeout/i.test(msg)) detailCode = 'connectTimeout';
+          else if (/not.*found|user.*not.*exist/i.test(msg)) detailCode = 'userNotFound';
+          else if (/ip.*block|403/i.test(msg)) detailCode = 'ipBlocked';
+          else if (isOffline) detailCode = 'LIVE has ended';
+
+          var title = document.createElement('h3');
+          title.textContent = isOffline ? 'Your stream is offline' : 'Failed to access your LIVE stream!';
+
+          var body = document.createElement('p');
+          if (isOffline && username) {
+            body.innerHTML =
+              'Unable to connect to your TikTok channel <b>@' + username + '</b> because your TikTok LIVE stream is currently offline!<br><br>' +
+              'Please start your stream and click the connect button again. ' +
+              'Note that you can also set up TikFinity while you are offline.<br><br>' +
+              'If you have any questions, please contact support.';
+          } else {
+            body.innerHTML =
+              'Please make sure that the username entered under "Setup" corresponds to your TikTok profile @ handle.';
+          }
+
+          var details = document.createElement('p');
+          details.style.cssText = 'font-size:13px;color:#aaa;margin:14px 0 18px;text-align:left;';
+          details.innerHTML = 'Error Details: <span style="color:#42a5f5;font-weight:600;">' + detailCode + '</span>';
+
+          // For session-class failures (rate-limit, missingExtension, IP block,
+          // generic init failure) the most likely fix is a fresh TikTok login,
+          // since that gives the bridge sessionid + tt-target-idc and lets it
+          // skip Eulerstream signing entirely. Show a primary "Login TikTok"
+          // button alongside OK in those cases.
+          var sessionFixable = /rateLimited|missingExtension|ipBlocked|connectTimeout|INIT_FAILED|UNCAUGHT|missing.*extension|rate.*limit|init failed|bridge error|tt-target-idc/i.test(msg + ' ' + detailCode);
+          var canSignIn = !!(window.TFS && typeof window.TFS.tiktokSignIn === 'function');
+
+          var btnRow = document.createElement('div');
+          btnRow.style.cssText = 'display:flex;gap:10px;';
+
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = 'OK';
+          btn.style.cssText = 'flex:1;';
+          btn.addEventListener('click', function(){ overlay.remove(); });
+
+          if (sessionFixable && canSignIn) {
+            var loginBtn = document.createElement('button');
+            loginBtn.type = 'button';
+            loginBtn.textContent = 'Login TikTok';
+            loginBtn.style.cssText = 'flex:1;background:#1e88e5;';
+            loginBtn.addEventListener('mouseover', function(){ loginBtn.style.background = '#1976d2'; });
+            loginBtn.addEventListener('mouseout', function(){ loginBtn.style.background = '#1e88e5'; });
+            loginBtn.addEventListener('click', async function(){
+              loginBtn.disabled = true;
+              loginBtn.textContent = 'Opening login…';
+              try {
+                await window.TFS.tiktokSignIn();
+              } catch (err) { /* surfaced by next connect attempt */ }
+              overlay.remove();
+            });
+            btnRow.appendChild(loginBtn);
+          }
+          btnRow.appendChild(btn);
+          overlay.addEventListener('click', function(e){ if (e.target === overlay) overlay.remove(); });
+          document.addEventListener('keydown', function escClose(e){
+            if (e.key === 'Escape' && document.getElementById('tf-connect-popup-overlay')) {
+              overlay.remove();
+              document.removeEventListener('keydown', escClose);
+            }
+          });
+
+          box.appendChild(icon);
+          box.appendChild(title);
+          box.appendChild(body);
+          box.appendChild(details);
+          box.appendChild(btnRow);
+          overlay.appendChild(box);
+          (document.body || document.documentElement).appendChild(overlay);
+        }
+
+        async function poll() {
+          try {
+            var r = await fetch('/api/tiktok/status', { cache: 'no-store' });
+            if (!r.ok) return;
+            var s = await r.json();
+            var at = Number(s && s.lastErrorAt) || 0;
+            var connecting = Boolean(s && s.connecting);
+            var connected = Boolean(s && s.connected);
+            var username = s && s.username;
+            window.__tfPopup.polls++;
+            window.__tfPopup.lastState = { at, connecting, connected, username, lastShownAt, firstPollDone };
+
+            // First poll: adopt error baseline so a stale error from before
+            // page load doesn't trigger an immediate popup. Mark firstPollDone
+            // so subsequent errors (even the first real one) trigger the popup.
+            if (!firstPollDone) {
+              firstPollDone = true;
+              lastShownAt = at;
+              prevConnecting = connecting;
+              prevConnected = connected;
+              return;
+            }
+
+            // Rising edge: connect just kicked off → start watchdog timer.
+            if (connecting && !prevConnecting) {
+              connectStartedAt = Date.now();
+            }
+
+            // Persistent corner status pill: live / connecting / disconnected.
+            if (connected) setStatusPill('live', username);
+            else if (connecting) setStatusPill('connecting', username);
+            else setStatusPill('disconnected', username);
+
+            removeToast();
+
+            // New error from the bridge → centre modal.
+            if (at > 0 && at !== lastShownAt) {
+              console.log('[tf-popup] firing error popup, lastError=', s.lastError);
+              lastShownAt = at;
+              removeToast();
+              showPopup(s.lastError, username);
+            }
+
+            // Watchdog: connect hung for >25s with no error/success.
+            if (connecting && connectStartedAt > 0 && (Date.now() - connectStartedAt) > WATCHDOG_MS) {
+              connectStartedAt = 0;
+              removeToast();
+              showPopup('Connection timed out. The TikTok bridge did not respond. Please check your network and try again.', username);
+            }
+
+            prevConnecting = connecting;
+            prevConnected = connected;
+            if (!connecting) connectStartedAt = 0;
+          } catch (e) {}
+        }
+
+        // Poll every 1s for snappy feedback during connect.
+        function start() {
+          setStatusPill('disconnected', null);
+          setInterval(poll, 1000);
+          poll();
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', start);
+        } else {
+          start();
+        }
+      })();
+
+      // Hide the bundle's persistent red top banner — our centred popup
+      // replaces it. The bundle's native "Connection Failed" toast also
+      // gets neutralised by removing nodes whose text matches the noise.
+      (function suppressBridgeBanner(){
+        var DENY = /^(connection failed|connectfailed|econnreset|econnrefused|etimedout|enotfound|disconnected)$/i;
         function hideIfMatch(node) {
           if (!node || node.nodeType !== 1) return;
+          // Never touch our own injected UI (pill, popup, toast).
+          if (node.id && node.id.indexOf('tf-') === 0) return;
+          if (node.closest && node.closest('[id^="tf-"]')) return;
           var text = (node.textContent || '').trim();
-          if (!text) return;
-          if (DENY.test(text) || /tiktok.eulerstream\.com|axios.*error|handleRequestError/i.test(text)) {
-            node.setAttribute('data-tf-hide', '1');
+          if (!text || text.length > 240) return;
+          if (DENY.test(text) || /tiktok\.eulerstream\.com|axios.*error|handleRequestError/i.test(text)) {
+            node.style.setProperty('display', 'none', 'important');
           }
         }
         var mo = new MutationObserver(function(muts){
@@ -1138,6 +1629,107 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           }
         });
         mo.observe(document.documentElement, { childList: true, subtree: true });
+      })();
+
+      // ──────────────────────────────────────────────────────────────────────
+      // Tame the bundle's profile-dropdown account items.
+      //   • Sign Out / Đăng xuất / Log Out  → INTERCEPT click → IPC `auth:logout`
+      //   • Connect TikTok Account / My Profile / Switch Account / etc → HIDE
+      //
+      // Vue delegates events at `document` level, so a row-level capture-phase
+      // listener loses the race. Instead we install a SINGLE document-level
+      // `mousedown` capture listener — mousedown fires before click, and the
+      // capture phase from document-down means we run before any framework
+      // handler attached lower in the tree.
+      //
+      // Kept untouched: Language picker, Roadmap, Feature Request, Pro upgrade.
+      // ──────────────────────────────────────────────────────────────────────
+      (function tameAccountDropdown(){
+        var LOGOUT_RE = /^\s*(sign[\s-]?out|log[\s-]?out|đăng[\s-]?xuất)\s*$/i;
+        var HIDE_RE = /^\s*(connect tiktok account|kết nối tài khoản tiktok|my profile|hồ sơ của tôi|switch account|đổi tài khoản|sign in|log[\s-]?in|đăng[\s-]?nhập|create account|tạo tài khoản)\s*$/i;
+        var seen = new WeakSet();
+
+        function isHideableMenuRow(node) {
+          if (!node || node.nodeType !== 1) return false;
+          return node.tagName === 'A' ||
+                 node.tagName === 'LI' ||
+                 node.tagName === 'BUTTON' ||
+                 (node.getAttribute && node.getAttribute('role') === 'menuitem') ||
+                 (node.classList && (
+                   node.classList.contains('menu-item') ||
+                   node.classList.contains('dropdown-item') ||
+                   node.classList.contains('v-list-item')
+                 ));
+        }
+
+        function rowOf(el) {
+          var row = el;
+          for (var i=0; i<8 && row; i++) {
+            if (isHideableMenuRow(row)) return row;
+            row = row.parentElement;
+          }
+          return null;
+        }
+
+        function findClickableLogout(target) {
+          // Walk up the DOM looking for a node whose text matches a logout label.
+          var el = target;
+          for (var i=0; i<8 && el && el.nodeType === 1; i++) {
+            var t = (el.textContent || '').trim();
+            if (t && t.length <= 40 && LOGOUT_RE.test(t)) return el;
+            el = el.parentElement;
+          }
+          return null;
+        }
+
+        function fireLogout(e) {
+          var hit = findClickableLogout(e.target);
+          if (!hit) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          console.log('[tfs] Sign Out intercepted, calling window.TFS.logout()');
+          try {
+            if (window.TFS && typeof window.TFS.logout === 'function') {
+              window.TFS.logout();
+            } else {
+              console.warn('[tfs] window.TFS.logout missing');
+            }
+          } catch (err) { console.warn('[tfs] logout invoke failed', err); }
+        }
+
+        // Document-level capture listeners — beat any framework delegation.
+        // Hooking BOTH mousedown and click belt-and-suspenders since some
+        // libraries fire on either.
+        document.addEventListener('mousedown', fireLogout, true);
+        document.addEventListener('click', fireLogout, true);
+
+        // Hide path for non-logout account items.
+        function check(el) {
+          if (!el || el.nodeType !== 1 || seen.has(el)) return;
+          var tag = el.tagName;
+          if (tag !== 'A' && tag !== 'BUTTON' && tag !== 'LI' && tag !== 'DIV' && tag !== 'SPAN') return;
+          var text = (el.textContent || '').trim();
+          if (!text || text.length > 60) return;
+          if (HIDE_RE.test(text)) {
+            var row = rowOf(el);
+            if (!row) return;
+            row.setAttribute('data-tf-hide-account', '1');
+            seen.add(row);
+          }
+        }
+        function sweep(root) {
+          if (!root || root.nodeType !== 1) return;
+          check(root);
+          root.querySelectorAll && root.querySelectorAll('a, button, li, [role="menuitem"], .menu-item, .dropdown-item, .v-list-item').forEach(check);
+        }
+        var mo2 = new MutationObserver(function(muts){
+          for (var i=0; i<muts.length; i++) {
+            for (var j=0; j<muts[i].addedNodes.length; j++) sweep(muts[i].addedNodes[j]);
+          }
+        });
+        mo2.observe(document.documentElement, { childList: true, subtree: true });
+        sweep(document.body);
       })();
 
       // Clamp noisy TikTok-bridge error dumps before they hit any UI toast.
@@ -1217,39 +1809,62 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         }
       });
 
-      // RELOAD GUARD: block settings.restore which does location.href='/' or location.reload()
+      // RELOAD-LOOP BREAKER: bundle's settings.restore can call
+      // location.reload() / location.href = '/' / location.replace('/')
+      // every ~1s if it thinks state is out of sync with the server. We
+      // detect rapid same-URL navigations and HARD-BLOCK them after the
+      // first reload, releasing the lock after 30s. One legit reload still
+      // gets through; the loop dies after the second attempt.
       try {
-        // Block location.reload() — save original so auth can bypass
+        var _navCalls = [];
+        function isLoopAttempt() {
+          var now = Date.now();
+          _navCalls = _navCalls.filter(function(t) { return now - t < 5000; });
+          _navCalls.push(now);
+          return _navCalls.length > 1;  // 2nd reload within 5s = loop
+        }
+
+        // Wrap location.reload() — minimal, no defineProperty / form.submit /
+        // anchor.click wrappers (those broke the bundle's init).
         var _origReload = window.location.reload.bind(window.location);
         window.__tfOrigReload = _origReload;
         window.location.reload = function() {
-          console.warn('[TF-GUARD] Blocked reload');
-          return;
+          if (isLoopAttempt()) {
+            console.warn('[TF-GUARD] Blocked reload-loop attempt (#' + _navCalls.length + ')');
+            return;
+          }
+          return _origReload();
         };
-        setTimeout(function() { window.location.reload = _origReload; }, 30000);
 
-        // Block navigation to '/' via Navigation API (settings.restore redirects to home)
+        // Separate counter for the Navigation API guard — Vue Router does 1–2
+        // same-pathname pushState calls during init (allowed), but the bundle
+        // also fires location.replace('/') in a tight loop on settings
+        // mismatch (must be blocked). Allow up to 3 same-path navs per 5s,
+        // block from the 4th onwards. Counter window is rolling so legit
+        // user navigation later still works.
         if (window.navigation) {
-          var _guardUntil = Date.now() + 15000;
+          var _navApiCalls = [];
           window.navigation.addEventListener('navigate', function(e) {
-            if (Date.now() > _guardUntil) return;
-            // Allow auth-triggered reloads
-            if (window.__tfAuthReloading) return;
             try {
               var dest = new URL(e.destination.url);
-              // Only block redirect to root '/' ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this is settings.restore behavior
-              if (dest.pathname === '/' && window.location.pathname !== '/') {
-                console.warn('[TF-GUARD] Blocked settings.restore redirect to /');
-                e.preventDefault();
-              }
-              // Block same-page reload
-              if (dest.pathname === window.location.pathname && dest.search === window.location.search) {
-                console.warn('[TF-GUARD] Blocked same-page reload');
+              var current = new URL(window.location.href);
+              if (dest.origin !== current.origin || dest.pathname !== current.pathname) return;
+              var now = Date.now();
+              _navApiCalls = _navApiCalls.filter(function(t) { return now - t < 5000; });
+              _navApiCalls.push(now);
+              if (_navApiCalls.length > 3) {
+                console.warn('[TF-GUARD] Blocked nav-API loop (#' + _navApiCalls.length + ')');
                 e.preventDefault();
               }
             } catch(ex) {}
           });
         }
+
+        // Release the reload guard after 30s so legit user-triggered reloads work normally.
+        setTimeout(function() {
+          _navCalls = [];
+          window.location.reload = _origReload;
+        }, 30000);
       } catch(e) {}
 
       // Suppress known bundle errors ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â not critical (Pinia store populates after Socket.IO connects)
@@ -3416,7 +4031,10 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
             window.__tfGuestTextInterval = null;
             console.log('[TF-Auth] Cleaned up guest text interval (logged in)');
           }
-          // Restore nav text: replace "Login"→channelName, "or create account"→"Connected"/"PRO"
+          // Restore nav text: replace "Login"→channelName only. Don't inject
+          // "PRO" into the secondary line — original Tikfinity doesn't show
+          // a hardcoded PRO badge there. Let the bundle render whatever it
+          // computes from session.subscription / session.userFeatures.
           var channelNameForNav = '';
           try { channelNameForNav = window.session && (window.session.accountChannelName || window.session.channelName) || ''; } catch(e) {}
           if (!channelNameForNav) {
@@ -3435,11 +4053,6 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
                 if (txt === 'Login' || txt === 'New User' || txt === 'new user') {
                   el.textContent = channelNameForNav;
                   el.style.cursor = '';
-                }
-                if (txt === 'or create account' || txt === 'Disconnected' || txt === 'disconnected') {
-                  el.textContent = 'PRO';
-                  el.style.color = '#5cb85c';
-                  el.style.fontSize = '';
                 }
               }
               // Restore avatar
@@ -3816,12 +4429,21 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
     html = html.Replace("myinstantsApiHost:\"https://myinstantsapi.zerody.one/\"", "myinstantsApiHost:\"/myinstants-proxy/\"");
     html = html.Replace("connectorHost:\"https://tikfinity-cws-{instance}.zerody.one/\"", "connectorHost:\"\"");
 
-    // Early CSS: hide old sidebar immediately (before any JS runs) and unhide navigation-app
+    // Early CSS: unhide navigation-app and suppress toast errors
     var earlyCss = """
     <style id="tf-nav-early">
-      #sidebar, #sidebarFooter { display: none !important; }
-      #navigation-app.hidden { display: block !important; }
-      .toast-error { display: none !important; }
+      html, body { width: 100% !important; min-height: 100vh !important; overflow-x: hidden !important; }
+      #navigation-app.hidden, #pages.hidden { display: block !important; }
+      /* Don't force min-height 100vh on inner page containers — bundle's home
+         page can be short (just Welcome text) and a forced viewport-height
+         leaves a black gap between topbar and Welcome footer. Let content
+         flow naturally. */
+      #navigation-app, #pages { width: 100% !important; max-width: 100vw !important; }
+      /* Some bundle pages (Overlays gallery, Goals) put two wide cards side
+         by side that overflow the viewport on narrower windows. Confine
+         horizontal scroll to the inner page container so the body stays
+         clean and the topbar doesn't bounce sideways. */
+      #pages .page.pageenabled { display: block !important; opacity: 1 !important; visibility: visible !important; max-width: 100% !important; overflow-x: auto !important; }
 
       /* === GUEST STATE (tf-logged-out) === */
       /* Hide dropdowns/popups in profile area */
@@ -3882,8 +4504,362 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
     })();
     </script>
     """;
-    html = html.Replace("<body>", "<body class=\"tf-logged-out\">" + guestTopbar + loginPopupScript + tiktokConnectScript, StringComparison.OrdinalIgnoreCase);
+    // Web Speech API TTS hook — listens for chat / bot:say socket events and reads them aloud
+    // through the browser's native synthesizer. Settings are read from localStorage so the
+    // bundle's existing settings UI can drive enable/voice/rate/pitch without backend changes.
+    var ttsScript = """
+    <script>
+    (function() {
+      if (!window.speechSynthesis) return;
+      var SETTINGS_KEY = 'tf_tts_settings';
+
+      function getSettings() {
+        try {
+          var raw = localStorage.getItem(SETTINGS_KEY);
+          if (raw) return JSON.parse(raw);
+        } catch (e) {}
+        return { enabled: false, voice: '', rate: 1, pitch: 1, volume: 1, lang: 'vi-VN', readChat: true, readBot: true, maxLen: 200 };
+      }
+      function saveSettings(s) {
+        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
+      }
+
+      function speak(text) {
+        var s = getSettings();
+        if (!s.enabled || !text) return;
+        text = String(text).slice(0, s.maxLen || 200);
+        // Strip emoji-only and trivial messages
+        if (!/[\p{L}\p{N}]/u.test(text)) return;
+
+        var utt = new SpeechSynthesisUtterance(text);
+        utt.lang = s.lang || 'vi-VN';
+        utt.rate = Math.max(0.1, Math.min(10, s.rate || 1));
+        utt.pitch = Math.max(0, Math.min(2, s.pitch || 1));
+        utt.volume = Math.max(0, Math.min(1, s.volume || 1));
+
+        if (s.voice) {
+          var voices = speechSynthesis.getVoices();
+          var match = voices.find(function(v) { return v.name === s.voice; });
+          if (match) utt.voice = match;
+        }
+        try { window.speechSynthesis.speak(utt); } catch (e) {}
+      }
+
+      // Hook the bundle's socket so we don't need a separate connection.
+      function attach(io) {
+        if (!io || io.__tfTtsAttached) return;
+        io.__tfTtsAttached = true;
+        if (typeof io.on === 'function') {
+          io.on('chat', function(d) {
+            var s = getSettings();
+            if (!s.readChat) return;
+            var msg = d && (d.comment || d.message);
+            if (msg) speak(msg);
+          });
+          io.on('bot:say', function(d) {
+            var s = getSettings();
+            if (!s.readBot) return;
+            var resp = d && d.response;
+            if (resp) speak(resp);
+          });
+        }
+      }
+
+      // Wait for the bundle's socket instance.
+      var attempts = 0;
+      var poll = setInterval(function() {
+        attempts++;
+        if (window.__tfSocket || (window.io && window.io.connect)) {
+          attach(window.__tfSocket);
+        }
+        if (attempts > 100) clearInterval(poll);
+      }, 200);
+
+      // Also expose on window so a settings panel can poke it.
+      window.tfTts = {
+        get: getSettings,
+        set: function(patch) { saveSettings(Object.assign(getSettings(), patch)); },
+        speak: speak,
+        voices: function() {
+          return (speechSynthesis.getVoices() || []).map(function(v) {
+            return { name: v.name, lang: v.lang, default: v.default };
+          });
+        }
+      };
+    })();
+    </script>
+    """;
+
+    // Twemoji polyfill — Windows' Segoe UI Emoji renders flag emojis (🇻🇳 🇺🇸 🇩🇪)
+    // as 2-letter country codes in colored capsules instead of actual flag images.
+    // Inject Twemoji to replace ALL emoji characters with inline SVG so the
+    // language picker and other emoji-bearing UIs look like Tikfinity gốc.
+    var twemojiScript = """
+    <script src="/twemoji/twemoji.min.js"></script>
+    <script>
+    (function() {
+      // Local Twemoji set served from /twemoji/svg/ — works offline, no CDN/WARP issues.
+      var BASE = '/twemoji/';
+      function applyTwemoji() {
+        if (!window.twemoji) return false;
+        try {
+          window.twemoji.parse(document.body, {
+            folder: 'svg', ext: '.svg', base: BASE,
+            className: 'twemoji'
+          });
+        } catch (e) { console.warn('[twemoji] parse failed:', e); }
+        return true;
+      }
+      // Style the inline twemoji <img> so it sits inline with text and has a
+      // sensible default size matching the surrounding font.
+      var style = document.createElement('style');
+      style.textContent =
+        'img.twemoji { height: 1em; width: 1em; margin: 0 0.05em 0 0.1em; vertical-align: -0.1em; display: inline-block; }';
+      document.head.appendChild(style);
+
+      // Initial parse + re-parse on every Vue mutation so dynamically rendered
+      // emojis (language dropdown items, gift names, chat messages) get converted.
+      function start() {
+        applyTwemoji();
+        var pending = false;
+        new MutationObserver(function() {
+          if (pending) return;
+          pending = true;
+          setTimeout(function() { pending = false; applyTwemoji(); }, 200);
+        }).observe(document.body, { childList: true, subtree: true });
+      }
+      // twemoji loads async — wait until ready
+      var tries = 0;
+      var iv = setInterval(function() {
+        tries++;
+        if (window.twemoji) { clearInterval(iv); start(); }
+        else if (tries > 50) clearInterval(iv);
+      }, 100);
+    })();
+    </script>
+    """;
+
+    // TikTok sign-in gate. Intercepts Connect button clicks in capture phase
+    // — if there's no saved TikTok session cookie, pops a confirm modal asking
+    // the user to sign in. Yes opens the inline TikTok login window via the
+    // electron preload (window.TFS.tiktokSignIn), saves the cookie, and
+    // re-emits the Connect click so the bundle continues normally.
+    var tiktokSigninGate = """
+    <style id="tf-signin-style">
+      .tf-signin-overlay {
+        position: fixed; inset: 0; z-index: 99999;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(0,0,0,0.55);
+        font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      .tf-signin-card {
+        width: min(92vw, 460px);
+        background: #2a2a2a;
+        border: 1px solid #3a3a3a;
+        border-radius: 4px;
+        padding: 20px 22px 18px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.55);
+        color: #f0f0f0;
+      }
+      .tf-signin-card h3 {
+        margin: 0 0 12px;
+        font-size: 15px;
+        font-weight: 600;
+        color: #ffffff;
+      }
+      .tf-signin-card p {
+        margin: 0 0 8px;
+        font-size: 13px;
+        line-height: 1.55;
+        color: #c8c8c8;
+      }
+      .tf-signin-card p + p { margin-bottom: 22px; }
+      .tf-signin-actions {
+        display: flex; justify-content: flex-end; gap: 10px;
+      }
+      .tf-signin-btn {
+        appearance: none;
+        cursor: pointer;
+        padding: 7px 26px;
+        min-width: 80px;
+        border-radius: 4px;
+        font-size: 13px;
+        font-weight: 500;
+        background: #3a3a3a;
+        color: #f0f0f0;
+        border: 1px solid #4a4a4a;
+        transition: background 0.12s ease, border-color 0.12s ease;
+      }
+      .tf-signin-btn:hover {
+        background: #454545;
+        border-color: #5a5a5a;
+      }
+      .tf-signin-btn[disabled] { opacity: 0.5; cursor: progress; }
+    </style>
+    <script>
+    (function() {
+      if (!window.TFS || typeof window.TFS.tiktokSignIn !== 'function') {
+        // Running outside Electron (browser dev) — skip the gate so the
+        // bundle's normal Connect flow runs untouched.
+        return;
+      }
+
+      function isConnectButton(el) {
+        if (!el || el.nodeType !== 1) return false;
+        if (el.tagName !== 'BUTTON' && el.getAttribute('role') !== 'button' && !el.classList.contains('dx-button')) return false;
+        if (el.closest('nav, aside, [role="navigation"], .sidebar, .menu, .dropdown')) return false;
+        var text = (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        if (text.length > 120) return false;
+
+        // Fast-path for known exact labels.
+        if (text === 'connect to tiktok live'
+            || text === 'kết nối với tiktok live'
+            || text === 'kết nối tiktok live') {
+          return true;
+        }
+
+        // Robust matching for localized/variant labels from the obfuscated bundle.
+        var hasConnectVerb = /\bconnect\b|\bkết nối\b/.test(text);
+        var hasTikTok = text.indexOf('tiktok') >= 0;
+        var hasTarget = /\blive\b|\btài khoản\b|\baccount\b/.test(text);
+        if (hasConnectVerb && hasTikTok && hasTarget) return true;
+
+        // Some controls use stable IDs even when label text changes.
+        var id = String(el.id || '').toLowerCase();
+        if (id.indexOf('manualconnectbuttonsetup') >= 0) return true;
+        if (id.indexOf('connect') >= 0 && id.indexOf('tiktok') >= 0) return true;
+
+        return false;
+      }
+
+      function findButton(target) {
+        var el = target;
+        for (var i = 0; i < 6 && el; i++) {
+          if (isConnectButton(el)) return el;
+          el = el.parentElement;
+        }
+        return null;
+      }
+
+      function showModal() {
+        return new Promise(function(resolve) {
+          var overlay = document.createElement('div');
+          overlay.className = 'tf-signin-overlay';
+          overlay.innerHTML =
+            '<div class="tf-signin-card" role="dialog" aria-modal="true" aria-labelledby="tf-signin-title">' +
+              '<h3 id="tf-signin-title">TikTok Login required</h3>' +
+              '<p>To connect to TikTok LIVE you need to log in to your TikTok account.</p>' +
+              '<p>Do you want to log in now?</p>' +
+              '<div class="tf-signin-actions">' +
+                '<button type="button" class="tf-signin-btn" data-tf-signin="yes">Yes</button>' +
+                '<button type="button" class="tf-signin-btn" data-tf-signin="no">No</button>' +
+              '</div>' +
+            '</div>';
+          document.body.appendChild(overlay);
+
+          var yesBtn = overlay.querySelector('[data-tf-signin="yes"]');
+          var noBtn = overlay.querySelector('[data-tf-signin="no"]');
+          var done = false;
+
+          function finish(result) {
+            if (done) return; done = true;
+            try { overlay.remove(); } catch (e) {}
+            resolve(result);
+          }
+
+          noBtn.addEventListener('click', function() { finish({ ok: false, cancelled: true }); });
+          overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) finish({ ok: false, cancelled: true });
+          });
+
+          yesBtn.addEventListener('click', async function() {
+            yesBtn.disabled = true;
+            noBtn.disabled = true;
+            yesBtn.textContent = 'Đang mở…';
+            try {
+              var r = await window.TFS.tiktokSignIn();
+              finish(r || { ok: false });
+            } catch (err) {
+              finish({ ok: false, error: err && err.message ? err.message : String(err) });
+            }
+          });
+        });
+      }
+
+      var clickInProgress = false;
+
+      document.addEventListener('click', async function(e) {
+        if (clickInProgress) return;
+        var btn = findButton(e.target);
+        if (!btn) return;
+
+        // Re-emitted programmatic click after sign-in succeeds — let it through.
+        if (btn.dataset.tfSigninPassthrough === '1') {
+          delete btn.dataset.tfSigninPassthrough;
+          return;
+        }
+
+        // Ignore synthetic clicks fired by the bundle during boot/reload.
+        // Only real user clicks should open the TikTok auth prompt.
+        if (!e.isTrusted) return;
+
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        e.stopPropagation();
+        clickInProgress = true;
+
+        try {
+          var status = await window.TFS.tiktokGetStatus();
+          if (status && status.signedIn) {
+            // Already have a saved sessionid — re-emit the click so the
+            // bundle's own handler runs.
+            btn.dataset.tfSigninPassthrough = '1';
+            btn.click();
+            return;
+          }
+          var result = await showModal();
+          if (result && result.ok) {
+            btn.dataset.tfSigninPassthrough = '1';
+            btn.click();
+          }
+        } catch (err) {
+          console.error('[tf-signin] gate error:', err);
+        } finally {
+          clickInProgress = false;
+        }
+      }, true); // capture phase — runs before Vue's delegated handler
+    })();
+    </script>
+    """;
+
+    html = html.Replace("<body>", "<body class=\"tf-logged-out\">" + guestTopbar + loginPopupScript + tiktokConnectScript + ttsScript + twemojiScript + tiktokSigninGate, StringComparison.OrdinalIgnoreCase);
     return Encoding.UTF8.GetBytes(html);
+}
+
+/// <summary>
+/// For widget HTML responses, inject a small CSS shim that forces transparent
+/// background + 0 margin on body. Many widget templates default to a white
+/// browser background, which looks ugly in OBS overlays. Injects right after
+/// the opening &lt;head&gt; so no widget-specific style overrides our defaults
+/// (any subsequent rule with higher specificity still wins).
+/// </summary>
+static byte[] MaybeInjectWidgetCss(string reqPath, byte[] original)
+{
+    if (!reqPath.StartsWith("/widget/", StringComparison.OrdinalIgnoreCase)) return original;
+
+    const string overlayCss = """
+<style id="tf-widget-overlay-shim">
+  html, body { background: transparent !important; margin: 0 !important; padding: 0 !important; }
+</style>
+""";
+
+    var html = System.Text.Encoding.UTF8.GetString(original);
+    var headIdx = html.IndexOf("<head", StringComparison.OrdinalIgnoreCase);
+    if (headIdx < 0) return original;
+    var headEnd = html.IndexOf('>', headIdx);
+    if (headEnd < 0) return original;
+    var injected = html.Substring(0, headEnd + 1) + overlayCss + html.Substring(headEnd + 1);
+    return System.Text.Encoding.UTF8.GetBytes(injected);
 }
 
 static string GetMime(string filePath)

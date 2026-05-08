@@ -49,7 +49,7 @@ var lastFontType = null;
 var urlParams = new URLSearchParams(location.search);
 
 channelId = urlParams.get("cid") ? parseInt(urlParams.get("cid")) : 0;
-screenId = urlParams.get("screen") ? parseInt(urlParams.get("screen")) : 0;
+screenId = urlParams.get("screen") ? parseInt(urlParams.get("screen")) : 1;
 
 
 if (typeof SharedIO === "function" && typeof SharedWorker === "function" && urlParams.get("disableSharedIO") !== "1") {

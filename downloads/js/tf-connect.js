@@ -35,23 +35,12 @@
 
   // ── Status bar (our own UI — fixed top bar) ──
 
-  function showStatusBar(text, color, autoHideMs) {
+  // Banner thông báo trên đầu trang đã được tắt — Tikfinity gốc không có,
+  // status hiển thị ở avatar dropdown (do bundle's Vue store quản lý) là đủ.
+  // Giữ stub để chỗ khác trong file gọi không bị undefined error.
+  function showStatusBar(_text, _color, _autoHideMs) {
     var bar = document.getElementById('tfStatusBar');
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.id = 'tfStatusBar';
-      bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;' +
-        'padding:8px 20px;font-size:14px;font-weight:600;font-family:Outfit,sans-serif;' +
-        'display:none;align-items:center;justify-content:center;gap:8px;color:#fff;' +
-        'transition:all 0.3s;pointer-events:none;text-align:center;';
-      document.body.appendChild(bar);
-    }
-    bar.textContent = text;
-    bar.style.background = color;
-    bar.style.display = 'flex';
-    if (autoHideMs > 0) {
-      setTimeout(function() { bar.style.display = 'none'; }, autoHideMs);
-    }
+    if (bar) bar.style.display = 'none';
   }
 
   function hideStatusBar() {
@@ -66,9 +55,25 @@
     if (el.dataset && el.dataset.tfConnectButton === '1') return true;
     var tag = el.tagName;
     if (tag !== 'BUTTON' && el.getAttribute('role') !== 'button' && !el.classList.contains('dx-button')) return false;
+
+    // Skip navigation / sidebar / menu items so we don't overwrite their labels.
+    // Sidebar links also have role="button" but are not connect buttons.
+    if (el.closest('nav, aside, [role="navigation"], .sidebar, .menu, .dropdown, .submenu, [class*="nav-"], [class*="menu-"], .topbar-search, .breadcrumb')) {
+      return false;
+    }
+
+    // Be strict on text: require an exact match of one of the known CTA labels.
+    // The bundle uses "Connect to TikTok LIVE" / "Kết nối với TikTok LIVE" /
+    // "Disconnect" / our own state-managed "Connecting..." labels.
     var text = (el.textContent || '').trim().toLowerCase();
-    return (text.indexOf('tiktok') >= 0 && (text.indexOf('live') >= 0 || text.indexOf('connect') >= 0))
-      || text === 'disconnect' || text.indexOf('connecting') === 0;
+    if (text.length > 60) return false;  // sidebar items often have longer combined labels
+    return text === 'connect to tiktok live'
+      || text === 'kết nối với tiktok live'
+      || text === 'kết nối tiktok live'
+      || text === 'disconnect'
+      || text === 'ngắt kết nối'
+      || text.indexOf('connecting') === 0
+      || text.indexOf('đang kết nối') === 0;
   }
 
   function findConnectButton(target) {
@@ -109,7 +114,24 @@
       btn.dataset.tfConnectButton = '1';
       if (_connected) setButtonText(btn, 'Disconnect');
       else if (_connecting) setButtonText(btn, 'Connecting...');
-      // else: leave original label
+      else {
+        // Idle — restore the original "Connect to TikTok LIVE" label so the
+        // button doesn't stay stuck on "Connecting..." after a reset.
+        var origSpans = btn.querySelectorAll('span, div, small, strong');
+        var restored = false;
+        for (var j = 0; j < origSpans.length; j++) {
+          var sp = origSpans[j];
+          if (sp.dataset && sp.dataset.tfOrigLabel) {
+            sp.textContent = sp.dataset.tfOrigLabel;
+            restored = true;
+          }
+        }
+        if (!restored && btn.dataset.tfOrigLabel) {
+          btn.textContent = btn.dataset.tfOrigLabel;
+        }
+        // Make sure the button isn't aria-disabled.
+        try { btn.disabled = false; btn.removeAttribute('aria-disabled'); } catch(e) {}
+      }
     }
   }
 
@@ -180,6 +202,12 @@
           var msg = d.lastError;
           console.log('[TF] ✗ Failed @' + (d.username || user) + ': ' + msg);
           updateUI(d.username || user, 'failed', msg);
+        } else if (!d.connecting && !d.connected) {
+          // Backend dropped to idle (user/another tab disconnected, or bridge reset).
+          // Don't keep saying "Connecting..." forever — release the button.
+          stopPolling();
+          console.log('[TF] ⊘ Backend idle, stopping poll');
+          updateUI(d.username || user, 'disconnected');
         } else if (attempts >= 30) {
           stopPolling();
           console.log('[TF] ✗ Timeout @' + user);
@@ -336,6 +364,10 @@
       } else if (d.connecting) {
         updateUI(d.username, 'connecting');
         startPolling(d.username);
+      } else {
+        // Explicit idle — required so the button doesn't stay stuck on
+        // "Connecting..." after a previous failed attempt or reload.
+        updateUI(d.username, 'disconnected');
       }
       // If store wasn't ready, retry once more after delay
       if (!window.navigationStore && retries > 0) {

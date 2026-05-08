@@ -135,7 +135,7 @@ var lastFontType = null;
 var urlParams = new URLSearchParams(location.search);
 
 channelId = urlParams.get("cid") ? parseInt(urlParams.get("cid")) : 0;
-screenId = urlParams.get("screen") ? parseInt(urlParams.get("screen")) : 0;
+screenId = urlParams.get("screen") ? parseInt(urlParams.get("screen")) : 1;
 
 
 if (typeof SharedIO === "function" && typeof SharedWorker === "function" && urlParams.get("disableSharedIO") !== "1") {
@@ -743,17 +743,6 @@ window.TextEffects = (function() {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = window.TextEffects;
 }
-</script>
-    <script>
-
-<head>
-    <meta http-equiv="refresh" content="0; url=/">
-</head>
-<body>
-    <h1>404 - Not Found</h1>
-    <p>Page not found (3). Go to <a href="/" rel="follow">Start Page</a></p>
-</body>
-
 </script>
 
     <style>

@@ -580,6 +580,58 @@ namespace TikFinityBackend.Migrations
                     b.ToTable("Transactions");
                 });
 
+            modelBuilder.Entity("TikFinityBackend.Models.Webhook", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChannelId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("EventTypesCsv")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("HeadersJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RetryCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TemplateJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TimeoutSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChannelId");
+
+                    b.ToTable("Webhooks");
+                });
+
             modelBuilder.Entity("TikFinityBackend.Models.Widget", b =>
                 {
                     b.Property<int>("Id")
@@ -748,6 +800,17 @@ namespace TikFinityBackend.Migrations
                     b.Navigation("Channel");
                 });
 
+            modelBuilder.Entity("TikFinityBackend.Models.Webhook", b =>
+                {
+                    b.HasOne("TikFinityBackend.Models.Channel", "Channel")
+                        .WithMany("Webhooks")
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Channel");
+                });
+
             modelBuilder.Entity("TikFinityBackend.Models.Widget", b =>
                 {
                     b.HasOne("TikFinityBackend.Models.Channel", "Channel")
@@ -784,6 +847,8 @@ namespace TikFinityBackend.Migrations
                     b.Navigation("Timers");
 
                     b.Navigation("Transactions");
+
+                    b.Navigation("Webhooks");
 
                     b.Navigation("Widgets");
                 });

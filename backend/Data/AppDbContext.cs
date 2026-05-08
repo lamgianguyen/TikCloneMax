@@ -21,6 +21,7 @@ public class AppDbContext : DbContext
     public DbSet<ChatCommand> ChatCommands => Set<ChatCommand>();
     public DbSet<Goal> Goals => Set<Goal>();
     public DbSet<TimerItem> Timers => Set<TimerItem>();
+    public DbSet<Webhook> Webhooks => Set<Webhook>();
     public DbSet<RevokedToken> RevokedTokens => Set<RevokedToken>();
 
     protected override void OnModelCreating(ModelBuilder mb)
@@ -165,6 +166,17 @@ public class AppDbContext : DbContext
              .WithMany(c => c.Timers)
              .HasForeignKey(t => t.ChannelId)
              .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Webhook
+        mb.Entity<Webhook>(e =>
+        {
+            e.HasOne(w => w.Channel)
+             .WithMany(c => c.Webhooks)
+             .HasForeignKey(w => w.ChannelId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.Property(w => w.Url).HasMaxLength(2048);
+            e.Property(w => w.Name).HasMaxLength(256);
         });
 
         // Seed default modules

@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Mail;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TikFinityBackend.Data;
@@ -169,6 +170,36 @@ public sealed class AuthController : ControllerBase
             channelName = channel.ChannelName,
             email = channel.Email,
             isPro
+        });
+    }
+
+    /// <summary>
+    /// SSO endpoint for the electron auth bridge: returns a real JWT bound to
+    /// the default channel without requiring a username/password. The user
+    /// already passed the TikfinityServer license gate, so we trust them and
+    /// hand out a token the obfuscated bundle can decode (it expects a real
+    /// 3-part JWT, NOT just the license keyId).
+    /// </summary>
+    [HttpGet("/api/v1/auth/sso-bridge")]
+    [HttpPost("/api/v1/auth/sso-bridge")]
+    [AllowAnonymous]
+    public async Task<IActionResult> SsoBridge(CancellationToken cancellationToken)
+    {
+        var channel = await _db.Channels
+            .Include(c => c.Subscription)
+            .OrderBy(c => c.ChannelId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (channel == null) return NotFound(new { status = "error", message = "No default channel" });
+
+        var (token, _, _) = _jwtService.GenerateToken(channel.ChannelId, channel.ChannelName, channel.Email, isPro: true);
+        return Ok(new
+        {
+            status = "ok",
+            accessToken = token,
+            channelId = channel.ChannelId,
+            channelName = channel.ChannelName,
+            email = channel.Email,
+            isPro = true
         });
     }
 
