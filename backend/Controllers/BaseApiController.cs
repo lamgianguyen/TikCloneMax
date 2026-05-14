@@ -35,6 +35,25 @@ public abstract class BaseApiController : ControllerBase
         return first;
     }
 
+    /// <summary>
+    /// Returns the currently-active Stream Profile id for this channel.
+    /// Stream Profiles are configuration presets stored in Channels.ProfileId.
+    /// All per-profile data (Actions, Sounds, Goals, ChatCommands,
+    /// DynamicSettings) must filter on this id so switching profiles
+    /// actually shows different data.
+    /// </summary>
+    protected int GetProfileId()
+    {
+        var channelId = GetChannelId();
+        if (channelId <= 0) return 1;
+        var db = HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+        var profileId = db.Channels
+            .Where(c => c.ChannelId == channelId)
+            .Select(c => (int?)c.ProfileId)
+            .FirstOrDefault();
+        return profileId.GetValueOrDefault() > 0 ? profileId!.Value : 1;
+    }
+
     protected string GetChannelName() =>
         User.FindFirst("channelName")?.Value ?? "";
 

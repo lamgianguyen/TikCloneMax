@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>TTS Debug</title>
+<style>
+body { font-family: system-ui, sans-serif; padding: 24px; background: #1a1a1a; color: #ddd; }
+button { padding: 8px 16px; margin: 4px; cursor: pointer; background: #2a2a2a; color: #fff; border: 1px solid #555; border-radius: 4px; }
+button:hover { background: #3a3a3a; }
+input, select { padding: 6px; margin: 4px; background: #2a2a2a; color: #fff; border: 1px solid #555; }
+#log { background: #000; color: #0f0; padding: 12px; min-height: 200px; font-family: monospace; font-size: 12px; white-space: pre-wrap; margin-top: 12px; }
+</style></head>
+<body>
+<h2>TTS Debug Page</h2>
+<p>Page tests Web Speech API engine directly. Open DevTools console for full traces.</p>
+<div>
+  <input id="text" value="Hello world from TikFinity TTS" style="width: 400px">
+  <select id="lang"><option>en-US</option><option>vi-VN</option><option>ja-JP</option><option>ko-KR</option></select>
+  <button id="speak">Speak (raw speechSynthesis)</button>
+  <button id="speakItem">Speak (via TTSItem)</button>
+  <button id="listVoices">List Voices</button>
+  <button id="clearLog">Clear</button>
+</div>
+<div id="log"></div>
+
+<script src="/js/tts.js"></script>
+<script>
+const $log = document.getElementById('log');
+function log(...args) { const s = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '); $log.textContent += s + '\n'; console.log(...args); }
+
+document.getElementById('clearLog').onclick = () => { $log.textContent = ''; };
+
+document.getElementById('listVoices').onclick = () => {
+  const v = speechSynthesis.getVoices();
+  log('=== Voices (' + v.length + ') ===');
+  v.forEach(x => log(`  ${x.name} | ${x.lang} | ${x.default ? 'default' : ''} | local=${x.localService}`));
+};
+
+document.getElementById('speak').onclick = () => {
+  const text = document.getElementById('text').value;
+  const lang = document.getElementById('lang').value;
+  log(`> raw speechSynthesis.speak("${text}", lang=${lang})`);
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = lang;
+  u.rate = 1;
+  u.pitch = 1;
+  u.volume = 1;
+  u.onstart = () => log('  onstart');
+  u.onend = () => log('  onend');
+  u.onerror = (e) => log('  onerror', e.error || e);
+  speechSynthesis.speak(u);
+};
+
+document.getElementById('speakItem').onclick = async () => {
+  const text = document.getElementById('text').value;
+  const lang = document.getElementById('lang').value;
+  log(`> new TTSItem("${text}", "${lang}", 50, 50, 1, null, "default").play()`);
+  if (typeof TTSItem !== 'function') { log('FAIL: TTSItem class not loaded'); return; }
+  try {
+    const item = new TTSItem(text, lang, 50, 50, 1, null, 'default');
+    log('  TTSItem constructed; calling play()...');
+    await item.play(() => log('  onPlayStart fired'));
+    log('  play() resolved OK');
+  } catch (err) {
+    log('  play() rejected:', err && err.message || err);
+  }
+};
+
+window.addEventListener('load', () => {
+  log('Page loaded. speechSynthesis available:', 'speechSynthesis' in window);
+  log('Initial voices count:', speechSynthesis.getVoices().length);
+  speechSynthesis.addEventListener('voiceschanged', () => {
+    log('voiceschanged fired. Voices count now:', speechSynthesis.getVoices().length);
+  });
+});
+</script>
+</body></html>

@@ -18,12 +18,20 @@ public class SoundsController : BaseApiController
         _db = db;
     }
 
+    // The bundle's settings UI uses `/api/rest/sound` (singular, REST-style)
+    // mirroring its `/api/rest/action` convention. Aliased onto the same
+    // handler so both URLs return the same shape.
     [HttpGet("sounds")]
     [HttpPost("sounds")]
+    [HttpGet("rest/sound")]
+    [HttpPost("rest/sound")]
+    [HttpGet("rest/sounds")]
     public async Task<IActionResult> GetSounds()
     {
+        var channelId = GetChannelId();
+        var profileId = GetProfileId();
         var sounds = await _db.Sounds
-            .Where(s => s.ChannelId == GetChannelId())
+            .Where(s => s.ChannelId == channelId && s.ProfileId == profileId)
             .OrderBy(s => s.Sort)
             .Select(s => new { s.Id, s.Name, s.FileName, s.Url, s.Volume, s.Enabled, s.Sort, s.Category })
             .ToListAsync();
@@ -42,6 +50,7 @@ public class SoundsController : BaseApiController
     }
 
     [HttpPost("sounds/save")]
+    [HttpPost("rest/sound/save")]
     public async Task<IActionResult> SaveSound([FromBody] SoundDto dto)
     {
         var channelId = GetChannelId();
@@ -64,6 +73,7 @@ public class SoundsController : BaseApiController
             sound = new Sound
             {
                 ChannelId = channelId,
+                ProfileId = GetProfileId(),
                 Name = dto.Name,
                 Url = dto.Url,
                 Volume = dto.Volume,
@@ -79,6 +89,7 @@ public class SoundsController : BaseApiController
     }
 
     [HttpPost("sounds/delete")]
+    [HttpPost("rest/sound/delete")]
     public async Task<IActionResult> DeleteSound([FromBody] IdDto dto)
     {
         var sound = await _db.Sounds.FirstOrDefaultAsync(s => s.Id == dto.Id && s.ChannelId == GetChannelId());

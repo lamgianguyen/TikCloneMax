@@ -22,8 +22,10 @@ public class ActionsController : BaseApiController
     [HttpGet("action")]
     public async Task<IActionResult> GetActions()
     {
+        var channelId = GetChannelId();
+        var profileId = GetProfileId();
         var actions = await _db.Actions
-            .Where(a => a.ChannelId == GetChannelId())
+            .Where(a => a.ChannelId == channelId && a.ProfileId == profileId)
             .OrderBy(a => a.Sort)
             .ThenByDescending(a => a.Id)
             .ToListAsync();
@@ -46,6 +48,7 @@ public class ActionsController : BaseApiController
     public async Task<IActionResult> SaveAction([FromBody] ActionDto dto)
     {
         var channelId = GetChannelId();
+        var profileId = GetProfileId();
 
         if (dto.Id > 0)
         {
@@ -64,6 +67,7 @@ public class ActionsController : BaseApiController
         var action = new ActionItem
         {
             ChannelId = channelId,
+            ProfileId = profileId,
             Name = dto.Name,
             Type = dto.Type,
             TriggerValue = dto.TriggerValue,

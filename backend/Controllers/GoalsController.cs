@@ -29,8 +29,10 @@ public sealed class GoalsController : BaseApiController
     [HttpGet]
     public async Task<IActionResult> List()
     {
+        var channelId = GetChannelId();
+        var profileId = GetProfileId();
         var goals = await _db.Goals
-            .Where(g => g.ChannelId == GetChannelId())
+            .Where(g => g.ChannelId == channelId && g.ProfileId == profileId)
             .OrderByDescending(g => g.Id)
             .ToListAsync();
 
@@ -65,6 +67,7 @@ public sealed class GoalsController : BaseApiController
             goal = new Goal
             {
                 ChannelId = channelId,
+                ProfileId = GetProfileId(),
                 Name = dto.Name ?? "",
                 Type = dto.Type,
                 Target = dto.Target,

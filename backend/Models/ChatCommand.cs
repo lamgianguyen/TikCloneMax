@@ -4,6 +4,7 @@ public class ChatCommand
 {
     public int Id { get; set; }
     public int ChannelId { get; set; }
+    public int ProfileId { get; set; } = 1;
     public string Command { get; set; } = "";
     public string Response { get; set; } = "";
     public int Cooldown { get; set; } // seconds

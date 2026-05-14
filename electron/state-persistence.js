@@ -1,17 +1,17 @@
-// TikTok session cookie storage. Stored separately from auth-store.js
+// Session cookie storage. Stored separately from auth-store.js
 // because they have unrelated lifecycles:
-//   • auth-store.js   → TikfinityServer Serial Key (license gate)
-//   • this file       → TikTok user sessionid (let bridge bypass Eulerstream)
+//   • auth-store.js     → TikfinityServer Serial Key (license gate)
+//   • this file         → platform user sessionid (let bridge bypass Eulerstream)
 //
 // File location: <userData>/tiktok-session.json
 //   {
 //     "sessionId": "<32-char hex string>",
-//     "username":  "<TikTok @ handle, optional>",
+//     "username":  "<@ handle, optional>",
 //     "savedAt":   "ISO-8601 string",
 //     "expiresAt": "ISO-8601 string (~30d after savedAt, best-effort)"
 //   }
 //
-// SECURITY: sessionid is a TikTok login token. Treat it like a password —
+// SECURITY: sessionid is a login token. Treat it like a password —
 // never log the value, never include in error messages, never commit.
 
 const fs = require('fs');
@@ -27,14 +27,14 @@ function init(userDataDir) {
 }
 
 function load() {
-    if (!storePath) throw new Error('tiktok-session-store: not initialized');
+    if (!storePath) throw new Error('session-store: not initialized');
     try {
         if (!fs.existsSync(storePath)) return null;
         const raw = fs.readFileSync(storePath, 'utf-8');
         const data = JSON.parse(raw);
         if (!data || typeof data.sessionId !== 'string' || data.sessionId.length < 8) return null;
-        // Best-effort expiry check. We never know the real TikTok expiry — the
-        // cookie just stops working when TikTok decides to invalidate it. The
+        // Best-effort expiry check. We never know the real expiry — the
+        // cookie just stops working when the platform invalidates it. The
         // bridge will surface that as a connect failure and the user can
         // sign in again via the tray menu / Setup button.
         if (data.expiresAt) {
@@ -43,13 +43,13 @@ function load() {
         }
         return data;
     } catch (err) {
-        console.warn('[tiktok-session-store] load failed:', err.message);
+        console.warn('[session-store] load failed:', err.message);
         return null;
     }
 }
 
 function save(sessionId, username, ttTargetIdc) {
-    if (!storePath) throw new Error('tiktok-session-store: not initialized');
+    if (!storePath) throw new Error('session-store: not initialized');
     if (!sessionId || typeof sessionId !== 'string') throw new Error('sessionId required');
 
     const now = Date.now();
@@ -71,7 +71,7 @@ function clear() {
     try {
         if (fs.existsSync(storePath)) fs.unlinkSync(storePath);
     } catch (err) {
-        console.warn('[tiktok-session-store] clear failed:', err.message);
+        console.warn('[session-store] clear failed:', err.message);
     }
 }
 

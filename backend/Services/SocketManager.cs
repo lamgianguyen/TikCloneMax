@@ -129,6 +129,47 @@ public class SocketManager
     }
 
     /// <summary>
+    /// Broadcast a multi-arg Socket.IO event. Each arg is serialized as its own JSON
+    /// value, so handlers see them as separate parameters: io.on(name, (a, b, c) => ...).
+    /// Used for events like executeAction(actionInfo, context).
+    /// </summary>
+    public async Task BroadcastEventArgs(string eventName, params object[] args)
+    {
+        var encodedEventName = JsonSerializer.Serialize(eventName);
+        var argsJson = string.Join(",", args.Select(a => JsonSerializer.Serialize(a)));
+        var frame = string.IsNullOrEmpty(argsJson)
+            ? $"42[{encodedEventName}]"
+            : $"42[{encodedEventName},{argsJson}]";
+        var bytes = Encoding.UTF8.GetBytes(frame);
+        var deadSessions = new List<string>();
+
+        foreach (var (sid, ws) in _connections)
+        {
+            try
+            {
+                if (ws.State == WebSocketState.Open)
+                {
+                    await ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
+                }
+                else
+                {
+                    deadSessions.Add(sid);
+                }
+            }
+            catch
+            {
+                deadSessions.Add(sid);
+            }
+        }
+
+        foreach (var sid in deadSessions)
+        {
+            _connections.TryRemove(sid, out _);
+            _clientInfo.TryRemove(sid, out _);
+        }
+    }
+
+    /// <summary>
     /// Send a Socket.IO event to a specific client.
     /// </summary>
     public async Task SendEvent(string sessionId, string eventName, object data)

@@ -37,8 +37,13 @@ catch { }
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- Listen on all interfaces for LAN access ---
-builder.WebHost.UseUrls("http://0.0.0.0:5285");
+// --- Listen on loopback only by default (safer). Set TIKMAX_ALLOW_LAN=1 to
+//     bind 0.0.0.0 for OBS-on-different-machine scenarios. ---
+var allowLan = Environment.GetEnvironmentVariable("TIKMAX_ALLOW_LAN");
+var bindHost = (allowLan == "1" || string.Equals(allowLan, "true", StringComparison.OrdinalIgnoreCase))
+    ? "0.0.0.0"
+    : "127.0.0.1";
+builder.WebHost.UseUrls($"http://{bindHost}:5285");
 
 // --- Frontend path resolution (handles dev, published exe, and Visual Studio) ---
 string ResolveFrontendPath()
@@ -82,7 +87,12 @@ if (!File.Exists(Path.Combine(frontendPath, "index.html")))
 
 // --- EF Core + SQLite ---
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection"))
+           // Stream Profiles introduced ProfileId columns on Actions, Sounds,
+           // Goals, ChatCommands, DynamicSettings. Schema applied via runtime
+           // ALTER TABLE on first boot (see EnsureProfileColumns). EF model
+           // diff would otherwise abort startup with PendingModelChangesWarning.
+           .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
 // --- Services ---
 builder.Services.AddScoped<ChannelService>();
@@ -158,14 +168,38 @@ builder.Services.AddAuthentication(options =>
 ;
 
 // --- CORS ---
+// Default: only allow same-host origins (localhost/127.0.0.1). With AllowCredentials,
+// browsers reject "*" origin anyway, so we whitelist localhost variants.
+// Set TIKMAX_ALLOW_LAN=1 to additionally accept any origin (legacy behavior),
+// which is needed for OBS Browser Source on a different machine.
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.SetIsOriginAllowed(_ => true)
+        var allowLanCors = Environment.GetEnvironmentVariable("TIKMAX_ALLOW_LAN");
+        var corsOpen = allowLanCors == "1" || string.Equals(allowLanCors, "true", StringComparison.OrdinalIgnoreCase);
+
+        if (corsOpen)
+        {
+            policy.SetIsOriginAllowed(_ => true)
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+        }
+        else
+        {
+            policy.SetIsOriginAllowed(origin =>
+            {
+                if (string.IsNullOrEmpty(origin)) return true; // same-origin / non-browser
+                return origin.StartsWith("http://localhost:", StringComparison.OrdinalIgnoreCase)
+                    || origin.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase)
+                    || origin.Equals("http://localhost", StringComparison.OrdinalIgnoreCase)
+                    || origin.Equals("http://127.0.0.1", StringComparison.OrdinalIgnoreCase);
+            })
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
+        }
     });
 });
 
@@ -177,6 +211,7 @@ builder.Services.AddSingleton<PointsService>();
 builder.Services.AddHttpClient("webhooks");
 builder.Services.AddSingleton<WebhookService>();
 builder.Services.AddSingleton<ObsService>();
+builder.Services.AddSingleton<FeatureGate>();
 builder.Services.AddHostedService<TikTokBridgeService>();
 
 // --- HTTP client for license server ---
@@ -196,8 +231,38 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
+
+    // Stream Profiles: add ProfileId column to per-profile tables if missing.
+    // Idempotent — checks PRAGMA table_info first to avoid SQLite's
+    // ALTER-TABLE-ADD-COLUMN-already-exists error.
+    EnsureProfileColumns(db);
+
     var ch = db.Channels.OrderBy(c => c.ChannelId).FirstOrDefault();
     if (ch != null) { defaultChannelId = ch.ChannelId; defaultChannelName = ch.ChannelName; }
+
+    // Stream Profiles: preserve the user's last active profile across restarts.
+    //
+    // Previously we reset Channels.ProfileId → 1 on every boot to side-step a
+    // suspected bundle bug (Pinia init hardcoded to streamProfileId: 1). That
+    // was destructive — every restart silently moved the user back to profile
+    // 1 regardless of what they last worked in.
+    //
+    // The renderer seed path (main.js refreshInitialApiState → preload.js
+    // applySeed → localStorage 'setting_profileid') now feeds the bundle the
+    // correct profileId from /api/me at boot, so the workaround is no longer
+    // load-bearing.
+    //
+    // Residual risk: if the bundle's Pinia store really does ignore
+    // localStorage and force streamProfileId: 1 at init, the dropdown will
+    // briefly show "Profile 1" while DB has e.g. 2 — first profile-dropdown
+    // click resynchronizes (POST /api/me writes back through MeController).
+    // No data is lost in either case.
+    if (ch != null && ch.ProfileId <= 0)
+    {
+        Console.WriteLine($"[BOOT] Normalizing invalid Channels.ProfileId {ch.ProfileId} -> 1");
+        ch.ProfileId = 1;
+        db.SaveChanges();
+    }
 
     // Seed welcome notifications once per channel so the bell isn't empty on
     // first run. Real Tikfinity does the same — bell shows team announcements.
@@ -254,7 +319,8 @@ using (var scope = app.Services.CreateScope())
     }
 
     // Auto-seed default actions (Gift Alert, Like Alert, Sub Alert) if none exist
-    if (ch != null && !db.Actions.Any(a => a.ChannelId == ch.ChannelId))
+    var bootProfileId = ch != null && ch.ProfileId > 0 ? ch.ProfileId : 1;
+    if (ch != null && !db.Actions.Any(a => a.ChannelId == ch.ChannelId && a.ProfileId == bootProfileId))
     {
         try
         {
@@ -285,6 +351,7 @@ using (var scope = app.Services.CreateScope())
                         db.Actions.Add(new TikFinityBackend.Models.ActionItem
                         {
                             ChannelId = ch.ChannelId,
+                            ProfileId = ch.ProfileId > 0 ? ch.ProfileId : 1,
                             Name = aName,
                             Type = a.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "",
                             ConfigJson = a.GetRawText(),
@@ -314,19 +381,21 @@ using (var scope = app.Services.CreateScope())
 
             var hasFollowAlert = db.Actions.Any(a =>
               a.ChannelId == ch.ChannelId
+              && a.ProfileId == bootProfileId
               && a.Name != null
               && a.Name.ToLower() == "follow alert");
 
             if (!hasFollowAlert)
             {
                 var nextSort = db.Actions
-                    .Where(a => a.ChannelId == ch.ChannelId)
+                    .Where(a => a.ChannelId == ch.ChannelId && a.ProfileId == bootProfileId)
                     .Select(a => (int?)a.Sort)
                     .Max() ?? 0;
 
                 db.Actions.Add(new TikFinityBackend.Models.ActionItem
                 {
                     ChannelId = ch.ChannelId,
+                    ProfileId = ch.ProfileId > 0 ? ch.ProfileId : 1,
                     Name = "Follow Alert",
                     Type = "manual",
                     ConfigJson = "{\"screenId\":1,\"duration\":5,\"text\":\"Thanks for following!\",\"animationUrl\":\"/assets/lotties/11438-starburst-animation.json\",\"enableFadeEffect\":true}",
@@ -340,7 +409,7 @@ using (var scope = app.Services.CreateScope())
             }
 
             var eventsRow = db.DynamicSettings
-                .FirstOrDefault(d => d.ChannelId == ch.ChannelId && d.Key == "events");
+                .FirstOrDefault(d => d.ChannelId == ch.ChannelId && d.ProfileId == bootProfileId && d.Key == "events");
 
             var currentEvents = eventsRow?.Value?.Trim();
             var shouldSeedEvents = string.IsNullOrWhiteSpace(currentEvents)
@@ -351,7 +420,7 @@ using (var scope = app.Services.CreateScope())
             if (shouldSeedEvents)
             {
                 var channelActions = db.Actions
-                    .Where(a => a.ChannelId == ch.ChannelId)
+                    .Where(a => a.ChannelId == ch.ChannelId && a.ProfileId == bootProfileId)
                     .Select(a => new { a.Id, a.Name })
                     .ToList();
 
@@ -420,6 +489,7 @@ using (var scope = app.Services.CreateScope())
                         db.DynamicSettings.Add(new TikFinityBackend.Models.DynamicSetting
                         {
                             ChannelId = ch.ChannelId,
+                            ProfileId = ch.ProfileId > 0 ? ch.ProfileId : 1,
                             Key = "events",
                             Value = eventsJson
                         });
@@ -461,6 +531,9 @@ await settingsCache.Rebuild(defaultChannelId);
 app.UseDeveloperExceptionPage(); // Show detailed errors
 app.UseWebSockets(); // Required for Socket.IO WebSocket transport
 app.UseResponseCompression();
+
+// Feature gating — block hidden/unstable routes early so they look like 404
+app.UseMiddleware<UnstableFeatureMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
@@ -684,6 +757,12 @@ app.Use(async (context, next) =>
                                     // changes in the bridge.
                                     try { await tikTokBridge.EmitInitialGoalStatusAsync(); }
                                     catch (Exception emitEx) { Console.WriteLine($"[SIO] EmitInitialGoalStatus failed: {emitEx.Message}"); }
+
+                                    // Same for top gifters / likers / ranking / stats / lastX —
+                                    // freshly-opened topgifter/topliker/ranking/lastx widgets
+                                    // would otherwise sit blank until the next gift/like event.
+                                    try { await tikTokBridge.EmitInitialAggregateStateAsync(); }
+                                    catch (Exception emitEx) { Console.WriteLine($"[SIO] EmitInitialAggregateState failed: {emitEx.Message}"); }
                                 }
                             }
 
@@ -942,6 +1021,78 @@ static async Task HandleClientEvent(string eventName, System.Text.Json.JsonEleme
 
     return true;
   }
+
+static void EnsureProfileColumns(TikFinityBackend.Data.AppDbContext db)
+{
+    // SQLite-only: add ProfileId column to per-profile tables when missing.
+    var tables = new[] { "Actions", "Sounds", "Goals", "ChatCommands", "DynamicSettings" };
+    foreach (var table in tables)
+    {
+        try
+        {
+            var hasColumn = false;
+            using (var cmd = db.Database.GetDbConnection().CreateCommand())
+            {
+                if (db.Database.GetDbConnection().State != System.Data.ConnectionState.Open)
+                    db.Database.GetDbConnection().Open();
+                cmd.CommandText = $"PRAGMA table_info(\"{table}\")";
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    if (string.Equals(reader.GetString(1), "ProfileId", StringComparison.Ordinal))
+                    {
+                        hasColumn = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasColumn)
+            {
+                db.Database.ExecuteSqlRaw($"ALTER TABLE \"{table}\" ADD COLUMN \"ProfileId\" INTEGER NOT NULL DEFAULT 1");
+                Console.WriteLine($"[BOOT] Added ProfileId column to {table}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BOOT][WARN] EnsureProfileColumns({table}) failed: {ex.Message}");
+        }
+    }
+
+    // DynamicSettings: drop legacy unique(ChannelId, Key) index and recreate as
+    // unique(ChannelId, ProfileId, Key). Without this, saving the same setting
+    // key in two different profiles hits a UNIQUE constraint violation.
+    try
+    {
+        var hasOldIndex = false;
+        using (var cmd = db.Database.GetDbConnection().CreateCommand())
+        {
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='DynamicSettings' AND name='IX_DynamicSettings_ChannelId_Key'";
+            var r = cmd.ExecuteScalar();
+            hasOldIndex = r != null;
+        }
+        if (hasOldIndex)
+        {
+            db.Database.ExecuteSqlRaw("DROP INDEX IF EXISTS \"IX_DynamicSettings_ChannelId_Key\"");
+            Console.WriteLine("[BOOT] Dropped legacy index IX_DynamicSettings_ChannelId_Key");
+        }
+        var hasNewIndex = false;
+        using (var cmd = db.Database.GetDbConnection().CreateCommand())
+        {
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='DynamicSettings' AND name='IX_DynamicSettings_ChannelId_ProfileId_Key'";
+            var r = cmd.ExecuteScalar();
+            hasNewIndex = r != null;
+        }
+        if (!hasNewIndex)
+        {
+            db.Database.ExecuteSqlRaw("CREATE UNIQUE INDEX \"IX_DynamicSettings_ChannelId_ProfileId_Key\" ON \"DynamicSettings\" (\"ChannelId\", \"ProfileId\", \"Key\")");
+            Console.WriteLine("[BOOT] Created index IX_DynamicSettings_ChannelId_ProfileId_Key");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[BOOT][WARN] DynamicSettings index migration failed: {ex.Message}");
+    }
+}
 
 static string? TryExtractUsername(System.Text.Json.JsonElement data)
 {
@@ -1232,6 +1383,25 @@ var widgetRewriteMap = new Dictionary<string, string>
     ["mediawrapper.js"] = "/widget/mediawrapper.js",
 };
 
+// Serve /uploads/* from disk directly (NOT memory cache).
+// User-uploaded files are dropped here at runtime by UploadController, so
+// we can't use the boot-time memory cache. UseStaticFiles handles ETag,
+// Range, MIME-by-extension and a sensible browser cache header.
+{
+    var uploadsRoot = Path.GetFullPath(Path.Combine(frontendPath, "uploads"));
+    Directory.CreateDirectory(uploadsRoot);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsRoot),
+        RequestPath = "/uploads",
+        ServeUnknownFileTypes = false,
+        OnPrepareResponse = ctx =>
+        {
+            ctx.Context.Response.Headers["Cache-Control"] = "public, max-age=86400";
+        }
+    });
+}
+
 // Serve ALL static files from memory cache (instant, no disk I/O)
 app.Use(async (context, next) =>
 {
@@ -1443,7 +1613,7 @@ Console.WriteLine($"\n==============================================");
 Console.WriteLine($" TikFinity Backend + Frontend Server");
 Console.WriteLine($"==============================================");
 Console.WriteLine($"  Local:    http://localhost:5285");
-Console.WriteLine($"  Network:  http://0.0.0.0:5285");
+Console.WriteLine($"  Bind:     http://{bindHost}:5285" + (bindHost == "0.0.0.0" ? " (LAN exposed via TIKMAX_ALLOW_LAN)" : ""));
 Console.WriteLine($"  API:      http://localhost:5285/api/*");
 Console.WriteLine($"  Frontend: http://localhost:5285/");
 Console.WriteLine($"==============================================\n");
@@ -1512,6 +1682,32 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         var style = document.createElement('style');
         style.textContent = '[data-tf-hide-account="1"] { display:none !important; }';
         (document.head || document.documentElement).appendChild(style);
+      })();
+
+      // Bundle natively shows its own "Connection Failed" modal on connectFailed,
+      // which duplicates our centered popup (the one with "Login TikTok" button).
+      // Watch for the bundle's modal and hide it. Match by signature text so we
+      // don't accidentally hide legit modals.
+      (function suppressBundleConnFailedModal(){
+        var SIGNATURE = /Failed to access your LIVE stream/i;
+        function hideIfBundleModal(node) {
+          if (!node || node.nodeType !== 1) return;
+          if (node.id && node.id.indexOf('tf-') === 0) return;
+          if (node.closest && node.closest('[id^="tf-"]')) return;
+          var text = (node.textContent || '').trim();
+          if (text.length > 0 && text.length < 600 && SIGNATURE.test(text)) {
+            node.style.setProperty('display', 'none', 'important');
+          }
+        }
+        var mo = new MutationObserver(function(muts){
+          for (var i=0; i<muts.length; i++) {
+            var m = muts[i];
+            for (var j=0; j<m.addedNodes.length; j++) hideIfBundleModal(m.addedNodes[j]);
+          }
+        });
+        mo.observe(document.documentElement, { childList: true, subtree: true });
+        // Also scan current DOM in case modal renders before observer attaches
+        document.querySelectorAll('div, section').forEach(hideIfBundleModal);
       })();
 
       // ──────────────────────────────────────────────────────────────────────
@@ -1924,8 +2120,18 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       // Kept untouched: Language picker, Roadmap, Feature Request, Pro upgrade.
       // ──────────────────────────────────────────────────────────────────────
       (function tameAccountDropdown(){
-        var LOGOUT_RE = /^\s*(sign[\s-]?out|log[\s-]?out|đăng[\s-]?xuất)\s*$/i;
-        var HIDE_RE = /^\s*(connect tiktok account|kết nối tài khoản tiktok|my profile|hồ sơ của tôi|switch account|đổi tài khoản|sign in|log[\s-]?in|đăng[\s-]?nhập|create account|tạo tài khoản)\s*$/i;
+        // Match logout labels even with icon prefixes (🔚, →, etc) or trailing
+        // chevrons. Strip non-letter chars from edges before testing.
+        var LOGOUT_RE = /^(sign[\s-]?out|log[\s-]?out|đăng[\s-]?xuất)$/i;
+        function normalizeLabel(s) {
+          if (!s) return '';
+          // Trim, then strip leading/trailing non-letter (emoji, icons, arrows, etc)
+          return String(s).trim()
+            .replace(/^[^\p{L}]+/u, '')
+            .replace(/[^\p{L}]+$/u, '')
+            .trim();
+        }
+        var HIDE_RE = /^(connect tiktok account|kết nối tài khoản tiktok|my profile|hồ sơ của tôi|switch account|đổi tài khoản|sign in|log[\s-]?in|đăng[\s-]?nhập|create account|tạo tài khoản)$/i;
         var seen = new WeakSet();
 
         function isHideableMenuRow(node) {
@@ -1951,11 +2157,14 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         }
 
         function findClickableLogout(target) {
-          // Walk up the DOM looking for a node whose text matches a logout label.
+          // Walk up the DOM looking for a node whose normalized text matches.
           var el = target;
           for (var i=0; i<8 && el && el.nodeType === 1; i++) {
-            var t = (el.textContent || '').trim();
-            if (t && t.length <= 40 && LOGOUT_RE.test(t)) return el;
+            var raw = (el.textContent || '').trim();
+            if (raw && raw.length <= 60) {
+              var norm = normalizeLabel(raw);
+              if (norm && LOGOUT_RE.test(norm)) return el;
+            }
             el = el.parentElement;
           }
           return null;
@@ -1967,14 +2176,19 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation();
-          console.log('[tfs] Sign Out intercepted, calling window.TFS.logout()');
+          console.log('[tfs] Logout intercepted (text="' + hit.textContent.trim() + '")');
           try {
             if (window.TFS && typeof window.TFS.logout === 'function') {
-              window.TFS.logout();
+              console.log('[tfs] calling window.TFS.logout()');
+              var p = window.TFS.logout();
+              if (p && typeof p.then === 'function') {
+                p.then(function(){ console.log('[tfs] logout IPC resolved'); })
+                 .catch(function(err){ console.error('[tfs] logout IPC rejected', err); });
+              }
             } else {
-              console.warn('[tfs] window.TFS.logout missing');
+              console.error('[tfs] window.TFS.logout missing — preload.js not loaded?');
             }
-          } catch (err) { console.warn('[tfs] logout invoke failed', err); }
+          } catch (err) { console.error('[tfs] logout invoke threw', err); }
         }
 
         // Document-level capture listeners — beat any framework delegation.
@@ -1990,7 +2204,8 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           if (tag !== 'A' && tag !== 'BUTTON' && tag !== 'LI' && tag !== 'DIV' && tag !== 'SPAN') return;
           var text = (el.textContent || '').trim();
           if (!text || text.length > 60) return;
-          if (HIDE_RE.test(text)) {
+          var norm = normalizeLabel(text);
+          if (norm && HIDE_RE.test(norm)) {
             var row = rowOf(el);
             if (!row) return;
             row.setAttribute('data-tf-hide-account', '1');
@@ -2088,32 +2303,65 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         }
       });
 
-      // RELOAD-LOOP BREAKER: bundle's settings.restore can call
-      // location.reload() / location.href = '/' / location.replace('/')
-      // every ~1s if it thinks state is out of sync with the server. We
-      // detect rapid same-URL navigations and HARD-BLOCK them after the
-      // first reload, releasing the lock after 30s. One legit reload still
-      // gets through; the loop dies after the second attempt.
+      // SWITCH-PROFILE LOADING OVERLAY: bundle's switchProfile triggers a
+      // bootstrap chain (8-12 reloads in quick succession). Instead of trying
+      // to block the reloads (which can leave the bundle in a broken state),
+      // we paint a fullscreen loading overlay that covers all the flicker.
+      // After 3s without further reloads, the overlay fades out.
+      window.__tfShowSwitchOverlay = function() {
+        try {
+          if (document.getElementById('tf-switch-overlay')) return;
+          var ov = document.createElement('div');
+          ov.id = 'tf-switch-overlay';
+          var sp = document.createElement('div');
+          sp.id = 'tf-switch-overlay-spinner';
+          var tx = document.createElement('div');
+          tx.id = 'tf-switch-overlay-text';
+          tx.textContent = 'Switching profile...';
+          ov.appendChild(sp);
+          ov.appendChild(tx);
+          (document.body || document.documentElement).appendChild(ov);
+        } catch(e) {}
+      };
+      window.__tfHideSwitchOverlay = function() {
+        try {
+          // Clear the localStorage trigger so the next page load won't re-show
+          // the overlay. We're past the switch flicker — bundle has settled.
+          try { localStorage.removeItem('__tf_post_switch_ts'); } catch(e) {}
+          var ov = document.getElementById('tf-switch-overlay');
+          if (!ov) return;
+          ov.classList.add('tf-fade-out');
+          setTimeout(function() { if (ov && ov.parentNode) ov.parentNode.removeChild(ov); }, 500);
+        } catch(e) {}
+      };
+      // On each page load, check if we're in a post-switch window. If so,
+      // paint the overlay immediately so the user sees a clean loading state
+      // instead of the bundle's UI flickering through its bootstrap chain.
       try {
-        var _navCalls = [];
-        function isLoopAttempt() {
-          var now = Date.now();
-          _navCalls = _navCalls.filter(function(t) { return now - t < 5000; });
-          _navCalls.push(now);
-          return _navCalls.length > 1;  // 2nd reload within 5s = loop
-        }
-
-        // Wrap location.reload() — minimal, no defineProperty / form.submit /
-        // anchor.click wrappers (those broke the bundle's init).
-        var _origReload = window.location.reload.bind(window.location);
-        window.__tfOrigReload = _origReload;
-        window.location.reload = function() {
-          if (isLoopAttempt()) {
-            console.warn('[TF-GUARD] Blocked reload-loop attempt (#' + _navCalls.length + ')');
-            return;
+        var _postSwitchTs = parseInt(localStorage.getItem('__tf_post_switch_ts') || '0', 10) || 0;
+        if (_postSwitchTs > 0 && (Date.now() - _postSwitchTs) < 8000) {
+          if (document.body) {
+            window.__tfShowSwitchOverlay();
+          } else {
+            document.addEventListener('DOMContentLoaded', window.__tfShowSwitchOverlay, { once: true });
           }
-          return _origReload();
-        };
+          // If this page survives 3s without another reload, the bundle has
+          // settled — fade out the overlay.
+          setTimeout(window.__tfHideSwitchOverlay, 3000);
+        }
+      } catch(e) {}
+
+      // Capture the original reload BEFORE the persistent reloadGuard patches
+      // the prototype. authSuccess() uses window.__tfOrigReload to bypass that
+      // guard when fulfilling a real login reload.
+      // NOTE: We intentionally do NOT wrap window.location.reload here anymore.
+      // The previous in-memory _navCalls wrapper conflicted with the sessionStorage
+      // reloadGuard: it set an own-property on location that shadowed the prototype
+      // patch, AND its 30s setTimeout would restore the ORIGINAL (unguarded) reload,
+      // leaving the bundle free to loop. The sessionStorage reloadGuard handles loop
+      // detection persistently across reloads.
+      try {
+        window.__tfOrigReload = window.location.reload.bind(window.location);
 
         // Separate counter for the Navigation API guard — Vue Router does 1–2
         // same-pathname pushState calls during init (allowed), but the bundle
@@ -2138,12 +2386,6 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
             } catch(ex) {}
           });
         }
-
-        // Release the reload guard after 30s so legit user-triggered reloads work normally.
-        setTimeout(function() {
-          _navCalls = [];
-          window.location.reload = _origReload;
-        }, 30000);
       } catch(e) {}
 
       // Suppress known bundle errors ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â not critical (Pinia store populates after Socket.IO connects)
@@ -2683,6 +2925,7 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       }catch(e){}
       var _open=XMLHttpRequest.prototype.open;
       XMLHttpRequest.prototype.open=function(m,u){
+        this._tfMethod=String(m||'').toUpperCase();
         this._tfUrl=rewriteKnownRemoteUrl(u);
         this._tfHasAuth=false;
         if(shouldBlockUrl(this._tfUrl)){this._blocked=true;return;}
@@ -2695,8 +2938,24 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         return _setRequestHeader.apply(this,arguments);
       };
       var _send=XMLHttpRequest.prototype.send;
+      function _markProfileSwitchIfApplicable(method, url, body) {
+        try {
+          if (method !== 'POST' || !url || !/\/api\/me(\?|$)/.test(url)) return;
+          if (typeof body !== 'string' || body.indexOf('profileId') < 0) return;
+          var parsed = JSON.parse(body);
+          if (parsed && typeof parsed.profileId === 'number' && parsed.profileId > 0) {
+            localStorage.setItem('__tf_post_switch_ts', String(Date.now()));
+            // Show overlay immediately — user gets instant feedback before
+            // the reload fires, and the overlay persists across page reloads
+            // because each page re-injects it from the localStorage flag.
+            if (window.__tfShowSwitchOverlay) window.__tfShowSwitchOverlay();
+            console.log('[TF-Switch] profileId=' + parsed.profileId + ' overlay shown');
+          }
+        } catch(e) {}
+      }
       XMLHttpRequest.prototype.send=function(body){
         if(this._blocked)return;
+        _markProfileSwitchIfApplicable(this._tfMethod, this._tfUrl, body);
         // BLOCK updateSettings XHR ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â silently drop, no callback, no reload
         body=rewriteTikTokConnectString(body,this._tfUrl);
         try{
@@ -2722,6 +2981,7 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           if(typeof nextOpts.body==='string'){
             nextOpts.body=rewriteTikTokConnectString(nextOpts.body,rawUrl);
           }
+          _markProfileSwitchIfApplicable(String((nextOpts.method||'GET')).toUpperCase(), rawUrl, nextOpts.body);
           if(token&&needsAuth(rawUrl)){
             var headers=new Headers(nextOpts.headers||(url&&url.headers)||undefined);
             if(!headers.has('Authorization'))headers.set('Authorization','Bearer '+token);
@@ -2870,6 +3130,11 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         }
       }
 
+      function parsePositiveInt(value, fallbackValue) {
+        var parsed = parseInt(String(value == null ? '' : value), 10);
+        return parsed > 0 ? parsed : fallbackValue;
+      }
+
       function toBase64Url(value) {
         try {
           return btoa(unescape(encodeURIComponent(String(value))))
@@ -2936,6 +3201,7 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         var storedChannelName = readStorage('setting_channelname', '');
         var hasStoredIdentity = !!storedChannelId || !!storedChannelName || readStorage('setting_pendinglogin', '') === '1';
         var channelId = readStorage('setting_channelid', String(defaultChannelId || '1'));
+        var profileId = parsePositiveInt(readStorage('setting_profileid', '1'), 1);
         var accountChannelName = readStorage('setting_channelname', defaultChannelName || 'user');
         var tiktokName = readStorage('setting_tiktokname', '');
         var locale = readStorage('setting_locale', 'VN');
@@ -2955,6 +3221,7 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           status: 200,
           message: 'OK',
           channelId: channelId,
+          profileId: profileId,
           isPro: isPro,
           channelName: channelName,
           accountChannelName: accountChannelName,
@@ -2962,6 +3229,8 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           channel: {
             ChannelId: channelId,
             channelId: channelId,
+            ProfileId: profileId,
+            profileId: profileId,
             ChannelName: channelName,
             channelName: channelName,
             AccountChannelName: accountChannelName,
@@ -3066,6 +3335,13 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           (channel.dynamicSettings && channel.dynamicSettings.setting_tiktokname) ||
           readStorage('setting_tiktokname', '');
         var channelName = tiktokName || channel.channelName || channel.ChannelName || payload.channelName || accountChannelName;
+        var activeProfileId = parsePositiveInt(
+          channel.profileId ||
+          channel.ProfileId ||
+          payload.profileId ||
+          readStorage('setting_profileid', '1'),
+          1
+        );
         var signature = channel.channelSignature || channel.ChannelSignature || readStorage('setting_channelsignature', '');
         var locale = channel.locale || channel.Locale || payload.countryCode || readStorage('setting_locale', 'VN');
         var isPro = typeof payload.isPro === 'boolean'
@@ -3076,6 +3352,9 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
 
         writeStoredBasics(channelId, accountChannelName || channelName, isPro, locale, signature);
         try {
+          persistValue('setting_profileid', String(activeProfileId));
+          sessionStorage.setItem('setting_channelid', String(channelId));
+          sessionStorage.setItem('setting_profileid', String(activeProfileId));
           if (tiktokName) persistValue('setting_tiktokname', String(tiktokName));
           if ((channel.Email || channel.email)) persistValue('setting_email', String(channel.Email || channel.email));
           if ((channel.OwnerUserId || channel.ownerUserId)) persistValue('setting_owneruserid', String(channel.OwnerUserId || channel.ownerUserId));
@@ -3097,6 +3376,7 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
 
         window.session = window.session || {};
         window.session.channelId = channelId;
+        window.session.profileId = activeProfileId;
         window.session.channelName = channelName;
         window.session.accountChannelName = accountChannelName || channelName;
         window.session.tiktokUsername = tiktokName || '';
@@ -3111,6 +3391,8 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         }, channel, {
           ChannelId: channelId,
           channelId: channelId,
+          ProfileId: activeProfileId,
+          profileId: activeProfileId,
           ChannelName: channelName,
           channelName: channelName,
           AccountChannelName: accountChannelName || channelName,
@@ -3136,6 +3418,7 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
 
         window.tfPageloadData = window.tfPageloadData || {};
         window.tfPageloadData.me = Object.assign({}, payload, {
+          profileId: activeProfileId,
           channelName: channelName,
           accountChannelName: accountChannelName || channelName,
           tiktokUsername: tiktokName || '',
@@ -3143,8 +3426,24 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         });
       }
 
+      // Dedupe hydrate calls — bootAuthBridge / __tfApplyAuthState / DOMContentLoaded
+      // all kick this off in the same tick. Sharing the in-flight promise (plus
+      // a short cooldown after success) prevents three back-to-back /api/me hits
+      // that each apply a fresh session payload, causing visible state shake.
+      var _hydrateInflight = null;
+      var _hydrateLastDoneAt = 0;
+      var HYDRATE_COOLDOWN_MS = 1500;
+
       function hydrateFromApi() {
         if (!window.fetch) return Promise.resolve(buildFallbackPayload());
+
+        // Share in-flight promise
+        if (_hydrateInflight) return _hydrateInflight;
+
+        // Cooldown — recent hydrate result is still fresh
+        if (Date.now() - _hydrateLastDoneAt < HYDRATE_COOLDOWN_MS) {
+          return Promise.resolve(window.session || buildFallbackPayload());
+        }
 
         // No auth token → don't call API, use guest fallback
         var _authToken = readStorage('setting_loginaccesstoken', '');
@@ -3155,7 +3454,7 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           return Promise.resolve(_guestPayload);
         }
 
-        return window.fetch('/api/me', {
+        _hydrateInflight = window.fetch('/api/me', {
           method: 'GET',
           credentials: 'same-origin',
           headers: window.__tfGetAuthHeaders()
@@ -3173,7 +3472,14 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           var fallback = buildFallbackPayload();
           applySessionPayload(fallback);
           return fallback;
+        })
+        .then(function(result) {
+          _hydrateLastDoneAt = Date.now();
+          _hydrateInflight = null;
+          return result;
         });
+
+        return _hydrateInflight;
       }
 
       function bootAuthBridge() {
@@ -3402,6 +3708,10 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       var finish = function() {
         // Clear pending login flag before reload to prevent loop
         try { localStorage.removeItem('setting_pendinglogin'); } catch(e) {}
+        // Reset the reload-guard counter so the bundle can do its bootstrap reload on the new page.
+        // Without this, if count >= MAX_VISIBLE was already reached, the bundle's first post-login
+        // reload attempt would be blocked, causing the UI to stay in a stale state.
+        try { if (window.TFS && window.TFS.__reloadGuard) window.TFS.__reloadGuard.reset(); } catch(e) {}
         // Use original reload to bypass the guard (guard blocks bundle's settings.restore, not auth)
         window.__tfAuthReloading = true;
         var doReload = window.__tfOrigReload || window.location.reload.bind(window.location);
@@ -4711,6 +5021,41 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
     // Early CSS: unhide navigation-app and suppress toast errors
     var earlyCss = """
     <style id="tf-nav-early">
+      /* Paint a dark canvas from the very first frame so the multiple
+         bootstrap reloads (and switchProfile-triggered location.reload())
+         don't flash white between renders. Matches Electron's
+         backgroundColor #212121 used in main.js. */
+      html { background: #1c1d22 !important; }
+      body { background: #1c1d22 !important; color: #e5e7eb; }
+
+      /* Switch-profile loading overlay — covers viewport during the bundle's
+         reload chain (typically 8-12 reloads) so the user sees a clean
+         loading state instead of UI flicker. Removed after 3s of stability. */
+      #tf-switch-overlay {
+        position: fixed; inset: 0;
+        background: #1c1d22;
+        z-index: 2147483647;
+        display: flex; align-items: center; justify-content: center; flex-direction: column;
+        opacity: 1; transition: opacity 400ms ease-out;
+        pointer-events: all;
+      }
+      #tf-switch-overlay.tf-fade-out { opacity: 0; pointer-events: none; }
+      #tf-switch-overlay-spinner {
+        width: 56px; height: 56px;
+        border: 4px solid rgba(255,255,255,0.08);
+        border-top-color: #4dabf7;
+        border-radius: 50%;
+        animation: tf-switch-spin 800ms linear infinite;
+      }
+      #tf-switch-overlay-text {
+        margin-top: 22px;
+        color: #cbd5e0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        font-size: 13px;
+        letter-spacing: 0.5px;
+        opacity: 0.85;
+      }
+      @keyframes tf-switch-spin { to { transform: rotate(360deg); } }
       html, body { width: 100% !important; min-height: 100vh !important; overflow-x: hidden !important; }
       #navigation-app.hidden, #pages.hidden { display: block !important; }
       /* Don't force min-height 100vh on inner page containers — bundle's home
@@ -4739,7 +5084,14 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       body.tf-logged-out #navigation-app .topbar { visibility: hidden !important; }
     </style>
     """;
-    html = html.Replace("<head>", "<head>" + earlyCss + blockScript + authScript, StringComparison.OrdinalIgnoreCase);
+    // NOTE: <head> injection is deferred until after `reloadGuard` is declared
+    // below — see the html.Replace("<head>", ...) line that runs right before
+    // the <body> injection. The guard must be the FIRST script in <head>,
+    // BEFORE the bundle's own app.js, so it can patch Location.prototype.reload
+    // before any bundle script captures the original reload reference. If we
+    // injected the guard into <body> (as it was previously), the bundle's
+    // <head> scripts would have already cached the original reload, bypassing
+    // the guard entirely — that's what caused the reload loop to persist.
     // Inject custom login popup + TikTok connect hook right after <body>
     // Guest topbar: exact copy from tikfinity.zerody.one (logged-out state)
     // Shown via CSS when body.tf-logged-out, hides Vue topbar underneath
@@ -4786,6 +5138,129 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
     // Web Speech API TTS hook — listens for chat / bot:say socket events and reads them aloud
     // through the browser's native synthesizer. Settings are read from localStorage so the
     // bundle's existing settings UI can drive enable/voice/rate/pitch without backend changes.
+    // TTS shim: redirect Tikfinity's commercial TTS API to our local proxy.
+    // The bundle hardcodes <c>tikfinity-tts-api.zerody.one</c> with their cid+token.
+    // We intercept fetch() and audio src= to route those calls to /api/tts/generate,
+    // which proxies TikTok's own TTS endpoint using the user's saved sessionid.
+    //
+    // Also keeps the Web Speech fallback patches so bundle's voice setter
+    // never crashes when SpeechSynthesisUtterance picks an unloaded voice.
+    var ttsVoiceShim = """
+    <script>
+    (function() {
+      // ── 1. Redirect Tikfinity TTS API → our local proxy ──────────────
+      var TIKFINITY_TTS_HOST = 'tikfinity-tts-api.zerody.one';
+      function rewriteTtsUrl(url) {
+        try {
+          if (typeof url !== 'string') return url;
+          if (url.indexOf(TIKFINITY_TTS_HOST) === -1) return url;
+          var u = new URL(url, location.origin);
+          var voice = u.searchParams.get('voice') || 'en_us_002';
+          var text = u.searchParams.get('text') || '';
+          return location.origin + '/api/tts/generate?voice=' + encodeURIComponent(voice) + '&text=' + encodeURIComponent(text);
+        } catch (e) { return url; }
+      }
+
+      // Intercept fetch (most modern clients)
+      var origFetch = window.fetch;
+      if (origFetch) {
+        window.fetch = function(input, init) {
+          if (typeof input === 'string') {
+            input = rewriteTtsUrl(input);
+          } else if (input && input.url && input.url.indexOf(TIKFINITY_TTS_HOST) !== -1) {
+            input = new Request(rewriteTtsUrl(input.url), input);
+          }
+          return origFetch(input, init);
+        };
+      }
+
+      // Intercept XHR (legacy clients)
+      var OrigXhrOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url) {
+        arguments[1] = rewriteTtsUrl(url);
+        return OrigXhrOpen.apply(this, arguments);
+      };
+
+      // Intercept Audio.src = X (some TTS code does `new Audio(url)`)
+      var OrigAudio = window.Audio;
+      window.Audio = function(src) {
+        if (typeof src === 'string') src = rewriteTtsUrl(src);
+        return new OrigAudio(src);
+      };
+      window.Audio.prototype = OrigAudio.prototype;
+
+      var audioSrcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+      if (audioSrcDesc && audioSrcDesc.set) {
+        var origSrcSetter = audioSrcDesc.set;
+        Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+          get: audioSrcDesc.get,
+          set: function(v) { origSrcSetter.call(this, rewriteTtsUrl(v)); },
+          configurable: true
+        });
+      }
+
+      // ── 2. Web Speech voice fallback (for bundle's local TTS path) ───
+      if (!window.speechSynthesis) return;
+
+      // Eager voice load — Chromium's Web Speech API needs a kick to
+      // populate getVoices() synchronously. Without this, the bundle's
+      // first call returns [] and it caches an empty list.
+      function loadVoices() {
+        var vs = speechSynthesis.getVoices();
+        if (vs && vs.length > 0) return vs;
+        return [];
+      }
+      loadVoices();
+      speechSynthesis.addEventListener('voiceschanged', function() {
+        window.__tfVoicesReady = true;
+        console.log('[TTS shim] voices loaded:', speechSynthesis.getVoices().length);
+      });
+
+      // Patch SpeechSynthesisUtterance so .voice = X falls back gracefully
+      // when X isn't in the current voices list. Also auto-pick a voice
+      // for the requested lang if none is set.
+      var OrigUtt = window.SpeechSynthesisUtterance;
+      var voiceDesc = Object.getOwnPropertyDescriptor(OrigUtt.prototype, 'voice');
+      if (voiceDesc && voiceDesc.set) {
+        var origSetter = voiceDesc.set;
+        Object.defineProperty(OrigUtt.prototype, 'voice', {
+          get: voiceDesc.get,
+          set: function(v) {
+            try {
+              var all = speechSynthesis.getVoices();
+              if (v && all.length && !all.includes(v)) {
+                // Requested voice not in current list — find by name
+                var byName = v.name ? all.find(function(x){ return x.name === v.name; }) : null;
+                v = byName || all.find(function(x){ return (this.lang || '').slice(0,2) === (x.lang || '').slice(0,2); }, this) || all[0];
+              }
+              origSetter.call(this, v);
+            } catch (e) {
+              try { origSetter.call(this, null); } catch (e2) {}
+            }
+          },
+          configurable: true
+        });
+      }
+
+      // Intercept speak() to ensure a voice is set when bundle forgets to
+      var origSpeak = speechSynthesis.speak.bind(speechSynthesis);
+      speechSynthesis.speak = function(utt) {
+        try {
+          if (utt && !utt.voice) {
+            var all = speechSynthesis.getVoices();
+            if (all && all.length) {
+              var lang = (utt.lang || 'en-US').toLowerCase().slice(0, 2);
+              utt.voice = all.find(function(x){ return (x.lang || '').toLowerCase().slice(0,2) === lang; }) || all[0];
+              if (!utt.lang && utt.voice) utt.lang = utt.voice.lang;
+            }
+          }
+        } catch (e) { console.warn('[TTS shim] speak prep failed', e); }
+        return origSpeak(utt);
+      };
+    })();
+    </script>
+    """;
+
     var ttsScript = """
     <script>
     (function() {
@@ -5111,7 +5586,345 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
     </script>
     """;
 
-    html = html.Replace("<body>", "<body class=\"tf-logged-out\">" + guestTopbar + loginPopupScript + tiktokConnectScript + ttsScript + twemojiScript + tiktokSigninGate, StringComparison.OrdinalIgnoreCase);
+    var reloadMask = """
+    <style id="tf-reload-hide-all">
+      html.tf-reloading > body > *:not(#tf-reload-mask) {
+        visibility: hidden !important;
+      }
+    </style>
+    <style id="tf-reload-mask-style">
+      #tf-reload-mask {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: #212121;
+        background-image:
+          radial-gradient(circle at 30% 20%, rgba(255, 0, 80, 0.15) 0%, transparent 45%),
+          radial-gradient(circle at 80% 80%, rgba(0, 242, 234, 0.10) 0%, transparent 45%),
+          linear-gradient(160deg, #1a1a1a 0%, #212121 100%);
+        z-index: 2147483647;
+        opacity: 0;
+        transition: opacity 150ms ease-out;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      #tf-reload-mask.active {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 1;
+        visibility: visible !important;
+      }
+      #tf-reload-mask .mask-inner {
+        text-align: center;
+        color: #fff;
+      }
+      #tf-reload-mask .mask-title {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        background: linear-gradient(90deg, #ff0050, #00f2ea);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 4px;
+      }
+      #tf-reload-mask .mask-subtitle {
+        font-size: 11px;
+        color: #9aa0a6;
+        letter-spacing: 1.2px;
+        text-transform: uppercase;
+        margin-bottom: 24px;
+      }
+      #tf-reload-mask .mask-spinner {
+        display: inline-block;
+        width: 18px;
+        height: 18px;
+        border: 2px solid rgba(255, 255, 255, 0.12);
+        border-top-color: #ff0050;
+        border-radius: 50%;
+        animation: tf-spin 0.8s linear infinite;
+        margin-bottom: 16px;
+      }
+      @keyframes tf-spin { to { transform: rotate(360deg); } }
+      #tf-reload-mask .mask-progress-bar {
+        width: 240px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 2px;
+        overflow: hidden;
+        margin: 8px auto 0;
+      }
+      #tf-reload-mask .mask-progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #ff0050, #00f2ea);
+        width: 0%;
+        transition: width 250ms ease-out;
+      }
+      #tf-reload-mask .mask-progress-text {
+        font-size: 12px;
+        color: #c4c7c5;
+        margin-top: 10px;
+        letter-spacing: 0.2px;
+      }
+    </style>
+    <div id="tf-reload-mask">
+      <div class="mask-inner">
+        <div class="mask-title">TikFinity</div>
+        <div class="mask-subtitle">Local Stream Studio</div>
+        <div class="mask-spinner"></div>
+        <div class="mask-progress-bar">
+          <div id="tf-reload-fill" class="mask-progress-fill"></div>
+        </div>
+        <div id="tf-reload-text" class="mask-progress-text">0/10</div>
+      </div>
+    </div>
+    <script>
+      (function() {
+        const mask = document.getElementById('tf-reload-mask');
+        const fill = document.getElementById('tf-reload-fill');
+        const text = document.getElementById('tf-reload-text');
+        const TOTAL = 10;
+        const STORAGE_KEY = 'tf-reload-step';
+        const STORAGE_TIME_KEY = 'tf-reload-time';
+        const RESET_AFTER_MS = 4000;
+        let endTimer = null;
+
+        function getStep() {
+          const t = parseInt(sessionStorage.getItem(STORAGE_TIME_KEY) || '0', 10);
+          if (!t || Date.now() - t > RESET_AFTER_MS) {
+            sessionStorage.removeItem(STORAGE_KEY);
+            sessionStorage.removeItem(STORAGE_TIME_KEY);
+            return 0;
+          }
+          return parseInt(sessionStorage.getItem(STORAGE_KEY) || '0', 10);
+        }
+
+        function render(step) {
+          if (!mask) return;
+          const pct = Math.min(100, (step / TOTAL) * 100);
+          fill.style.width = pct + '%';
+          text.textContent = step + '/' + TOTAL;
+          mask.classList.add('active');
+          document.documentElement.classList.add('tf-reloading');
+        }
+
+        function hide() {
+          if (!mask) return;
+          mask.classList.remove('active');
+          document.documentElement.classList.remove('tf-reloading');
+          sessionStorage.removeItem(STORAGE_KEY);
+          sessionStorage.removeItem(STORAGE_TIME_KEY);
+        }
+
+        function scheduleHide() {
+          if (endTimer) clearTimeout(endTimer);
+          const t = parseInt(sessionStorage.getItem(STORAGE_TIME_KEY) || '0', 10);
+          if (!t) {
+            hide();
+            return;
+          }
+          const age = Date.now() - t;
+          const remaining = Math.max(0, RESET_AFTER_MS - age);
+          endTimer = setTimeout(() => {
+            hide();
+          }, remaining + 50);
+        }
+
+        function showMask() {
+          const current = getStep();
+          const next = Math.min(TOTAL, current + 1);
+          sessionStorage.setItem(STORAGE_KEY, String(next));
+          sessionStorage.setItem(STORAGE_TIME_KEY, String(Date.now()));
+          render(next);
+          scheduleHide();
+        }
+
+        // On page load: if we're mid-chain, hide everything immediately
+        // and render mask. The class is added on <html> so it applies before
+        // any bundle content paints.
+        const stored = getStep();
+        if (stored > 0) {
+          document.documentElement.classList.add('tf-reloading');
+          render(stored);
+          scheduleHide();
+        }
+
+        window.TFS = window.TFS || {};
+        window.TFS.__reloadMask = { show: showMask, hide: hide };
+      })();
+    </script>
+    """;
+
+    // ── Persistent reload guard (Phase 1 of switch-profile fix) ──
+    // Bundle calls location.reload() in chain (8-12 times) on switch profile.
+    // Previous in-memory guard reset on each reload. Use sessionStorage so the
+    // counter survives the chain, and BLOCK 2nd+ reload within 8s.
+    //
+    // Must be the FIRST script in <body> so it patches location.reload before
+    // any bundle module loads (and possibly stashes its own reference).
+    var reloadGuard = """
+    <script>
+    (function() {
+      var KEY_PREFIX = 'tf-reload-lock:';
+      var TIME_SUFFIX = ':time';
+      var LOCK_TTL_MS = 60000;
+      var MAX_VISIBLE = 1;
+
+      function readStableScopeValue(key) {
+        try {
+          var localValue = localStorage.getItem(key);
+          var sessionValue = sessionStorage.getItem(key);
+          if (localValue) {
+            if (sessionValue !== localValue) {
+              sessionStorage.setItem(key, localValue);
+            }
+            return String(localValue);
+          }
+          if (sessionValue) {
+            return String(sessionValue);
+          }
+        } catch (_) {}
+        return '';
+      }
+
+      function getProfileScope() {
+        var channelId = readStableScopeValue('setting_channelid') || 'unknown-channel';
+        var profileId = readStableScopeValue('setting_profileid') || 'unknown-profile';
+        return channelId + ':' + profileId;
+      }
+
+      function getScopeKey(targetUrl) {
+        var path = location.pathname;
+        try {
+          if (targetUrl) {
+            var parsed = new URL(String(targetUrl), location.href);
+            path = parsed.pathname || location.pathname;
+          }
+        } catch (_) {}
+        return KEY_PREFIX + getProfileScope() + ':' + path;
+      }
+
+      function readCount(targetUrl) {
+        var key = getScopeKey(targetUrl);
+        var timeKey = key + TIME_SUFFIX;
+        var t = parseInt(sessionStorage.getItem(timeKey) || '0', 10);
+        if (!t || Date.now() - t > LOCK_TTL_MS) {
+          sessionStorage.removeItem(key);
+          sessionStorage.removeItem(timeKey);
+          return 0;
+        }
+        return parseInt(sessionStorage.getItem(key) || '0', 10);
+      }
+
+      function bumpCount(targetUrl) {
+        var key = getScopeKey(targetUrl);
+        var timeKey = key + TIME_SUFFIX;
+        var c = readCount(targetUrl) + 1;
+        sessionStorage.setItem(key, String(c));
+        sessionStorage.setItem(timeKey, String(Date.now()));
+        return c;
+      }
+
+      // Bundle uses location.reload(), location.href = X, location.assign(),
+      // and location.replace() interchangeably for "refresh state" actions.
+      // Wrap all four so the chain is capped no matter which path bundle picks.
+      function shouldAllowNavigation(targetUrl) {
+        var current = readCount(targetUrl);
+        if (current >= MAX_VISIBLE) {
+          console.warn('[reload-guard] BLOCKED nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + ' target=' + targetUrl);
+          return false;
+        }
+        bumpCount(targetUrl);
+        console.log('[reload-guard] ALLOW nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + (targetUrl ? ' target=' + targetUrl : ''));
+        return true;
+      }
+
+      var Lp = Object.getPrototypeOf(location) || Location.prototype;
+      var origReload = location.reload.bind(location);
+      var origAssign = location.assign.bind(location);
+      var origReplace = location.replace.bind(location);
+
+      function guardedReload() {
+        if (!shouldAllowNavigation(location.href)) return;
+        return origReload();
+      }
+      function guardedAssign(url) {
+        if (!shouldAllowNavigation(url)) return;
+        return origAssign(url);
+      }
+      function guardedReplace(url) {
+        if (!shouldAllowNavigation(url)) return;
+        return origReplace(url);
+      }
+
+      try {
+        Object.defineProperty(Lp, 'reload', { configurable: true, writable: true, value: guardedReload });
+        Object.defineProperty(Lp, 'assign', { configurable: true, writable: true, value: guardedAssign });
+        Object.defineProperty(Lp, 'replace', { configurable: true, writable: true, value: guardedReplace });
+      } catch (e) {
+        try {
+          location.reload = guardedReload;
+          location.assign = guardedAssign;
+          location.replace = guardedReplace;
+        } catch (e2) {
+          console.warn('[reload-guard] could not install:', e2 && e2.message);
+        }
+      }
+      // An earlier script (blockScript injected in head) may have set window.location.reload
+      // as an own property, which shadows the prototype patch above.
+      // Force-override the own property so our guard is always in the call path.
+      try { location.reload = guardedReload; } catch(e) {}
+      try { location.assign = guardedAssign; } catch(e) {}
+      try { location.replace = guardedReplace; } catch(e) {}
+
+      // location.href = X is a separate path — intercept the setter.
+      // Same-document hash changes don't trigger full reload, so we only guard
+      // navigations whose target differs from current pathname.
+      try {
+        var hrefDesc = Object.getOwnPropertyDescriptor(Lp, 'href');
+        if (hrefDesc && hrefDesc.set) {
+          var origHrefSetter = hrefDesc.set;
+          Object.defineProperty(Lp, 'href', {
+            configurable: true,
+            get: hrefDesc.get,
+            set: function(v) {
+              try {
+                var newUrl = String(v);
+                // Same-page hash navigation → allow without counting
+                if (newUrl.indexOf('#') !== -1) {
+                  var basePart = newUrl.split('#')[0];
+                  if (!basePart || basePart === location.href.split('#')[0]) {
+                    return origHrefSetter.call(this, v);
+                  }
+                }
+                if (!shouldAllowNavigation(newUrl)) return;
+                return origHrefSetter.call(this, v);
+              } catch (e) {
+                return origHrefSetter.call(this, v);
+              }
+            }
+          });
+        }
+      } catch (e) { console.warn('[reload-guard] href setter hook failed:', e && e.message); }
+
+      // Diagnostic surface for debugging
+      window.TFS = window.TFS || {};
+      window.TFS.__reloadGuard = {
+        currentCount: function(targetUrl) { return readCount(targetUrl); },
+        reset: function() {
+          var key = getScopeKey();
+          sessionStorage.removeItem(key);
+          sessionStorage.removeItem(key + TIME_SUFFIX);
+        }
+      };
+    })();
+    </script>
+    """;
+
+    // Inject the reload guard as the FIRST thing after <head>, before any
+    // bundle scripts. See note above the deferred <head> comment.
+    html = html.Replace("<head>", "<head>" + reloadGuard + earlyCss + blockScript + authScript, StringComparison.OrdinalIgnoreCase);
+    html = html.Replace("<body>", "<body class=\"tf-logged-out\">" + ttsVoiceShim + guestTopbar + loginPopupScript + tiktokConnectScript + ttsScript + twemojiScript + tiktokSigninGate + reloadMask, StringComparison.OrdinalIgnoreCase);
     return Encoding.UTF8.GetBytes(html);
 }
 

@@ -3,9 +3,11 @@ using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using Microsoft.EntityFrameworkCore;
 using TikFinityBackend.Data;
+using TikFinityBackend.Models;
 
 namespace TikFinityBackend.Services;
 
@@ -661,6 +663,43 @@ public class TikTokBridgeService : BackgroundService
                                 await TryTriggerWheelOfActionsAsync(data, giftUser, giftNickname, giftProfilePic, giftPic ?? "", giftName ?? "", repeatCount, diamonds);
                             }
                             catch (Exception ex) { _logger.LogDebug(ex, "[WheelOfActions] trigger failed"); }
+
+                            // ── My Actions dispatch (executeAction → myactions widget) ──
+                            // mediawrapper's replaceContextParams uses `if (context.X)` truthy
+                            // checks, so 0/""/null leaves `{placeholder}` literal in the text.
+                            // Force sensible non-falsy defaults to avoid that.
+                            var giftIdStr = data.TryGetProperty("giftId", out var gid) ? gid.ToString() : "";
+                            var giftNameForCtx = string.IsNullOrWhiteSpace(giftName) ? "Gift" : giftName;
+                            var repeatCountForCtx = Math.Max(1, repeatCount);
+                            var giftContext = new
+                            {
+                                username = giftUser ?? "",
+                                nickname = giftNickname ?? giftUser ?? "",
+                                giftData = new { value = Math.Max(1, diamonds) },
+                                giftName = giftNameForCtx,
+                                repeatCount = repeatCountForCtx,
+                                likeCount = 0,
+                                totalLikeCount = _likeCount,
+                                subMonth = 1,
+                                commandParams = "",
+                                ttsLanguage = "en-US",
+                                ttsRandomVoice = "en_us_001",
+                                thumbnailUrl = giftProfilePic ?? ""
+                            };
+                            await TryDispatchActionsAsync(triggerTypeId: 3, giftContext, ev =>
+                            {
+                                var minBars = ev.TryGetProperty("minBarsAmount", out var mb) && mb.TryGetInt32(out var mbv) ? mbv : 1;
+                                if (diamonds < minBars) return false;
+                                if (ev.TryGetProperty("giftId", out var gidEl) && gidEl.ValueKind != JsonValueKind.Null)
+                                {
+                                    var requiredGiftId = gidEl.ToString();
+                                    if (!string.IsNullOrEmpty(requiredGiftId) && requiredGiftId != "0" && requiredGiftId != giftIdStr) return false;
+                                }
+                                return true;
+                            });
+
+                            // ── Subathon: extend timer per gift ──
+                            await TryApplySubathonAsync("Gift", diamonds);
                         }
                     }
                     else if (eventName == "like")
@@ -703,6 +742,36 @@ public class TikTokBridgeService : BackgroundService
 
                         // ── Goal recompute (likes goals) ──
                         await BroadcastGoalStatus();
+
+                        // ── My Actions dispatch (executeAction on every Nth like crossing) ──
+                        var likeContext = new
+                        {
+                            username = likeUser,
+                            nickname = !string.IsNullOrEmpty(likeNickname) ? likeNickname : likeUser,
+                            giftData = new { value = 1 },
+                            giftName = "Like",
+                            repeatCount = Math.Max(1, likeCount),
+                            likeCount = Math.Max(1, likeCount),
+                            totalLikeCount = Math.Max(1, _likeCount),
+                            subMonth = 1,
+                            commandParams = "",
+                            ttsLanguage = "en-US",
+                            ttsRandomVoice = "en_us_001",
+                            thumbnailUrl = likePic ?? ""
+                        };
+                        var totalLikesNow = _likeCount;
+                        await TryDispatchActionsAsync(triggerTypeId: 7, likeContext, ev =>
+                        {
+                            var min = ev.TryGetProperty("minLikesAmount", out var ml) && ml.TryGetInt32(out var mlv) ? Math.Max(1, mlv) : 100;
+                            var eventId = ev.TryGetProperty("id", out var eid) ? eid.GetString() ?? "" : "";
+                            if (string.IsNullOrEmpty(eventId)) return false;
+                            var crossed = (totalLikesNow / min) * min;
+                            if (crossed <= 0) return false;
+                            var lastFired = _lastLikeThresholdByEventId.GetValueOrDefault(eventId, 0);
+                            if (crossed <= lastFired) return false;
+                            _lastLikeThresholdByEventId[eventId] = crossed;
+                            return true;
+                        });
                     }
                     else if (eventName == "follow")
                     {
@@ -715,6 +784,27 @@ public class TikTokBridgeService : BackgroundService
                         {
                             _lastEvents["follow"] = new LastEventData(followNick ?? followUser, followPic);
                             await BroadcastLastEvents();
+
+                            // ── My Actions dispatch ──
+                            var followContext = new
+                            {
+                                username = followUser,
+                                nickname = !string.IsNullOrEmpty(followNick) ? followNick : followUser,
+                                giftData = new { value = 1 },
+                                giftName = "Follow",
+                                repeatCount = 1,
+                                likeCount = 1,
+                                totalLikeCount = Math.Max(1, _likeCount),
+                                subMonth = 1,
+                                commandParams = "",
+                                ttsLanguage = "en-US",
+                                ttsRandomVoice = "en_us_001",
+                                thumbnailUrl = followPic ?? ""
+                            };
+                            await TryDispatchActionsAsync(triggerTypeId: 9, followContext);
+
+                            // ── Subathon: extend timer on follow ──
+                            await TryApplySubathonAsync("Follow");
                         }
                         // ── Goal recompute (follow goals) ──
                         await BroadcastGoalStatus();
@@ -762,6 +852,28 @@ public class TikTokBridgeService : BackgroundService
                         {
                             _lastEvents["subscribe"] = new LastEventData(subNick ?? subUser, subPic);
                             await BroadcastLastEvents();
+
+                            // ── My Actions dispatch ──
+                            var subMonth = data.TryGetProperty("subMonth", out var smEl) && smEl.TryGetInt32(out var smVal) ? Math.Max(1, smVal) : 1;
+                            var subContext = new
+                            {
+                                username = subUser,
+                                nickname = !string.IsNullOrEmpty(subNick) ? subNick : subUser,
+                                giftData = new { value = 1 },
+                                giftName = "Sub",
+                                repeatCount = 1,
+                                likeCount = 1,
+                                totalLikeCount = Math.Max(1, _likeCount),
+                                subMonth,
+                                commandParams = "",
+                                ttsLanguage = "en-US",
+                                ttsRandomVoice = "en_us_001",
+                                thumbnailUrl = subPic ?? ""
+                            };
+                            await TryDispatchActionsAsync(triggerTypeId: 10, subContext);
+
+                            // ── Subathon: extend timer on sub ──
+                            await TryApplySubathonAsync("Sub");
                         }
                         // ── Goal status update (subscriber goal) ──
                         await BroadcastGoalStatus();
@@ -1013,11 +1125,13 @@ public class TikTokBridgeService : BackgroundService
     {
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var channelId = await db.Channels.OrderBy(c => c.ChannelId).Select(c => c.ChannelId).FirstOrDefaultAsync();
-        if (channelId <= 0) return;
+        var ch = await db.Channels.OrderBy(c => c.ChannelId).Select(c => new { c.ChannelId, c.ProfileId }).FirstOrDefaultAsync();
+        if (ch == null || ch.ChannelId <= 0) return;
+        var channelId = ch.ChannelId;
+        var profileId = ch.ProfileId > 0 ? ch.ProfileId : 1;
 
         var wheelsSetting = await db.DynamicSettings
-            .Where(d => d.ChannelId == channelId && d.Key == "widget_wheelofactions_wheels")
+            .Where(d => d.ChannelId == channelId && d.ProfileId == profileId && d.Key == "widget_wheelofactions_wheels")
             .Select(d => d.Value)
             .FirstOrDefaultAsync();
         if (string.IsNullOrWhiteSpace(wheelsSetting) || wheelsSetting == "[]") return;
@@ -1097,6 +1211,279 @@ public class TikTokBridgeService : BackgroundService
         }
     }
 
+    // ── My Actions dispatch ──
+    // Match incoming TikTok events against configured Events (DynamicSettings.events),
+    // resolve their actionIds to Actions, and emit `executeAction(actionInfo, context)`
+    // to the myactions widget. Trigger types we handle:
+    //   3  = gift     (filter: minBarsAmount, optional giftId)
+    //   7  = like     (filter: every minLikesAmount crossing of totalLikeCount)
+    //   9  = follow   (every event)
+    //   10 = subscribe (every event)
+    private readonly ConcurrentDictionary<string, int> _lastLikeThresholdByEventId = new();
+    private static readonly Random _actionRandom = new();
+
+    private async Task TryDispatchActionsAsync(
+        int triggerTypeId,
+        object context,
+        Func<JsonElement, bool>? extraFilter = null)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var ch = await db.Channels.OrderBy(c => c.ChannelId).Select(c => new { c.ChannelId, c.ProfileId }).FirstOrDefaultAsync();
+            if (ch == null || ch.ChannelId <= 0) return;
+            var channelId = ch.ChannelId;
+            var profileId = ch.ProfileId > 0 ? ch.ProfileId : 1;
+
+            var eventsJson = await db.DynamicSettings
+                .Where(d => d.ChannelId == channelId && d.ProfileId == profileId && d.Key == "events")
+                .Select(d => d.Value)
+                .FirstOrDefaultAsync();
+            if (string.IsNullOrWhiteSpace(eventsJson) || eventsJson == "[]") return;
+
+            List<JsonElement> events;
+            try
+            {
+                using var doc = JsonDocument.Parse(eventsJson);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array) return;
+                events = doc.RootElement.EnumerateArray().Select(e => e.Clone()).ToList();
+            }
+            catch { return; }
+
+            var matchedActionIds = new List<int>();
+            foreach (var ev in events)
+            {
+                var active = !ev.TryGetProperty("active", out var act) || act.ValueKind != JsonValueKind.False;
+                if (!active) continue;
+
+                var tt = ev.TryGetProperty("triggerTypeId", out var ttEl) && ttEl.TryGetInt32(out var ttv) ? ttv : 0;
+                if (tt != triggerTypeId) continue;
+
+                if (extraFilter != null && !extraFilter(ev)) continue;
+
+                if (ev.TryGetProperty("actionIds", out var ids) && ids.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var idEl in ids.EnumerateArray())
+                    {
+                        if (idEl.TryGetInt32(out var id) && id > 0) matchedActionIds.Add(id);
+                    }
+                }
+
+                if (ev.TryGetProperty("actionRandomIds", out var rids) && rids.ValueKind == JsonValueKind.Array)
+                {
+                    var randomIds = rids.EnumerateArray()
+                        .Select(e => e.TryGetInt32(out var v) ? v : 0)
+                        .Where(v => v > 0)
+                        .ToList();
+                    if (randomIds.Count > 0)
+                    {
+                        matchedActionIds.Add(randomIds[_actionRandom.Next(randomIds.Count)]);
+                    }
+                }
+            }
+
+            if (matchedActionIds.Count == 0) return;
+
+            var distinctIds = matchedActionIds.Distinct().ToList();
+            var actions = await db.Actions
+                .Where(a => a.ChannelId == channelId && a.ProfileId == profileId && a.Enabled && distinctIds.Contains(a.Id))
+                .ToListAsync();
+
+            WebhookService? webhookSvc = scope.ServiceProvider.GetService<WebhookService>();
+
+            foreach (var actionId in matchedActionIds)
+            {
+                var action = actions.FirstOrDefault(a => a.Id == actionId);
+                if (action == null) continue;
+
+                var actionInfo = BuildActionInfo(action);
+                if (actionInfo == null) continue;
+
+                await _socketManager.BroadcastEventArgs("executeAction", actionInfo, context);
+                _logger.LogInformation("[Actions] Dispatched executeAction id={Id} name={Name} trigger={Trigger}",
+                    action.Id, action.Name, triggerTypeId);
+
+                // ── Per-action webhook (action.webhookUrl) ──
+                // The action config can specify an outbound webhook to fire
+                // every time this action triggers. Discord URLs auto-render
+                // as embeds inside FireOneShotAsync.
+                var webhookUrl = actionInfo["webhookUrl"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(webhookUrl) && webhookSvc != null)
+                {
+                    var hookPayload = new
+                    {
+                        action = new { id = action.Id, name = action.Name, type = action.Type },
+                        triggerTypeId,
+                        context
+                    };
+                    _ = webhookSvc.FireOneShotAsync(webhookUrl, hookPayload);
+                }
+
+                // ── Streamer.bot HTTP trigger (action.streamerbotActionId) ──
+                // User runs Streamer.bot locally with HTTP server enabled
+                // (default :7474). When set, POST to /DoAction with the action GUID.
+                var sbActionId = actionInfo["streamerbotActionId"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(sbActionId) && webhookSvc != null)
+                {
+                    var sbHost = Environment.GetEnvironmentVariable("TIKMAX_STREAMERBOT_URL") ?? "http://127.0.0.1:7474";
+                    var sbUrl = sbHost.TrimEnd('/') + "/DoAction";
+                    var sbBody = new
+                    {
+                        action = new { id = sbActionId },
+                        args = new
+                        {
+                            tikfinityAction = action.Name,
+                            triggerTypeId,
+                            username = context is JsonObject ctxObj ? ctxObj["username"]?.GetValue<string>() : null,
+                            giftName = context is JsonObject ctxObj2 ? ctxObj2["giftName"]?.GetValue<string>() : null,
+                            value = context is JsonObject ctxObj3 ? ctxObj3["giftData"]?["value"]?.GetValue<int>() ?? 0 : 0
+                        }
+                    };
+                    _ = webhookSvc.FireOneShotAsync(sbUrl, sbBody);
+                }
+
+                // ── Minecraft RCON (action.mcCmd) ──
+                // Send command to local Minecraft server via RCON if user has
+                // configured RCON host/password via env vars.
+                var mcCmd = actionInfo["mcCmd"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(mcCmd))
+                {
+                    _ = TryFireMinecraftCommandAsync(mcCmd, context);
+                }
+
+                // ── Keystrokes (action.keystrokes) ──
+                // Forward to keystroke worker (separate Node process with nut.js)
+                // via webhook to localhost. Worker is optional — gracefully no-ops
+                // if not running.
+                var keystrokes = actionInfo["keystrokes"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(keystrokes) && webhookSvc != null)
+                {
+                    var ksUrl = Environment.GetEnvironmentVariable("TIKMAX_KEYSTROKE_URL")
+                        ?? "http://127.0.0.1:5294/keystroke";
+                    _ = webhookSvc.FireOneShotAsync(ksUrl, new { keystrokes });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[Actions] dispatch failed for trigger={Trigger}", triggerTypeId);
+        }
+    }
+
+    /// <summary>Public entrypoint so WidgetController.TestAction can verify the Minecraft pipeline.</summary>
+    public Task FireMinecraftCommandFromTestAsync(string command) =>
+        TryFireMinecraftCommandAsync(command, new JsonObject { ["username"] = "tester", ["giftName"] = "Rose" });
+
+    // ── Minecraft RCON helper ──
+    // Reads env vars TIKMAX_MC_RCON_HOST, _PORT, _PASSWORD. If not configured,
+    // logs and skips so users without Minecraft don't see errors.
+    private static readonly object _mcRconLock = new();
+    private async Task TryFireMinecraftCommandAsync(string command, object context)
+    {
+        var host = Environment.GetEnvironmentVariable("TIKMAX_MC_RCON_HOST");
+        var portStr = Environment.GetEnvironmentVariable("TIKMAX_MC_RCON_PORT");
+        var password = Environment.GetEnvironmentVariable("TIKMAX_MC_RCON_PASSWORD");
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(password))
+        {
+            _logger.LogDebug("[MC RCON] skipped (env vars not set); command was: {Cmd}", command);
+            return;
+        }
+        if (!int.TryParse(portStr, out var port)) port = 25575;
+
+        // Substitute {username}, {giftname} in command.
+        if (context is JsonObject ctxObj)
+        {
+            var user = ctxObj["username"]?.GetValue<string>() ?? "";
+            var gift = ctxObj["giftName"]?.GetValue<string>() ?? "";
+            command = command.Replace("{username}", user, StringComparison.OrdinalIgnoreCase)
+                             .Replace("{giftname}", gift, StringComparison.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            await client.ConnectAsync(host, port);
+            using var stream = client.GetStream();
+
+            int reqId = Random.Shared.Next(1, int.MaxValue);
+
+            // Auth packet: type=3
+            if (!await SendRconPacketAsync(stream, reqId, 3, password)) return;
+            var authRes = await ReadRconPacketAsync(stream);
+            if (authRes.id == -1) { _logger.LogWarning("[MC RCON] auth failed for {Host}:{Port}", host, port); return; }
+
+            // Command packet: type=2
+            if (!await SendRconPacketAsync(stream, reqId + 1, 2, command)) return;
+            var cmdRes = await ReadRconPacketAsync(stream);
+            _logger.LogInformation("[MC RCON] {Cmd} → {Resp}", command, cmdRes.body?.Length > 100 ? cmdRes.body[..100] : cmdRes.body);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[MC RCON] failed for {Host}:{Port}", host, port);
+        }
+    }
+
+    private static async Task<bool> SendRconPacketAsync(System.Net.Sockets.NetworkStream stream, int id, int type, string body)
+    {
+        var bodyBytes = Encoding.UTF8.GetBytes(body);
+        var length = 4 + 4 + bodyBytes.Length + 2;
+        var buf = new byte[4 + length];
+        BitConverter.GetBytes(length).CopyTo(buf, 0);
+        BitConverter.GetBytes(id).CopyTo(buf, 4);
+        BitConverter.GetBytes(type).CopyTo(buf, 8);
+        bodyBytes.CopyTo(buf, 12);
+        // last 2 bytes are nulls (already zeroed)
+        try { await stream.WriteAsync(buf); return true; }
+        catch { return false; }
+    }
+
+    private static async Task<(int id, string body)> ReadRconPacketAsync(System.Net.Sockets.NetworkStream stream)
+    {
+        var lenBuf = new byte[4];
+        var n = await stream.ReadAsync(lenBuf.AsMemory(0, 4));
+        if (n < 4) return (-1, "");
+        var len = BitConverter.ToInt32(lenBuf, 0);
+        if (len < 10 || len > 4096) return (-1, "");
+        var rest = new byte[len];
+        var read = 0;
+        while (read < len)
+        {
+            var r = await stream.ReadAsync(rest.AsMemory(read, len - read));
+            if (r == 0) break;
+            read += r;
+        }
+        var id = BitConverter.ToInt32(rest, 0);
+        var body = Encoding.UTF8.GetString(rest, 8, Math.Max(0, len - 10));
+        return (id, body);
+    }
+
+    // Build the actionInfo payload the myactions widget expects. We start from
+    // the action's stored ConfigJson (which mirrors the frontend's edit shape),
+    // then overlay top-level fields the widget reads directly: id, name,
+    // screenId, duration, media URLs, etc.
+    private static JsonObject? BuildActionInfo(ActionItem action)
+    {
+        JsonObject root;
+        try
+        {
+            root = string.IsNullOrWhiteSpace(action.ConfigJson)
+                ? new JsonObject()
+                : JsonNode.Parse(action.ConfigJson) as JsonObject ?? new JsonObject();
+        }
+        catch { root = new JsonObject(); }
+
+        root["id"] = action.Id;
+        root["channelId"] = action.ChannelId;
+        if (!string.IsNullOrWhiteSpace(action.Name)) root["name"] = action.Name;
+        if (root["screenId"] is null) root["screenId"] = 1;
+        if (root["duration"] is null) root["duration"] = 5;
+        if (root["enableFadeEffect"] is null) root["enableFadeEffect"] = true;
+        if (root["dynamicConfig"] is null) root["dynamicConfig"] = new JsonObject();
+
+        return root;
+    }
+
     // ── Helper: broadcast last events for lastx widget ──
     private async Task BroadcastLastEvents()
     {
@@ -1114,15 +1501,128 @@ public class TikTokBridgeService : BackgroundService
     // values until the next gift/follower event happens to fire.
     public Task EmitInitialGoalStatusAsync() => BroadcastGoalStatus();
 
+    // Emit all aggregate state to a freshly-connected widget so it can render
+    // with current data instead of waiting for the next event. Covers:
+    //   updateTopGifter, updateTopLiker, updateRanking, topGiftData, stats,
+    //   updateViewerCount, setLastX
+    public async Task EmitInitialAggregateStateAsync()
+    {
+        try
+        {
+            var topGifterList = _topGifters.Values
+                .OrderByDescending(x => x.TotalAmount)
+                .Take(20)
+                .Select(x => new { totalAmount = x.TotalAmount, username = x.Username, nickname = x.Nickname, profilePictureUrl = x.ProfilePictureUrl, userId = x.UserId })
+                .ToArray();
+            await _socketManager.BroadcastEvent("updateTopGifter", topGifterList);
+
+            var topLikerList = _topLikers.Values
+                .OrderByDescending(x => x.TotalAmount)
+                .Take(20)
+                .Select(x => new { totalAmount = x.TotalAmount, username = x.Username, nickname = x.Nickname, profilePictureUrl = x.ProfilePictureUrl, userId = x.UserId })
+                .ToArray();
+            await _socketManager.BroadcastEvent("updateTopLiker", topLikerList);
+
+            var rankingList = _rankingUsers.Values
+                .OrderByDescending(x => x.TotalAmount)
+                .Take(20)
+                .Select(x => new { totalAmount = x.TotalAmount, username = x.Username, nickname = x.Nickname, profilePictureUrl = x.ProfilePictureUrl, userId = x.UserId, totalRewardAmount = x.TotalRewardAmount })
+                .ToArray();
+            await _socketManager.BroadcastEvent("updateRanking", rankingList);
+
+            await _socketManager.BroadcastEvent("topGiftData", new
+            {
+                topGift = new { giftPictureUrl = _topGiftPictureUrl, username = _topGiftUsername, title = _topGiftTitle, count = _topGiftCount },
+                topStreaker = new { giftPictureUrl = _topGiftPictureUrl, username = _topGiftUsername, title = _topGiftTitle, count = _topGiftCount }
+            });
+
+            await _socketManager.BroadcastEvent("stats", new
+            {
+                viewers = _viewerCount,
+                likes = _likeCount,
+                gifts = _giftCount,
+                diamonds = _diamondCount,
+                followers = _followerCount
+            });
+
+            await _socketManager.BroadcastEvent("updateViewerCount", new { viewerCount = _viewerCount });
+
+            await BroadcastLastEvents();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[TikTok] EmitInitialAggregateStateAsync failed");
+        }
+    }
+
     // ── Helper: broadcast goal status for goal widget ──
     //
-    // Builds payload from dynamic Goal records (loaded from DB) plus the legacy
-    // "subscriberGoal"/"customGoal1" keys some older widget templates expect.
+    // The bundle's `/widget/goal?metric=likes` widget expects payload:
+    //   { config: { goal_likes_title, goal_likes_value, ... per metric },
+    //     status: { likes: {current, percentage}, shares: {...}, ... } }
+    //
+    // Goal targets are saved via `/api/updateSettings` into DynamicSettings as
+    // `goal_<metric>_value` / `goal_<metric>_title` etc., NOT into the Goals
+    // table (which only stores explicit Goal records the user creates via
+    // GoalsController). We pull config from DynamicSettings and compute
+    // status against the live aggregate counters.
     private async Task BroadcastGoalStatus()
     {
         if (!_goalsLoaded) await EnsureGoalsLoaded();
 
-        var payload = new Dictionary<string, object>();
+        var config = new Dictionary<string, object>();
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var ch = await db.Channels.OrderBy(c => c.ChannelId).Select(c => new { c.ChannelId, c.ProfileId }).FirstOrDefaultAsync();
+            if (ch != null && ch.ChannelId > 0)
+            {
+                var channelId = ch.ChannelId;
+                var profileId = ch.ProfileId > 0 ? ch.ProfileId : 1;
+                var rows = await db.DynamicSettings
+                    .Where(d => d.ChannelId == channelId && d.ProfileId == profileId && d.Key.StartsWith("goal_"))
+                    .Select(d => new { d.Key, d.Value })
+                    .ToListAsync();
+                foreach (var r in rows)
+                {
+                    config[r.Key] = r.Value ?? "";
+                }
+            }
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "[Goal] config load failed"); }
+
+        var status = new Dictionary<string, object>();
+        var metrics = new Dictionary<string, int>
+        {
+            ["likes"]    = _likeCount,
+            ["shares"]   = _shareCount,
+            ["follows"]  = _followerCount,
+            ["subs"]     = _subscriberCount,
+            ["viewer"]   = _viewerCount,
+            ["coins"]    = _diamondCount,
+            ["points"]   = 0, // wired from PointsService later if needed
+            ["custom1"]  = _customGoal1,
+            ["custom2"]  = 0,
+            ["custom3"]  = 0
+        };
+        foreach (var (metric, current) in metrics)
+        {
+            int target = 0;
+            if (config.TryGetValue($"goal_{metric}_value", out var t) && int.TryParse(t?.ToString(), out var parsed))
+                target = parsed;
+            var pct = target > 0 ? Math.Min(100.0, Math.Round(100.0 * current / target, 1)) : 0;
+            status[metric] = new { current, percentage = pct, target };
+        }
+
+        // Compose legacy `goal{id}` keys too so older widget builds keep working.
+        var payload = new Dictionary<string, object>
+        {
+            ["config"] = config,
+            ["status"] = status,
+            ["subscriberGoal"] = new { current = _subscriberCount, target = 100, title = "Subscriber Goal" },
+            ["customGoal1"]    = new { current = _customGoal1, target = 100, title = "Custom Goal" }
+        };
         foreach (var g in _goalConfigs)
         {
             var current = GetCurrentForGoalType(g.Type);
@@ -1137,10 +1637,6 @@ public class TikTokBridgeService : BackgroundService
                 reached = g.Target > 0 && current >= g.Target
             };
         }
-
-        // Legacy keys — old goal.html templates read these directly.
-        payload["subscriberGoal"] = new { current = _subscriberCount, target = 100, title = "Subscriber Goal" };
-        payload["customGoal1"] = new { current = _customGoal1, target = 100, title = "Custom Goal" };
 
         await _socketManager.BroadcastEvent("goalStatus", payload);
     }
@@ -1376,6 +1872,91 @@ public class TikTokBridgeService : BackgroundService
                 : _timerElapsedBeforePauseMs,
             startedAt = _timerStartedAt.ToString("o")
         });
+    }
+
+    /// <summary>
+    /// Subathon helper — add seconds to the running countdown timer. No-op if
+    /// the timer is stopped (so we don't accidentally start one mid-stream).
+    /// Broadcasts `timerUpdate` so widget reflects new duration immediately.
+    /// </summary>
+    public async Task AddTimerSecondsAsync(int seconds)
+    {
+        if (seconds <= 0) return;
+        if (_timerState == "stopped") return;
+        _timerDurationMs += seconds * 1000;
+        await _socketManager.BroadcastEvent("timerUpdate", new
+        {
+            state = _timerState,
+            durationMs = _timerDurationMs,
+            elapsedMs = _timerState == "running"
+                ? _timerElapsedBeforePauseMs + (int)(DateTime.UtcNow - _timerStartedAt).TotalMilliseconds
+                : _timerElapsedBeforePauseMs,
+            startedAt = _timerStartedAt.ToString("o"),
+            addedSeconds = seconds
+        });
+    }
+
+    /// <summary>
+    /// Read subathon config from DynamicSettings and apply: each event gets
+    /// converted to "seconds to add" using its rate. Called from gift, sub,
+    /// follow handlers so the timer extends as engagement happens.
+    /// Settings keys: `subathon_enabled`, `subathon_secondsPerDiamond`,
+    /// `subathon_secondsPerSub`, `subathon_secondsPerFollow`.
+    /// </summary>
+    private async Task TryApplySubathonAsync(string source, int diamonds = 0)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var ch = await db.Channels.OrderBy(c => c.ChannelId).Select(c => new { c.ChannelId, c.ProfileId }).FirstOrDefaultAsync();
+            if (ch == null || ch.ChannelId <= 0) return;
+            var channelId = ch.ChannelId;
+            var profileId = ch.ProfileId > 0 ? ch.ProfileId : 1;
+
+            var keys = new[]
+            {
+                "subathon_enabled",
+                $"subathon_secondsPer{source}",
+                $"subathon_secondsPer{source}_v2"
+            };
+            var rows = await db.DynamicSettings
+                .Where(d => d.ChannelId == channelId && d.ProfileId == profileId && (
+                    d.Key == "subathon_enabled" ||
+                    d.Key == $"subathon_secondsPer{source}" ||
+                    d.Key == "subathon_secondsPerDiamond"))
+                .Select(d => new { d.Key, d.Value })
+                .ToListAsync();
+            var dict = rows.ToDictionary(r => r.Key, r => r.Value ?? "", StringComparer.OrdinalIgnoreCase);
+
+            var enabled = dict.TryGetValue("subathon_enabled", out var en) && string.Equals(en?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+            if (!enabled) return;
+
+            int secondsToAdd = 0;
+            if (string.Equals(source, "Gift", StringComparison.OrdinalIgnoreCase))
+            {
+                if (dict.TryGetValue("subathon_secondsPerDiamond", out var spd) && int.TryParse(spd, out var perDiamond))
+                {
+                    secondsToAdd = perDiamond * diamonds;
+                }
+                else if (dict.TryGetValue("subathon_secondsPerGift", out var spg) && int.TryParse(spg, out var perGift))
+                {
+                    secondsToAdd = perGift;
+                }
+            }
+            else if (dict.TryGetValue($"subathon_secondsPer{source}", out var v) && int.TryParse(v, out var n))
+            {
+                secondsToAdd = n;
+            }
+
+            if (secondsToAdd > 0)
+            {
+                await AddTimerSecondsAsync(secondsToAdd);
+                _logger.LogInformation("[Subathon] +{Sec}s from {Source} (diamonds={Diamonds})",
+                    secondsToAdd, source, diamonds);
+            }
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "[Subathon] apply failed for {Source}", source); }
     }
 
     /// <summary>Show user score in userinfo widget.</summary>

@@ -8,48 +8,53 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-function seedRendererAuth() {
-    let seed = null;
+function applySeed(seed) {
+    if (!seed || typeof seed !== 'object') return false;
+    if (typeof localStorage === 'undefined' || typeof document === 'undefined') return false;
 
-    try {
-        seed = ipcRenderer.sendSync('auth:get-renderer-seed');
-    } catch {
-        return;
+    const set = (key, value) => {
+        if (localStorage.getItem(key) !== value) {
+            localStorage.setItem(key, value);
+        }
+    };
+
+    // Values from backend /api/me snapshot, not hardcoded — keeps preload
+    // consistent with what backend actually has so the bundle doesn't shake
+    // state right after init.
+    const channelId = String(seed.channelId ?? 1);
+    const profileId = String(seed.profileId ?? 1);
+    const channelName = seed.channelName || seed.displayName;
+    const isPro = seed.isPro === false ? 'false' : 'true';
+
+    set('tfs_authed', '1');
+    set('tfs_user', seed.userPayload);
+    set('setting_loginaccesstoken', seed.tokenForBundle);
+    set('setting_ispro', isPro);
+    set('setting_channelid', channelId);
+    set('setting_profileid', profileId);
+    set('setting_channelname', channelName);
+    set('setting_email', seed.displayName);
+
+    if (!localStorage.getItem('setting_locale')) {
+        localStorage.setItem('setting_locale', 'vi');
     }
 
+    const maxAge = 60 * 60 * 24 * 30;
+    document.cookie = `tf_login_token=${encodeURIComponent(seed.tokenForBundle)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+    document.cookie = `tf_ispro=${isPro}; path=/; max-age=${maxAge}; SameSite=Lax`;
+    document.cookie = `tf_channelid=${channelId}; path=/; max-age=${maxAge}; SameSite=Lax`;
+    document.cookie = `tf_channelname=${encodeURIComponent(channelName)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+
+    window.__tfsAuthSeeded = true;
+    return true;
+}
+
+function seedRendererAuth() {
+    let seed = null;
+    try { seed = ipcRenderer.sendSync('auth:get-renderer-seed'); } catch { return; }
     if (!seed || typeof seed !== 'object') return;
-
     try {
-        if (typeof localStorage === 'undefined' || typeof document === 'undefined') {
-            throw new Error('storage-unavailable');
-        }
-
-        const set = (key, value) => {
-            if (localStorage.getItem(key) !== value) {
-                localStorage.setItem(key, value);
-            }
-        };
-
-        set('tfs_authed', '1');
-        set('tfs_user', seed.userPayload);
-        set('setting_loginaccesstoken', seed.tokenForBundle);
-        set('setting_ispro', 'true');
-        set('setting_channelid', '1');
-        set('setting_channelname', seed.displayName);
-        set('setting_email', seed.displayName);
-
-        if (!localStorage.getItem('setting_locale')) {
-            localStorage.setItem('setting_locale', 'vi');
-        }
-
-        if (!/(?:^|;\s*)tf_login_token=/.test(document.cookie)) {
-            const maxAge = 60 * 60 * 24 * 30;
-            document.cookie = `tf_login_token=${encodeURIComponent(seed.tokenForBundle)}; path=/; max-age=${maxAge}; SameSite=Lax`;
-            document.cookie = `tf_ispro=true; path=/; max-age=${maxAge}; SameSite=Lax`;
-            document.cookie = `tf_channelid=1; path=/; max-age=${maxAge}; SameSite=Lax`;
-            document.cookie = `tf_channelname=${encodeURIComponent(seed.displayName)}; path=/; max-age=${maxAge}; SameSite=Lax`;
-        }
-        window.__tfsAuthSeeded = true;
+        if (!applySeed(seed)) throw new Error('apply-failed');
     } catch {
         if (!window.__tfsAuthSeedRetryScheduled) {
             window.__tfsAuthSeedRetryScheduled = true;
@@ -61,6 +66,15 @@ function seedRendererAuth() {
 }
 
 seedRendererAuth();
+
+// Race fix: sync seed above might be stale right after a reload (main process
+// hasn't finished re-fetching /api/me yet). Main pushes a fresh seed via
+// 'auth:seed-updated' once refresh completes — re-apply to localStorage so
+// bundle picks up new profileId / channelId / etc within ~200ms instead of
+// having to wait for its own hydrateFromApi cycle.
+ipcRenderer.on('auth:seed-updated', (_evt, seed) => {
+    try { applySeed(seed); } catch (e) { console.warn('[preload] auth:seed-updated apply failed', e); }
+});
 
 let newRoomIdHandler = null;
 let isLiveHandler = null;

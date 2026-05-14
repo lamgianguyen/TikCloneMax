@@ -59,8 +59,9 @@ public class SettingsController : BaseApiController
         if (settings.Count == 0)
             return Ok(new { status = 200, message = "OK" });
 
+        var profileId = GetProfileId();
         var existing = await _db.DynamicSettings
-            .Where(d => d.ChannelId == channelId)
+            .Where(d => d.ChannelId == channelId && d.ProfileId == profileId)
             .ToDictionaryAsync(d => d.Key, d => d);
 
         foreach (var (key, value) in settings)
@@ -74,6 +75,7 @@ public class SettingsController : BaseApiController
                 _db.DynamicSettings.Add(new DynamicSetting
                 {
                     ChannelId = channelId,
+                    ProfileId = profileId,
                     Key = key,
                     Value = value
                 });

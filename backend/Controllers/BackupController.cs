@@ -36,7 +36,7 @@ public sealed class BackupController : BaseApiController
 
         var settings = await _db.DynamicSettings
             .Where(s => s.ChannelId == channelId)
-            .Select(s => new { s.Key, s.Value })
+            .Select(s => new { s.Key, s.Value, s.ProfileId })
             .ToListAsync();
 
         var actions = await _db.Actions
@@ -108,14 +108,22 @@ public sealed class BackupController : BaseApiController
 
             if (payload.TryGetProperty("settings", out var settingsArr) && settingsArr.ValueKind == JsonValueKind.Array)
             {
+                // Track (profileId, key) to dedupe — legacy exports could have
+                // multiple rows with the same key across profiles but old
+                // backups didn't include ProfileId, defaulting to 1 collides.
+                var seen = new HashSet<(int profileId, string key)>();
                 foreach (var s in settingsArr.EnumerateArray())
                 {
                     var key = s.TryGetProperty("Key", out var kProp) ? kProp.GetString() :
                               s.TryGetProperty("key", out var kProp2) ? kProp2.GetString() : null;
                     var value = s.TryGetProperty("Value", out var vProp) ? vProp.GetString() :
                                 s.TryGetProperty("value", out var vProp2) ? vProp2.GetString() : null;
+                    var profileId = s.TryGetProperty("ProfileId", out var pProp) && pProp.TryGetInt32(out var p) ? p :
+                                     s.TryGetProperty("profileId", out var pProp2) && pProp2.TryGetInt32(out var p2) ? p2 : 1;
+                    if (profileId <= 0) profileId = 1;
                     if (string.IsNullOrEmpty(key)) continue;
-                    _db.DynamicSettings.Add(new DynamicSetting { ChannelId = channelId, Key = key, Value = value ?? "" });
+                    if (!seen.Add((profileId, key))) continue; // skip duplicate
+                    _db.DynamicSettings.Add(new DynamicSetting { ChannelId = channelId, ProfileId = profileId, Key = key, Value = value ?? "" });
                     settingsCount++;
                 }
             }

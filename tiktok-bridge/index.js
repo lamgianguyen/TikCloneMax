@@ -175,6 +175,27 @@ function getUser(data) {
 // --- Connect to TikTok LIVE ---
 async function connectToTikTok(username, options = {}) {
     if (!username) { sendToBackend({ event: 'error', data: { message: 'Username is required' } }); return; }
+
+    // If we're already connected to the same user, don't tear down and rebuild —
+    // just re-emit a "connected" event so the (possibly reloaded) backend knows
+    // we're already live. Forcing a disconnect/reconnect here is what made
+    // Ctrl+Shift+R trigger missingExtension: the active session got dropped,
+    // and the fresh attempt has to re-sign via eulerstream which often fails.
+    var normalized = String(username).trim().replace(/^@/, '');
+    if (currentConnection && currentUsername && currentUsername.toLowerCase() === normalized.toLowerCase()) {
+        console.log('[TikTok Bridge] connectToTikTok called for already-connected user @' + normalized + ' — skipping reconnect');
+        try {
+            sendToBackend({ event: 'connected', data: {
+                username: currentUsername,
+                roomId: (currentConnection.state && currentConnection.state.roomId) || '',
+                roomInfo: (currentConnection.state && currentConnection.state.roomInfo) || {}
+            }});
+        } catch (err) {
+            console.warn('[TikTok Bridge] re-emit connected failed:', err && err.message);
+        }
+        return;
+    }
+
     if (currentConnection) await disconnectFromTikTok();
 
     // Pull a TikTok session cookie from env or the on-disk file written by

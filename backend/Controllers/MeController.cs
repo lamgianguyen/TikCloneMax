@@ -20,12 +20,23 @@ public class MeController : BaseApiController
     // `iat` claim) — the bundle sees the change and reloads itself, causing
     // an infinite refresh loop (~1 reload/sec).
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> _wsAuthTokenCache = new();
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> _featureBaseTokenCache = new();
+    // FeatureBase token is signed over (frontendChannelName, email, channelId).
+    // frontendChannelName is profile-scoped (it comes from per-profile
+    // DynamicSettings 'setting_tiktokname'), so caching by channelId alone
+    // returned a stale token after the user switched profiles. Key by
+    // (channelId, frontendChannelName) so each profile-specific identity gets
+    // its own cached token.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(int channelId, string name), string> _featureBaseTokenCache = new();
 
-    public MeController(AppDbContext db, JwtService jwtService)
+    private readonly WidgetSettingsCache _settingsCache;
+    private readonly SocketManager _socketManager;
+
+    public MeController(AppDbContext db, JwtService jwtService, WidgetSettingsCache settingsCache, SocketManager socketManager)
     {
         _db = db;
         _jwtService = jwtService;
+        _settingsCache = settingsCache;
+        _socketManager = socketManager;
     }
 
     /// <summary>
@@ -53,7 +64,6 @@ public class MeController : BaseApiController
         var channel = await _db.Channels
             .Include(c => c.Subscription)
             .Include(c => c.Profiles)
-            .Include(c => c.DynamicSettings)
             .FirstOrDefaultAsync(c => c.ChannelId == channelId, cancellationToken);
 
         if (channel == null)
@@ -61,7 +71,27 @@ public class MeController : BaseApiController
             return Ok(GuestResponse());
         }
 
-        var ds = channel.DynamicSettings.ToDictionary(d => d.Key, d => d.Value);
+        // Bundle's switchProfile() calls POST /api/me with body {profileId:N}
+        // (verified by reading downloads/combo/app.js). If we ignore the body
+        // and just return the cached profile, the bundle sees stale profileId
+        // in the response, reverts the UI, and the click does nothing.
+        var requestedProfileId = await ReadRequestedProfileIdAsync(cancellationToken);
+        if (requestedProfileId.HasValue && requestedProfileId.Value > 0 && requestedProfileId.Value != channel.ProfileId)
+        {
+            channel.ProfileId = requestedProfileId.Value;
+            await _db.SaveChangesAsync(cancellationToken);
+            await _settingsCache.RebuildAndBroadcast(channelId);
+            await _socketManager.BroadcastEvent("actionsChanged", new { });
+            await _socketManager.BroadcastEvent("profileChanged", new { profileId = requestedProfileId.Value, channelId });
+        }
+
+        // Stream Profiles: load only the active profile's settings, NOT the
+        // whole bag (.Include(c => c.DynamicSettings)). Otherwise switching
+        // profile would still surface stale keys.
+        var activeProfileId = channel.ProfileId > 0 ? channel.ProfileId : 1;
+        var ds = await _db.DynamicSettings
+            .Where(d => d.ChannelId == channel.ChannelId && d.ProfileId == activeProfileId)
+            .ToDictionaryAsync(d => d.Key, d => d.Value, cancellationToken);
         var preferredTikTokName = ds.TryGetValue("setting_tiktokname", out var savedTikTokName)
             ? savedTikTokName?.Trim().TrimStart('@')
             : null;
@@ -81,7 +111,7 @@ public class MeController : BaseApiController
         // process lifetime keeps the bundle stable.
         var wsAuthToken = _wsAuthTokenCache.GetOrAdd(channel.ChannelId, _ =>
             _jwtService.GenerateToken(channel.ChannelId, channel.ChannelName, channel.Email, pro).Item1);
-        var featureBaseToken = _featureBaseTokenCache.GetOrAdd(channel.ChannelId, _ =>
+        var featureBaseToken = _featureBaseTokenCache.GetOrAdd((channel.ChannelId, frontendChannelName ?? ""), _ =>
             _jwtService.GenerateFeaturebaseToken(frontendChannelName, channel.Email, channel.ChannelId.ToString()));
         var dynamicSettings = BuildDynamicSettings(ds, frontendChannelName, featureBaseToken, channel.OwnerUserId);
         var remoteIp = HttpContext.Connection.RemoteIpAddress?.ToString();
@@ -173,23 +203,75 @@ public class MeController : BaseApiController
         });
     }
 
+    // Pull `profileId` out of the POST body if present. Only POSTs with JSON
+    // content carry one — GETs and legacy clients don't, so swallow any parse
+    // error and return null.
+    private async Task<int?> ReadRequestedProfileIdAsync(CancellationToken ct)
+    {
+        if (!HttpMethods.IsPost(Request.Method)) return null;
+        if (Request.ContentLength is null or 0) return null;
+        var ct2 = Request.ContentType ?? "";
+        if (!ct2.Contains("json", StringComparison.OrdinalIgnoreCase)) return null;
+
+        try
+        {
+            Request.EnableBuffering();
+            Request.Body.Position = 0;
+            using var doc = await JsonDocument.ParseAsync(Request.Body, cancellationToken: ct);
+            Request.Body.Position = 0;
+            if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                doc.RootElement.TryGetProperty("profileId", out var pid))
+            {
+                if (pid.ValueKind == JsonValueKind.Number && pid.TryGetInt32(out var n)) return n;
+                if (pid.ValueKind == JsonValueKind.String && int.TryParse(pid.GetString(), out var s)) return s;
+            }
+        }
+        catch
+        {
+            // Body is not parseable JSON — bundle telemetry shape might
+            // include weird fields. Falling through to null is correct.
+        }
+        return null;
+    }
+
+    // Bundle calls /api/me/switchProfile (some builds) or /api/switchProfile (others).
+    // Without both aliases the call falls through to the generic API fallback,
+    // returns a fake 200 and the DB is never updated — so profile switching
+    // appears to silently fail.
     [HttpPost("switchProfile")]
+    [HttpPost("me/switchProfile")]
     public async Task<IActionResult> SwitchProfile([FromBody] JsonElement body)
     {
         var channelId = GetChannelId();
         var profileId = body.TryGetProperty("profileId", out var pid) ? pid.GetInt32() : 0;
 
-        if (profileId > 0)
+        if (profileId <= 0)
         {
-            var channel = await _db.Channels.FirstOrDefaultAsync(c => c.ChannelId == channelId);
-            if (channel != null)
-            {
-                channel.ProfileId = profileId;
-                await _db.SaveChangesAsync();
-            }
+            return Ok(new { status = 200, message = "OK" });
         }
 
-        return Ok(new { status = 200, message = "OK" });
+        var channel = await _db.Channels.FirstOrDefaultAsync(c => c.ChannelId == channelId);
+        if (channel == null)
+        {
+            return Ok(new { status = 200, message = "OK" });
+        }
+
+        var previous = channel.ProfileId;
+        channel.ProfileId = profileId;
+        await _db.SaveChangesAsync();
+
+        if (previous != profileId)
+        {
+            // Per-profile data layout: rebuild the cache so the new profile's
+            // settings flow to every connected widget. Also broadcast
+            // `actionsChanged` so the myactions widget refetches actions for
+            // the new profile.
+            await _settingsCache.RebuildAndBroadcast(channelId);
+            await _socketManager.BroadcastEvent("actionsChanged", new { });
+            await _socketManager.BroadcastEvent("profileChanged", new { profileId, channelId });
+        }
+
+        return Ok(new { status = 200, message = "OK", profileId });
     }
 
     [HttpPost("setAffiliate")]

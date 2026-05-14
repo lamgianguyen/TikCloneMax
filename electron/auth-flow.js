@@ -1,29 +1,32 @@
-// Inline TikTok sign-in flow.
+// Inline sign-in flow.
 //
-// Opens a separate BrowserWindow pointing at TikTok's web login. While the
-// user signs in we poll the window's session for the `sessionid` cookie.
+// Opens a separate BrowserWindow pointing at the platform's web login. While
+// the user signs in we poll the window's session for the `sessionid` cookie.
 // As soon as it appears (and survives one extra second to make sure the
 // login wasn't aborted) we close the window and persist the cookie.
 //
 // The captured cookie is then injected into the bridge process via
 // process.env.TIKTOK_SESSIONID so the connector skips the public signing
-// service (Eulerstream rate-limit) and TikTok treats the connection as a
+// service (Eulerstream rate-limit) and the platform treats the connection as a
 // real authenticated user instead of an anonymous bot.
 
 const { BrowserWindow, session } = require('electron');
-const tiktokSessionStore = require('./tiktok-session-store');
+const sessionStore = require('./state-persistence');
 
-const TIKTOK_LOGIN_URL =
-    'https://www.tiktok.com/passport/web/login' +
+// `/passport/web/login` used to render the login form, but the platform now
+// treats it as an internal API and returns `{message:"exception"}` JSON.
+// `/login` is the user-facing login route that still serves the form.
+const LOGIN_URL =
+    'https://www.tiktok.com/login' +
     '?lang=en' +
     '&redirect_url=' + encodeURIComponent('https://www.tiktok.com/');
-const TIKTOK_HOME_URL  = 'https://www.tiktok.com/';
-const COOKIE_DOMAIN    = '.tiktok.com';
-const COOKIE_NAME      = 'sessionid';
+const HOME_URL        = 'https://www.tiktok.com/';
+const COOKIE_DOMAIN   = '.tiktok.com';
+const COOKIE_NAME     = 'sessionid';
 const POLL_INTERVAL_MS = 1000;
 const MAX_WAIT_MS      = 10 * 60 * 1000; // give the user up to 10 minutes
 
-// User-agent that mimics a real Chrome on Windows. Some TikTok auth flows
+// User-agent that mimics a real Chrome on Windows. Some auth flows
 // reject Electron's default UA outright.
 const LOGIN_UA =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -37,21 +40,21 @@ async function readSessionIdCookie() {
             domain: COOKIE_DOMAIN,
             name: COOKIE_NAME
         });
-        // Pick the longest value (TikTok sometimes sets short transitional
-        // values during the login dance — the final one is the longest).
+        // Pick the longest value (sometimes short transitional values appear
+        // during the login dance — the final one is the longest).
         const valid = (cookies || []).filter((c) => c.value && c.value.length >= 20);
         if (!valid.length) return null;
         valid.sort((a, b) => b.value.length - a.value.length);
         return valid[0].value;
     } catch (err) {
-        console.warn('[tiktok-signin] cookies.get failed:', err.message);
+        console.warn('[auth-flow] cookies.get failed:', err.message);
         return null;
     }
 }
 
 async function readUsernameCookie() {
-    // Best-effort — TikTok sets `tt_chain_token` and others; nickname is in
-    // `passport_csrf_token` sometimes. We don't need it, just nice for UI.
+    // Best-effort — tt_chain_token and others exist; nickname is in
+    // passport_csrf_token sometimes. We don't need it, just nice for UI.
     try {
         const cookies = await session.defaultSession.cookies.get({
             domain: COOKIE_DOMAIN,
@@ -64,8 +67,8 @@ async function readUsernameCookie() {
 }
 
 /**
- * Open the TikTok login window and resolve when the sessionid cookie
- * appears. Returns { ok, sessionId?, cancelled? }.
+ * Open the login window and resolve when the sessionid cookie appears.
+ * Returns { ok, sessionId?, cancelled? }.
  */
 function openSignIn(parentWindow) {
     if (activeWindow && !activeWindow.isDestroyed()) {
@@ -75,7 +78,7 @@ function openSignIn(parentWindow) {
     }
 
     return new Promise((resolve) => {
-        const partition = 'persist:tiktok-signin';
+        const partition = 'persist:auth-session';
         const win = new BrowserWindow({
             width: 560,
             height: 920,
@@ -99,48 +102,21 @@ function openSignIn(parentWindow) {
 
         win.webContents.setUserAgent(LOGIN_UA);
 
-        // Inject CSS that hides TikTok's main app chrome (left nav, video
-        // feed, footer, "Get Coins/Get App" header) and centers the login
-        // modal on a plain dark background. The user only sees the auth UI.
+        // The /login page renders the auth form standalone. Limit CSS to a
+        // dark background. Earlier versions hid `header/nav/footer` which
+        // unfortunately matched the OAuth provider list on the login page.
         const HIDE_CHROME_CSS = `
             html, body {
                 background: #161823 !important;
-                overflow: hidden !important;
+                overflow: auto !important;
             }
-            /* Hide left side nav, top header, footer, video feed, Get Coins */
+            /* Only hide explicit feed/sidebar chrome — never generic semantic
+               elements like nav/header/footer. */
+            [data-e2e="recommend-list-item-container"],
             [class*="DivSideNavContainer"],
             [class*="DivLeftSideNav"],
-            [class*="DivHeaderContainer"],
-            [class*="DivAppHeader"],
-            [class*="DivVideoFeed"],
-            [class*="DivVideoCard"],
-            [class*="DivFooterWrapper"],
-            [class*="DivVerticalContainer"],
-            [class*="DivContainer"][class*="VideoCard"],
-            [data-e2e="recommend-list-item-container"],
-            [data-e2e="nav-bar"],
-            [data-e2e="top-bar"],
-            header,
-            nav,
-            footer {
+            [class*="DivVideoFeed"] {
                 display: none !important;
-            }
-            /* Ensure the login modal stays visible and centered */
-            [class*="DivBoxContainer"],
-            [class*="DivLoginContainer"],
-            [class*="DivBodyContainer"] {
-                position: fixed !important;
-                inset: 0 !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                background: #161823 !important;
-                z-index: 999 !important;
-            }
-            /* Generic backdrop that may dim the login modal — make it solid */
-            [class*="Mask"], [class*="mask"] {
-                background: #161823 !important;
-                opacity: 1 !important;
             }
         `;
         win.webContents.on('dom-ready', () => {
@@ -158,7 +134,7 @@ function openSignIn(parentWindow) {
         // would either block them or open in the system browser — neither
         // syncs cookies back to our partition. Allow each child to spawn as
         // a real BrowserWindow inside the same partition, so the eventual
-        // redirect back to tiktok.com lands a real `sessionid` in our jar.
+        // redirect back to the home page lands a real `sessionid` in our jar.
         win.webContents.setWindowOpenHandler(({ url }) => ({
             action: 'allow',
             overrideBrowserWindowOptions: {
@@ -180,9 +156,9 @@ function openSignIn(parentWindow) {
             try {
                 childWin.webContents.setUserAgent(LOGIN_UA);
                 // When the OAuth flow finishes, the provider redirects back
-                // to tiktok.com — at that point TikTok sets the sessionid
-                // cookie and the child closes itself. Force-close it from
-                // our side too in case the provider keeps it hanging.
+                // to the home domain — at that point the sessionid cookie is
+                // set and the child closes itself. Force-close it from our
+                // side too in case the provider keeps it hanging.
                 childWin.webContents.on('did-navigate', (_e, url) => {
                     if (typeof url === 'string'
                         && url.indexOf('tiktok.com') >= 0
@@ -192,7 +168,7 @@ function openSignIn(parentWindow) {
                     }
                 });
             } catch (err) {
-                console.warn('[tiktok-signin] child window setup failed:', err.message);
+                console.warn('[auth-flow] child window setup failed:', err.message);
             }
         });
 
@@ -200,16 +176,16 @@ function openSignIn(parentWindow) {
         let pollTimer = null;
         const startedAt = Date.now();
         // Snapshot the sessionid that exists AFTER the login page has loaded.
-        // TikTok sets an anonymous sessionid cookie automatically for visitors
+        // An anonymous sessionid cookie is set automatically for visitors
         // who haven't logged in yet — if we snapshot before page load that
         // anonymous cookie looks like a fresh login and the window closes
         // immediately. Wait for did-finish-load so the baseline includes
-        // whatever TikTok seeds for anonymous browsers.
+        // whatever is seeded for anonymous browsers.
         let initialSessionId = null;
         let snapshotReady = false;
         win.webContents.once('did-finish-load', async () => {
             try {
-                // Settle a tick — TikTok may set the anonymous sessionid in a
+                // Settle a tick — the anonymous sessionid may be set in a
                 // follow-up XHR after DOMContentLoaded.
                 await new Promise(r => setTimeout(r, 1500));
                 const cks = await win.webContents.session.cookies.get({
@@ -217,7 +193,7 @@ function openSignIn(parentWindow) {
                     name: COOKIE_NAME
                 });
                 if (cks && cks[0] && cks[0].value) initialSessionId = cks[0].value;
-                console.log('[tiktok-signin] Baseline sessionid len=' + (initialSessionId ? initialSessionId.length : 0));
+                console.log('[auth-flow] Baseline sessionid len=' + (initialSessionId ? initialSessionId.length : 0));
             } catch { /* best effort */ }
             snapshotReady = true;
         });
@@ -240,8 +216,8 @@ function openSignIn(parentWindow) {
             }
         });
 
-        // Clear partition cookies first so TikTok shows the actual login
-        // form instead of redirecting an already-logged-in user to /foryou.
+        // Clear partition cookies first so the platform shows the actual login
+        // form instead of redirecting an already-logged-in user to the feed.
         // The cookies stored in our session file remain untouched until a
         // fresh sessionid is captured below — so canceling out doesn't leave
         // the bridge stranded.
@@ -251,10 +227,10 @@ function openSignIn(parentWindow) {
                     storages: ['cookies', 'localstorage', 'serviceworkers', 'cachestorage', 'indexdb']
                 });
             } catch (err) {
-                console.warn('[tiktok-signin] clearStorageData (pre-login) failed:', err.message);
+                console.warn('[auth-flow] clearStorageData (pre-login) failed:', err.message);
             }
             try {
-                await win.loadURL(TIKTOK_LOGIN_URL);
+                await win.loadURL(LOGIN_URL);
             } catch (err) {
                 finalize({ ok: false, error: err.message });
             }
@@ -271,7 +247,7 @@ function openSignIn(parentWindow) {
             try {
                 // Real login signal: tt-target-idc cookie is ONLY set after
                 // a successful login — anonymous visitors don't get it.
-                // Without this we'd close the window on TikTok's bootstrap
+                // Without this we'd close the window on the bootstrap
                 // sessionid (which appears for every visitor).
                 const idcCookies = await win.webContents.session.cookies.get({
                     domain: COOKIE_DOMAIN,
@@ -320,17 +296,17 @@ function openSignIn(parentWindow) {
                             // requires it whenever a sessionId is supplied.
                             let ttTargetIdc = null;
                             try {
-                                const idcCookies = await win.webContents.session.cookies.get({
+                                const idcCks = await win.webContents.session.cookies.get({
                                     domain: COOKIE_DOMAIN,
                                     name: 'tt-target-idc'
                                 });
-                                if (idcCookies && idcCookies[0] && idcCookies[0].value) {
-                                    ttTargetIdc = idcCookies[0].value;
+                                if (idcCks && idcCks[0] && idcCks[0].value) {
+                                    ttTargetIdc = idcCks[0].value;
                                 }
                             } catch { /* best-effort */ }
 
-                            try { tiktokSessionStore.save(sessionId, username, ttTargetIdc); } catch (saveErr) {
-                                console.error('[tiktok-signin] persist failed:', saveErr.message);
+                            try { sessionStore.save(sessionId, username, ttTargetIdc); } catch (saveErr) {
+                                console.error('[auth-flow] persist failed:', saveErr.message);
                             }
                             // Inject into the running process so the bridge picks it up
                             // on its next spawn without an app restart.
@@ -342,7 +318,7 @@ function openSignIn(parentWindow) {
                     }, POLL_INTERVAL_MS);
                 }
             } catch (err) {
-                console.warn('[tiktok-signin] poll error:', err.message);
+                console.warn('[auth-flow] poll error:', err.message);
             }
 
             if (Date.now() - startedAt > MAX_WAIT_MS) {
@@ -354,36 +330,36 @@ function openSignIn(parentWindow) {
 }
 
 function isSignedIn() {
-    return tiktokSessionStore.getStatus().signedIn;
+    return sessionStore.getStatus().signedIn;
 }
 
 function clearSession() {
-    tiktokSessionStore.clear();
+    sessionStore.clear();
     delete process.env.TIKTOK_SESSIONID;
     // Also wipe the partition so the user is logged out of the inline browser.
     try {
-        const part = session.fromPartition('persist:tiktok-signin');
+        const part = session.fromPartition('persist:auth-session');
         part.clearStorageData({ storages: ['cookies', 'localstorage', 'serviceworkers'] });
     } catch (err) {
-        console.warn('[tiktok-signin] clearStorageData failed:', err.message);
+        console.warn('[auth-flow] clearStorageData failed:', err.message);
     }
 }
 
 // Load saved sessionId on app boot and inject into env so the bridge spawn
-// inherits it. Call this once, after tiktokSessionStore.init(userDataDir).
+// inherits it. Call this once, after sessionStore.init(userDataDir).
 async function hydrateEnv() {
-    const saved = tiktokSessionStore.load();
+    const saved = sessionStore.load();
     if (!saved || !saved.sessionId) return false;
 
     process.env.TIKTOK_SESSIONID = saved.sessionId;
 
     // If the saved record predates tt-target-idc tracking, try to recover the
-    // cookie from the persist:tiktok-signin partition (electron keeps it on
+    // cookie from the persist:auth-session partition (electron keeps it on
     // disk after a previous login). This lets existing users skip a re-login.
     let ttTargetIdc = saved.ttTargetIdc;
     if (!ttTargetIdc) {
         try {
-            const part = session.fromPartition('persist:tiktok-signin');
+            const part = session.fromPartition('persist:auth-session');
             const cookies = await part.cookies.get({
                 domain: COOKIE_DOMAIN,
                 name: 'tt-target-idc'
@@ -391,16 +367,16 @@ async function hydrateEnv() {
             if (cookies && cookies[0] && cookies[0].value) {
                 ttTargetIdc = cookies[0].value;
                 // Persist for next launch so we don't repeat the lookup.
-                try { tiktokSessionStore.save(saved.sessionId, saved.username, ttTargetIdc); }
+                try { sessionStore.save(saved.sessionId, saved.username, ttTargetIdc); }
                 catch { /* best effort */ }
             }
         } catch (err) {
-            console.warn('[tiktok-signin] tt-target-idc recovery failed:', err.message);
+            console.warn('[auth-flow] tt-target-idc recovery failed:', err.message);
         }
     }
 
     if (ttTargetIdc) process.env.TIKTOK_TT_TARGET_IDC = ttTargetIdc;
-    console.log('[tiktok-signin] Restored sessionid from store (saved ' + saved.savedAt
+    console.log('[auth-flow] Restored sessionid from store (saved ' + saved.savedAt
         + ', tt-target-idc=' + (ttTargetIdc ? 'recovered/present' : 'MISSING - re-login needed') + ')');
     return true;
 }

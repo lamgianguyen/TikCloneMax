@@ -50,6 +50,27 @@ public class WidgetSettingsCache
         + ",\"viewercount_textColor\":\"#ffffff\",\"viewercount_backgroundColor\":\"rgba(0,0,0,0.5)\",\"viewercount_borderColor\":\"#ffffff\",\"viewercount_enableBorder\":false,\"viewercount_tiktokText\":false"
         // ranking/topgifter/topliker common
         + ",\"currencyName\":\"Coins\",\"showUserNicknames\":false"
+        // topg (Top Gift) — single-card overlay. Username + counter both
+        // default to top:170 in the widget which causes them to overlap.
+        // Pin canonical YOffsets so DB rows (saved as widget_topg_*) can
+        // normalize to these and override correctly.
+        + ",\"topg_titleColor\":\"#c9c9c9\",\"topg_counterColor\":\"#ebc94d\",\"topg_usernameColor\":\"#ffffff\""
+        + ",\"topg_titleYOffset\":5,\"topg_giftYOffset\":30,\"topg_usernameYOffset\":125,\"topg_counterYOffset\":165"
+        + ",\"topg_titleText\":\"Top Gift\",\"topg_titleSize\":40,\"topg_usernameSize\":60"
+        + ",\"topg_titleEffect\":\"none\",\"topg_titleWave\":false,\"topg_titleWaveSpeed\":\"normal\",\"topg_titleGlow\":false,\"topg_titleGlowColor\":\"#ffffff\""
+        + ",\"topg_usernameEffect\":\"none\",\"topg_usernameWave\":false,\"topg_usernameWaveSpeed\":\"normal\",\"topg_usernameGlow\":false,\"topg_usernameGlowColor\":\"#ffffff\""
+        + ",\"topg_giftEnabled\":true,\"topg_giftOpacity\":90,\"topg_showGiftValue\":true"
+        + ",\"topg_enableBorder\":true,\"topg_borderColor\":\"#242424\",\"topg_coinsAlias\":\"Coins\""
+        + ",\"topg_fontType\":\"Luckiest Guy\",\"topg_fontSize\":50,\"topg_fontLineSpacing\":50,\"topg_fontLetterSpacing\":50"
+        // tops (Top Streak) — same shape as topg but for biggest combo streak
+        + ",\"tops_titleColor\":\"#c9c9c9\",\"tops_counterColor\":\"#ebc94d\",\"tops_usernameColor\":\"#ffffff\""
+        + ",\"tops_titleYOffset\":5,\"tops_giftYOffset\":30,\"tops_usernameYOffset\":125,\"tops_counterYOffset\":165"
+        + ",\"tops_titleText\":\"Top Streak\",\"tops_titleSize\":40,\"tops_usernameSize\":60"
+        + ",\"tops_titleEffect\":\"none\",\"tops_titleWave\":false,\"tops_titleWaveSpeed\":\"normal\",\"tops_titleGlow\":false,\"tops_titleGlowColor\":\"#ffffff\""
+        + ",\"tops_usernameEffect\":\"none\",\"tops_usernameWave\":false,\"tops_usernameWaveSpeed\":\"normal\",\"tops_usernameGlow\":false,\"tops_usernameGlowColor\":\"#ffffff\""
+        + ",\"tops_giftEnabled\":true,\"tops_giftOpacity\":90,\"tops_showGiftValue\":true"
+        + ",\"tops_enableBorder\":true,\"tops_borderColor\":\"#242424\""
+        + ",\"tops_fontType\":\"Luckiest Guy\",\"tops_fontSize\":50,\"tops_fontLineSpacing\":50,\"tops_fontLetterSpacing\":50"
         // topgifter
         + ",\"topgifter_usernameColor\":\"#ffffff\",\"topgifter_rankColor\":\"#aaaaaa\",\"topgifter_pointsColor\":\"#ffcc00\""
         + ",\"topgifter_usernameEffect\":\"none\",\"topgifter_usernameWave\":false,\"topgifter_usernameWaveSpeed\":\"normal\""
@@ -115,6 +136,19 @@ public class WidgetSettingsCache
         // userinfo
         + ",\"userinfo_usernameColor\":\"#ffffff\",\"userinfo_pointsColor\":\"#ffcc00\",\"userinfo_rankColor\":\"#aaaaaa\",\"userinfo_levelColor\":\"#aaaaaa\""
         + ",\"userinfo_showBoxShadow\":true,\"userinfo_boxShadowColor\":\"rgba(0,0,0,0.5)\",\"userinfo_rightToLeft\":false"
+        // myactions — without these, mediawrapper's `settings.myactions_X === false`
+        // checks read undefined and the visual effects (3D shadow, bounce, waves)
+        // depend on race timing between text-effects.js (10ms setTimeout) and
+        // updateFontSettings(). Pin all defaults so every fire renders identically.
+        + ",\"myactions_fontType\":\"\",\"myactions_fontSize\":50,\"myactions_fontLineSpacing\":50,\"myactions_fontLetterSpacing\":50"
+        + ",\"myactions_enable3d\":true,\"myactions_enableMove\":true,\"myactions_enableWaves\":true"
+        + ",\"myactions_singleTextLine\":false,\"myactions_rightToLeft\":false"
+        + ",\"myactions_enableUsernameColor\":true,\"myactions_usernameColor\":\"#32c3a6\""
+        + ",\"myactions_enableUsernameWiggle\":false,\"myactions_usernameFontSize\":50"
+        + ",\"myactions_usernameEffect\":\"none\",\"myactions_usernameWave\":false,\"myactions_usernameWaveSpeed\":\"normal\""
+        + ",\"myactions_usernameGlow\":false,\"myactions_usernameGlowColor\":\"#ffffff\""
+        + ",\"myactions_profilePictureSize\":50,\"myactions_showProfilePictures\":true,\"myactions_showGiftPictures\":false"
+        + ",\"myactions_enableBorder\":false,\"myactions_borderColor\":\"#000000\",\"myactions_enableTextShadow\":false"
         + "}";
 
     public WidgetSettingsCache(
@@ -181,8 +215,17 @@ public class WidgetSettingsCache
     {
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        // Stream Profiles: only load settings for the channel's currently-active
+        // profile. Switching profiles changes Channels.ProfileId, then a
+        // RebuildAndBroadcast picks up that profile's settings instead.
+        var profileId = await db.Channels
+            .Where(c => c.ChannelId == channelId)
+            .Select(c => (int?)c.ProfileId)
+            .FirstOrDefaultAsync() ?? 1;
+        if (profileId <= 0) profileId = 1;
+
         var dbSettings = await db.DynamicSettings
-            .Where(d => d.ChannelId == channelId)
+            .Where(d => d.ChannelId == channelId && d.ProfileId == profileId)
             .ToDictionaryAsync(d => d.Key, d => d.Value ?? "");
 
         return dbSettings.Count > 0 ? MergeSettings(dbSettings) : StaticDefaults;

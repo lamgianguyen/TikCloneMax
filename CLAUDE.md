@@ -4,10 +4,11 @@
 .NET 9 backend serving an obfuscated TikFinity frontend from `downloads/`. Backend is in `backend/`, frontend bundle in `downloads/combo/`.
 
 ## Tech Stack
-- Backend: .NET 9, Entity Framework Core, SQL Server
+- Backend: .NET 9, Entity Framework Core, SQLite (file: `tikfinity.db`)
 - Frontend: Obfuscated Vue 3 bundle (served from memory cache)
-- Bridge: Node.js TikTok bridge via WebSocket (port 5286)
+- Bridge: Node.js TikTok bridge via WebSocket (port 5288)
 - Server runs on: http://localhost:5285
+- Auth gate: TikfinityServer at 127.0.0.1:5194 (Serial Key validation)
 
 ## Key Architecture
 - `backend/Program.cs` contains the main server + `BuildIndexHtml()` which injects ~2000 lines of JS (PostHog/Sentry stubs, auth bridge, login UI, TikTok connect hooks, XHR/fetch monkey-patches)

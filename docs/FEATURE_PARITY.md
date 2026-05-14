@@ -10,7 +10,45 @@
 
 ---
 
-## 0. Master priority table
+## 0. Support Matrix (canonical)
+
+**Status definitions:**
+- **Stable** — Backend adapter hoàn chỉnh, self-test pass, có save/load/reset/import-export. Hiển thị mặc định.
+- **Beta** — Hoạt động chính nhưng còn rough edges. Hiển thị mặc định, có warning trong UI.
+- **Hidden** — Chưa đủ chín. Bị `FeatureGate` ẩn cả menu (`ConfigController`) lẫn route (`UnstableFeatureMiddleware`). Bật cho dev bằng env `TIKMAX_ENABLE_UNSTABLE=1`.
+
+**Quy tắc:** Đổi status feature → phải sync code (`FeatureGate.HiddenModuleIds` + `HiddenRoutePrefixes`) cùng release.
+
+| Feature | Module ID | Route | Status | Ghi chú |
+|---|---|---|---|---|
+| Actions & Events | `actions` | `/api/actions` | **Stable** | — |
+| Events | `events` | — | **Stable** | — |
+| Sound Alerts | `sounds` | `/api/sounds` | **Stable** | — |
+| Text to Speech (Web Speech) | `tts` | — | **Stable** | Frontend-only |
+| Timers | `timers` | `/api/timers` | **Stable** | — |
+| Chat Commands | `commands` | `/api/chatcommands` | **Stable** | Display-only |
+| Webhooks | `webhooks` | `/api/webhooks` | **Stable** | — |
+| Overlays | `overlays` | `/api/widget` | **Stable** | 40+ widgets |
+| Goals | — | `/api/goals` | **Stable** | — |
+| OBS WebSocket | — | `/api/obs` | **Stable** | — |
+| Backup / Import / Export | — | `/api/backup` | **Stable** | — |
+| Points System | — | `/api/points` | **Stable** | — |
+| Reset Points/Aggregates | — | `/api/reset` | **Stable** | — |
+| Media Share (YouTube) | `media` | `/api/media` | **Hidden** | Backend adapter chưa có |
+| Spotify Integration | `spotify` | `/api/spotify` | **Hidden** | Cần Premium + Dev App |
+| Pro / Payment | — | `/api/pro` | **Hidden** | Đang simulate, chưa production-ready |
+| TTS ElevenLabs/Azure/Google | — | — | **Hidden** | User cần API key + billing |
+| Patreon OAuth | — | — | **Hidden** | Cần callback URL public |
+| Discord Webhook | — | — | **Hidden** | Có thể move Stable sau test |
+| YouTube Live Chat | — | — | **Hidden** | Cần Google Dev quota |
+| Minecraft Bridge | — | — | **Hidden** | User cần Minecraft mod |
+| TikTok Send Chat | — | — | **Hidden** | Anti-bot risk cao |
+
+> **Note:** Khi thêm/sửa module, update đồng thời 2 chỗ: bảng này + `backend/Services/FeatureGate.cs:HiddenModuleIds`.
+
+---
+
+## 1. Master priority table (roadmap)
 
 Tier 1 = phải có để clone "feel like Tikfinity", Tier 2 = quan trọng nhưng có thể delay, Tier 3 = nice-to-have / niche.
 

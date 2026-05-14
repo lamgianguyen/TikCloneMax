@@ -29,8 +29,10 @@ public sealed class ChatCommandsController : BaseApiController
     [HttpGet]
     public async Task<IActionResult> List()
     {
+        var channelId = GetChannelId();
+        var profileId = GetProfileId();
         var commands = await _db.ChatCommands
-            .Where(c => c.ChannelId == GetChannelId())
+            .Where(c => c.ChannelId == channelId && c.ProfileId == profileId)
             .OrderBy(c => c.Sort)
             .ThenByDescending(c => c.Id)
             .ToListAsync();
@@ -67,6 +69,7 @@ public sealed class ChatCommandsController : BaseApiController
             cmd = new ChatCommand
             {
                 ChannelId = channelId,
+                ProfileId = GetProfileId(),
                 Command = dto.Command,
                 Response = dto.Response,
                 Cooldown = Math.Max(0, dto.Cooldown),

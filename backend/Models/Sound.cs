@@ -4,6 +4,7 @@ public class Sound
 {
     public int Id { get; set; }
     public int ChannelId { get; set; }
+    public int ProfileId { get; set; } = 1;
     public string Name { get; set; } = "";
     public string? FileName { get; set; }
     public string? Url { get; set; }

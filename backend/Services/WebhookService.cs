@@ -66,6 +66,47 @@ public sealed class WebhookService
         _logger.LogInformation("[Webhooks] Loaded {Count} hooks for channel {ChannelId}", _hooks.Count, channelId);
     }
 
+    /// <summary>
+    /// Fire-and-forget POST to an arbitrary URL with a JSON body. Used for
+    /// per-action webhooks (Action.webhookUrl) — those aren't part of the
+    /// registered Webhook table; they're declared on the action itself.
+    /// Discord webhook URLs are auto-rendered with an embed.
+    /// </summary>
+    public Task FireOneShotAsync(string url, object payload)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return Task.CompletedTask;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                string body;
+                if (IsDiscordUrl(url))
+                {
+                    var json = JsonSerializer.Serialize(payload);
+                    using var doc = JsonDocument.Parse(json);
+                    body = BuildDiscordPayload("action", doc.RootElement);
+                }
+                else
+                {
+                    body = JsonSerializer.Serialize(payload);
+                }
+                using var req = new HttpRequestMessage(HttpMethod.Post, url);
+                req.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                using var res = await _http.SendAsync(req, cts.Token);
+                if (!res.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("[Webhook one-shot] {Url} -> {Status}", url, (int)res.StatusCode);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Webhook one-shot] failed for {Url}", url);
+            }
+        });
+        return Task.CompletedTask;
+    }
+
     /// <summary>Fire all hooks subscribed to <paramref name="eventType"/>.</summary>
     public async Task DispatchAsync(string eventType, JsonElement payload)
     {

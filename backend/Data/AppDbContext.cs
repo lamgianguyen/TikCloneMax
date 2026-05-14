@@ -70,7 +70,10 @@ public class AppDbContext : DbContext
              .WithMany(c => c.DynamicSettings)
              .HasForeignKey(d => d.ChannelId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(d => new { d.ChannelId, d.Key }).IsUnique();
+            // Stream Profiles: settings are scoped per (channel, profile, key)
+            // so the same setting Key can appear in profile 1 and profile 2
+            // independently. The unique index reflects that triple.
+            e.HasIndex(d => new { d.ChannelId, d.ProfileId, d.Key }).IsUnique();
             e.Property(d => d.Key).HasMaxLength(256);
             e.Property(d => d.Value).HasMaxLength(4000);
         });

@@ -4,6 +4,7 @@ public class ActionItem
 {
     public int Id { get; set; }
     public int ChannelId { get; set; }
+    public int ProfileId { get; set; } = 1;
     public string Name { get; set; } = "";
     public string Type { get; set; } = ""; // gift, like, follow, share, comment, subscribe, etc.
     public string? TriggerValue { get; set; }

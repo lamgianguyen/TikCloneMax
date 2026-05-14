@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TikFinityBackend.Data;
 using TikFinityBackend.Models;
+using TikFinityBackend.Services;
 
 namespace TikFinityBackend.Controllers;
 
@@ -12,10 +13,12 @@ namespace TikFinityBackend.Controllers;
 public class ConfigController : BaseApiController
 {
     private readonly AppDbContext _db;
+    private readonly FeatureGate _featureGate;
 
-    public ConfigController(AppDbContext db)
+    public ConfigController(AppDbContext db, FeatureGate featureGate)
     {
         _db = db;
+        _featureGate = featureGate;
     }
 
     [HttpGet("getAppConfig")]
@@ -34,8 +37,18 @@ public class ConfigController : BaseApiController
             : null;
 
         var isPro = channel?.Subscription?.IsPro ?? true;
-        var dynamicSettings = channel?.DynamicSettings?.ToDictionary(d => d.Key, d => d.Value) ?? new Dictionary<string, string>();
-        var modules = BuildModules(channel?.Modules);
+        // Filter DynamicSettings to ACTIVE profile only — same key can exist
+        // under different ProfileId rows, and returning all would leak other
+        // profile's values (cross-profile bleed reported by architect review).
+        var activeProfileId = channel?.ProfileId > 0 ? channel.ProfileId : 1;
+        var dynamicSettings = channel?.DynamicSettings
+            ?.Where(d => d.ProfileId == activeProfileId)
+            .GroupBy(d => d.Key)
+            .ToDictionary(g => g.Key, g => g.First().Value)
+            ?? new Dictionary<string, string>();
+        var modules = BuildModules(channel?.Modules)
+            .Where(m => !_featureGate.IsModuleHidden(m.Id))
+            .ToList();
 
         return Ok(new
         {
@@ -110,41 +123,25 @@ public class ConfigController : BaseApiController
     [HttpPost("getSystemConfig")]
     public IActionResult GetSystemConfig()
     {
+        // Single source of module list — same DefaultModules() as getAppConfig,
+        // filtered through FeatureGate so Hidden modules don't leak via this
+        // endpoint (was advertising media/spotify regardless of gate).
+        var visibleModules = DefaultModules()
+            .Where(m => !_featureGate.IsModuleHidden(m.Id))
+            .Select(m => new { id = m.Id, sort = m.Sort, enabled = m.Enabled })
+            .ToArray();
+
         return Ok(new
         {
             status = 200,
             message = "OK",
             config = new
             {
-                modules = new object[]
-                {
-                    new { id = "actions", sort = 1, enabled = true },
-                    new { id = "events", sort = 2, enabled = true },
-                    new { id = "sounds", sort = 3, enabled = true },
-                    new { id = "tts", sort = 4, enabled = true },
-                    new { id = "media", sort = 5, enabled = true },
-                    new { id = "timers", sort = 6, enabled = true },
-                    new { id = "commands", sort = 7, enabled = true },
-                    new { id = "spotify", sort = 8, enabled = true },
-                    new { id = "webhooks", sort = 9, enabled = true },
-                    new { id = "overlays", sort = 10, enabled = true }
-                },
+                modules = visibleModules,
                 features = new[] { "all" },
                 settings = new { }
             },
-            modules = new object[]
-            {
-                new { id = "actions", sort = 1, enabled = true },
-                new { id = "events", sort = 2, enabled = true },
-                new { id = "sounds", sort = 3, enabled = true },
-                new { id = "tts", sort = 4, enabled = true },
-                new { id = "media", sort = 5, enabled = true },
-                new { id = "timers", sort = 6, enabled = true },
-                new { id = "commands", sort = 7, enabled = true },
-                new { id = "spotify", sort = 8, enabled = true },
-                new { id = "webhooks", sort = 9, enabled = true },
-                new { id = "overlays", sort = 10, enabled = true }
-            },
+            modules = visibleModules,
             isPro = true,
             features = new[] { "all" },
             ttsVoices = Array.Empty<object>(),

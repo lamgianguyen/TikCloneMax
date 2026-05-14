@@ -28,8 +28,8 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const authStore = require('./auth-store');
-const tiktokSessionStore = require('./tiktok-session-store');
-const tiktokSignin = require('./tiktok-signin');
+const tiktokSessionStore = require('./state-persistence');
+const tiktokSignin = require('./auth-flow');
 
 // ---------------------------------------------------------------------------
 // Config
@@ -169,7 +169,7 @@ function bootstrap() {
         createTray();
 
         try {
-            await waitForBackend(BACKEND_HEALTH_TIMEOUT_S, 1000);
+            await waitForBackend(BACKEND_HEALTH_TIMEOUT_S * 4, 250);
             sendSplashStatus('Đang kiểm tra phiên đăng nhập...');
         } catch (err) {
             closeSplash();
@@ -241,11 +241,27 @@ function getBackendLaunchConfig() {
         };
     }
     const projDir = path.join(__dirname, '..', 'backend');
+    // Direct DLL exec ~525ms faster than `dotnet run --no-build` (1375ms vs 1900ms
+    // measured) because it skips csproj parse / target / dep resolution. Falls
+    // back to `dotnet run` if the DLL hasn't been built yet.
+    const releaseDll = path.join(projDir, 'bin', 'Release', 'net9.0', 'TikFinityBackend.dll');
+    const debugDll   = path.join(projDir, 'bin', 'Debug',   'net9.0', 'TikFinityBackend.dll');
+    const dll = fs.existsSync(releaseDll) ? releaseDll
+              : fs.existsSync(debugDll)   ? debugDll
+              : null;
+    if (dll) {
+        return {
+            command: isWin ? 'dotnet.exe' : 'dotnet',
+            args: [dll],
+            cwd: projDir,
+            label: `dotnet ${dll}`
+        };
+    }
     return {
         command: isWin ? 'dotnet.exe' : 'dotnet',
         args: ['run', '--project', projDir, '--no-launch-profile', '--no-build'],
         cwd: projDir,
-        label: `dotnet run --project ${projDir} --no-build`
+        label: `dotnet run --project ${projDir} --no-build (fallback — no DLL found)`
     };
 }
 
@@ -301,7 +317,7 @@ function startBackend() {
             }).then(({ response }) => {
                 if (response === 0) {
                     startBackend();
-                    waitForBackend(BACKEND_HEALTH_TIMEOUT_S, 1000)
+                    waitForBackend(BACKEND_HEALTH_TIMEOUT_S * 4, 250)
                         .then(() => { if (mainWindow) mainWindow.reload(); })
                         .catch((e) => console.error('[Backend] restart failed:', e.message));
                 } else {
@@ -386,9 +402,16 @@ function createSplash() {
     splashWindow.on('closed', () => { splashWindow = null; });
 }
 
+let _splashStatusCount = 0;
 function sendSplashStatus(text) {
+    _splashStatusCount++;
     if (splashWindow && !splashWindow.isDestroyed()) {
-        try { splashWindow.webContents.send('splash:status', text); } catch { /* race with close */ }
+        try {
+            splashWindow.webContents.send('splash:status', text);
+            // Progress: 1 per status update, cap at 10
+            const progressStep = Math.min(10, _splashStatusCount);
+            splashWindow.webContents.send('splash:progress', progressStep);
+        } catch { /* race with close */ }
     }
 }
 
@@ -398,6 +421,7 @@ function closeSplash() {
     }
     splashWindow = null;
 }
+
 
 // ---------------------------------------------------------------------------
 // Auth gate
@@ -431,10 +455,13 @@ async function decideAuthEntrypoint() {
     const remote = await remoteValidateToken(cached);
 
     if (!remote.reachable) {
-        // No silent offline pass — keep the auth.json so the user doesn't have
-        // to re-type the key, but force a fresh validation by routing through
-        // the login window. They can re-submit the same key once the server
-        // comes back online.
+        // Server unreachable: if user has saved TikTok session, allow offline
+        // entry so the app stays usable. Otherwise fall through to login.
+        const ttSession = tiktokSessionStore.load();
+        if (ttSession && ttSession.sessionId) {
+            console.log('[Auth] Server unreachable — allowing offline entry with saved TikTok session');
+            return { allow: true, offline: true, reason: 'SERVER_UNREACHABLE_OFFLINE' };
+        }
         return { allow: false, reason: 'SERVER_UNREACHABLE' };
     }
 
@@ -747,7 +774,21 @@ ipcMain.handle('auth:get-state', () => {
 });
 
 ipcMain.on('auth:get-renderer-seed', (event) => {
+    // Sync read returns whatever's in cache (may be stale right after a reload).
+    // We push fresh seed via 'auth:seed-updated' once the async refresh completes —
+    // preload re-applies it to localStorage so bundle picks up new profileId.
     event.returnValue = buildRendererAuthSeed();
+
+    // Fire-and-forget refresh + push back to renderer when done.
+    refreshInitialApiState().then(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            const seed = buildRendererAuthSeed();
+            if (seed) {
+                try { mainWindow.webContents.send('auth:seed-updated', seed); }
+                catch { /* renderer gone */ }
+            }
+        }
+    }).catch(() => { /* swallow — preload will fall back to stale seed */ });
 });
 
 ipcMain.handle('auth:quit', () => {
@@ -796,6 +837,13 @@ function performLogout(options = {}) {
     authStore.clear();
     currentAuth = null;
     clearRendererAuthSeed();
+
+    // Also drop the TikTok session — otherwise decideAuthEntrypoint's
+    // "no Serial Key but TT session exists" offline path would silently
+    // re-admit the user on relaunch and skip the login screen entirely.
+    try { tiktokSignin.clearSession(); } catch (err) {
+        console.warn('[Auth] clear TT session on logout failed:', err && err.message ? err.message : err);
+    }
 
     if (authReCheckTimer) { clearInterval(authReCheckTimer); authReCheckTimer = null; }
     if (liveStatusTimer)  { clearInterval(liveStatusTimer);  liveStatusTimer = null; }
@@ -1009,6 +1057,7 @@ function buildRendererAuthSeed() {
     if (!currentAuth) return null;
 
     const displayName = currentAuth.username || currentAuth.keyId || 'User';
+    const state = cachedInitialApiState || {};
     return {
         displayName,
         tokenForBundle: cachedBundleJwt || currentAuth.token || currentAuth.keyId || 'tfs-session',
@@ -1017,8 +1066,47 @@ function buildRendererAuthSeed() {
             keyId: currentAuth.keyId || null,
             username: currentAuth.username || null,
             expiresAt: currentAuth.expiresAt || null
-        })
+        }),
+        // From backend /api/me snapshot — replaces preload hardcoded values.
+        channelId: state.channelId ?? 1,
+        profileId: state.profileId ?? 1,
+        channelName: state.channelName ?? displayName,
+        isPro: state.isPro ?? true
     };
+}
+
+// Cache of initial /api/me snapshot for renderer seed. Avoid hardcoding values
+// in preload.js — pull real channelId / profileId / channelName from backend.
+// MUST be refreshed after profile switch, otherwise preload seeds the renderer
+// with stale profileId on the next reload.
+let cachedInitialApiState = null;
+let _apiStateRefreshInFlight = null;
+
+function refreshInitialApiState() {
+    if (_apiStateRefreshInFlight) return _apiStateRefreshInFlight;
+    _apiStateRefreshInFlight = new Promise((resolve) => {
+        const req = http.get(`${BACKEND_URL}/api/me`, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => {
+                try {
+                    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+                    cachedInitialApiState = {
+                        channelId: parsed?.channel?.ChannelId || parsed?.channel?.channelId || null,
+                        profileId: parsed?.channel?.ProfileId || parsed?.channel?.profileId || null,
+                        channelName: parsed?.channelName || parsed?.channel?.ChannelName || null,
+                        email: parsed?.channel?.Email || parsed?.channel?.email || null,
+                        isPro: parsed?.isPro ?? parsed?.subscription?.isPro ?? true
+                    };
+                } catch { /* keep stale cache */ }
+                _apiStateRefreshInFlight = null;
+                resolve(cachedInitialApiState);
+            });
+        });
+        req.on('error', () => { _apiStateRefreshInFlight = null; resolve(cachedInitialApiState); });
+        req.setTimeout(2000, () => req.destroy(new Error('TIMEOUT')));
+    });
+    return _apiStateRefreshInFlight;
 }
 
 function fetchBundleJwt() {
@@ -1029,6 +1117,15 @@ function fetchBundleJwt() {
             res.on('end', () => {
                 try {
                     const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+                    // Snapshot useful fields for the renderer seed (run before
+                    // bundle loads). Real values, not hardcoded "1".
+                    cachedInitialApiState = {
+                        channelId: parsed?.channel?.ChannelId || parsed?.channel?.channelId || null,
+                        profileId: parsed?.channel?.ProfileId || parsed?.channel?.profileId || null,
+                        channelName: parsed?.channelName || parsed?.channel?.ChannelName || null,
+                        email: parsed?.channel?.Email || parsed?.channel?.email || null,
+                        isPro: parsed?.isPro ?? parsed?.subscription?.isPro ?? true
+                    };
                     resolve(parsed?.wsAuthToken || null);
                 } catch (error) {
                     reject(error);
@@ -1096,18 +1193,72 @@ function createMainWindow() {
 
     mainWindow.once('ready-to-show', () => {
         try { mainWindow.webContents.setZoomFactor(1); } catch { /* page not ready */ }
-        mainWindow.show();
-        closeSplash();
+        // Force non-maximized so the bundle's overlay grid doesn't expand into
+        // a 3-column layout that overflows the right edge on wide displays.
+        // The bundle's CSS isn't responsive past ~1500px.
+        try { if (mainWindow.isMaximized()) mainWindow.unmaximize(); } catch { /* race */ }
+        try { mainWindow.setSize(1400, 900); mainWindow.center(); } catch { /* race */ }
         if (process.env.TIKMAX_DEVTOOLS === '1') {
             try { mainWindow.webContents.openDevTools({ mode: 'detach' }); } catch { /* ignore */ }
         }
     });
 
-    // After every navigation/reload, replace the bundled guest topbar with a
-    // "logged in" indicator that reflects the TikfinityServer auth we already
-    // verified. The bundle has no native concept of this auth, so we patch it
-    // in-place via DOM manipulation.
-    mainWindow.webContents.on('did-finish-load', applyAuthOverlay);
+    // Defer mainWindow.show() until the renderer stabilizes. The bundle's
+    // bootstrap chain triggers several reloads in the first 2-4 seconds,
+    // which the user would otherwise see as jittery flicker. We keep the
+    // splash up and only swap to the main window once did-finish-load has
+    // been quiet for SETTLE_MS. A hard timeout guarantees we never hang.
+    const SETTLE_MS = 3000;
+    const MAX_WAIT_MS = 12000;
+    let _settleTimer = null;
+    let _hasShown = false;
+
+    function showMainWindowOnce() {
+        if (_hasShown) return;
+        _hasShown = true;
+        if (_settleTimer) { clearTimeout(_settleTimer); _settleTimer = null; }
+        try { mainWindow.show(); } catch { /* destroyed */ }
+        closeSplash();
+        console.log('[Main-Boot] main window shown (renderer settled)');
+    }
+
+    const _maxWaitTimer = setTimeout(() => {
+        console.warn(`[Main-Boot] hard timeout ${MAX_WAIT_MS}ms — showing main window anyway`);
+        showMainWindowOnce();
+    }, MAX_WAIT_MS);
+
+    // Trigger reload mask in the bundle when a top-level navigation starts.
+    // The mask is a solid black div that covers the screen during reload,
+    // auto-hiding after 150ms so the bundle's own loading screen takes over.
+    mainWindow.webContents.on('did-start-navigation', (_e, url, isInPlace, isMainFrame) => {
+        if (!_hasShown) return;
+        if (!isMainFrame || isInPlace) return;
+        if (!isBackendMainUrl(url)) return;
+        try {
+            mainWindow.webContents.executeJavaScript(
+                'window.TFS && window.TFS.__reloadMask && window.TFS.__reloadMask.show && window.TFS.__reloadMask.show()'
+            ).catch(() => { /* page not ready */ });
+        } catch { /* ignore */ }
+
+        // Refresh /api/me snapshot before preload runs next. This prevents
+        // stale profileId from being seeded after a switch-profile reload.
+        refreshInitialApiState();
+    });
+
+    mainWindow.webContents.on('did-finish-load', () => {
+        applyAuthOverlay();
+        if (_hasShown) {
+            // Reload finished. The in-bundle reload mask (injected via
+            // BuildIndexHtml) hides itself via its own scheduleHide() timer
+            // after ~800ms — no main-process action needed here.
+            return;
+        }
+        if (_settleTimer) clearTimeout(_settleTimer);
+        _settleTimer = setTimeout(() => {
+            clearTimeout(_maxWaitTimer);
+            showMainWindowOnce();
+        }, SETTLE_MS);
+    });
 
     // Forward renderer warnings and errors to main log (kept for ongoing
     // diagnosis). TF-TRACE uses console.warn (level 2) so we must include
@@ -1139,18 +1290,27 @@ function createMainWindow() {
         }
     });
 
-    // Reload-loop guard at network layer. The embedded bundle now performs
-    // up to two bootstrap self-reloads during a healthy authenticated startup,
-    // so allow those early same-path navigations and only block the loop after.
-    const MAX_BOOTSTRAP_MAINFRAME_LOADS = 3;
-    const MAINFRAME_LOOP_GUARD_WINDOW_MS = 30000;
-    let _mainNavCount = 0;
-    let _firstNavTs = 0;
-
-    function resetMainNavWindow() {
-        _mainNavCount = 0;
-        _firstNavTs = 0;
-    }
+    // Reload guard tuned for the bundle's switch-profile behaviour. A single
+    // user click triggers a bootstrap chain of several reloads in quick
+    // succession (~1 every 100-500ms). A real loop fires reloads continuously
+    // with no breathing room.
+    //
+    // Strategy: track the last N reloads. If they all happened within a tight
+    // window AND there's been NO 1.5s gap, we're in a loop — block until the
+    // gap appears. User can switch any number of times because each click's
+    // chain ends with a > 1.5s settling period before the next click.
+    // Electron-level safety net: cap reload bursts at 15 to prevent runaway
+    // loops. The user-visible flicker is hidden by a JS-injected overlay
+    // (see Program.cs), so allowing the bundle to do its bootstrap reload
+    // chain is fine — but a runaway infinite loop must be stopped.
+    // Electron-level Main-Guard is now LOG-ONLY. The in-bundle reload guard
+    // (sessionStorage-based, injected via BuildIndexHtml) is the primary cap.
+    // preventDefault() here used to leave the renderer in a half-loaded
+    // broken state (black screen) when it kicked in during a real switch.
+    const BURST_SIZE = 50; // Generous — bundle guard should keep us well below this
+    const SETTLE_GAP_MS = 1500;
+    let _navTimestamps = [];
+    let _lastNavTs = 0;
 
     function isBackendMainUrl(url) {
         return typeof url === 'string' && url.startsWith(BACKEND_URL);
@@ -1158,45 +1318,27 @@ function createMainWindow() {
 
     mainWindow.webContents.on('will-navigate', (event, url) => {
         if (!isBackendMainUrl(url)) return;
-
         const now = Date.now();
-        if (_firstNavTs && now - _firstNavTs > MAINFRAME_LOOP_GUARD_WINDOW_MS) {
-            resetMainNavWindow();
-            return;
+        if (_lastNavTs && now - _lastNavTs > SETTLE_GAP_MS) {
+            _navTimestamps = [];
         }
-
-        const nextCount = _mainNavCount + 1;
-        if (nextCount <= MAX_BOOTSTRAP_MAINFRAME_LOADS) return;
-
-        const sinceFirst = _firstNavTs ? now - _firstNavTs : 0;
-        console.warn(`[Main-Guard] Prevented reload (#${nextCount} at ${(sinceFirst / 1000).toFixed(1)}s after first) url=${url}`);
-        event.preventDefault();
+        _lastNavTs = now;
+        _navTimestamps.push(now);
+        if (_navTimestamps.length > BURST_SIZE) {
+            console.warn(`[Main-Guard] Reload burst >${BURST_SIZE} detected (log only, not blocking), url=${url}`);
+            // No preventDefault — blocking mid-flight produces a broken renderer
+            // (black screen). In-bundle guard caps the chain before this fires.
+            _navTimestamps = []; // reset so we don't spam log
+        }
     });
+
     mainWindow.webContents.on('did-start-navigation', (_e, url, isInPlace, isMainFrame) => {
         if (!isMainFrame || isInPlace) return;
-        if (!isBackendMainUrl(url)) {
-            console.log(`[Main-Diag] did-start-navigation url=${url}`);
-            return;
+        if (isBackendMainUrl(url)) {
+            console.log(`[Main-Diag] mainFrame nav (count=${_navTimestamps.length}) url=${url}`);
+        } else {
+            console.log(`[Main-Diag] did-start-navigation (external) url=${url}`);
         }
-
-        const now = Date.now();
-        if (_firstNavTs && now - _firstNavTs > MAINFRAME_LOOP_GUARD_WINDOW_MS) {
-            resetMainNavWindow();
-        }
-
-        _mainNavCount += 1;
-        if (_mainNavCount === 1) {
-            _firstNavTs = now;
-            console.log(`[Main-Diag] First mainFrame load (allowed) url=${url}`);
-            return;
-        }
-
-        if (_mainNavCount <= MAX_BOOTSTRAP_MAINFRAME_LOADS) {
-            console.log(`[Main-Diag] Bootstrap reload #${_mainNavCount - 1} (allowed) url=${url}`);
-            return;
-        }
-
-        console.log(`[Main-Diag] Late mainFrame nav (#${_mainNavCount}, ${((now - _firstNavTs) / 1000).toFixed(0)}s after first, allowed) url=${url}`);
     });
     mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
         console.error(`[Main-Diag] did-fail-load code=${code} desc=${desc} url=${url}`);
@@ -1209,6 +1351,29 @@ function createMainWindow() {
     });
 
     mainWindow.webContents.setWindowOpenHandler(handleWindowOpen);
+
+    // When a popup is allowed by handleWindowOpen, ensure it only becomes
+    // visible after the page loads — otherwise the user sees a blank desktop
+    // window for a few seconds. Also close it automatically if nav fails so
+    // empty popups don't linger.
+    mainWindow.webContents.on('did-create-window', (child, details) => {
+        const url = (details && details.url) || '';
+        console.log('[Popup] created url=' + url);
+        // Belt-and-suspenders: hide menu on every popup, even ones whose
+        // overrideBrowserWindowOptions forgot to do so.
+        try { child.setMenuBarVisibility(false); } catch { /* fine */ }
+        try { child.setAutoHideMenuBar(true); } catch { /* fine */ }
+        const hidden = url.includes('#hidden') || url.includes('#tfbridge');
+        if (hidden) return;
+        child.once('ready-to-show', () => {
+            if (!child.isDestroyed()) child.show();
+        });
+        child.webContents.on('did-fail-load', (_e, code, desc) => {
+            if (code === -3) return; // ABORTED (normal during redirects)
+            console.warn('[Popup] did-fail-load', code, desc, url);
+            if (!child.isDestroyed()) child.close();
+        });
+    });
 
     mainWindow.on('close', e => {
         if (!isQuitting) {
@@ -1298,12 +1463,18 @@ function handleWindowOpen(details) {
             return { action: 'deny' };
         }
 
+        // Bridge MUST stay hidden. The `show=1` debug flag was leaking and
+        // surfacing the raw TikTok UI to end users — never honour it in
+        // production paths. Anyone debugging the bridge can flip this here.
         return {
             action: 'allow',
             overrideBrowserWindowOptions: {
-                show: url.includes('show=1'),
+                show: false,
                 height: randomInt(900, 1200),
                 width: randomInt(1800, 2300),
+                skipTaskbar: true,
+                autoHideMenuBar: true,
+                title: 'TikFinity Bridge',
                 webPreferences: {
                     contextIsolation: false,
                     backgroundThrottling: false
@@ -1314,6 +1485,8 @@ function handleWindowOpen(details) {
 
     // TikTok login must go through the dedicated Passport flow window instead
     // of a generic TikTok popup, otherwise TikTok often lands on the feed.
+    // Must run BEFORE the generic isTikTokUrl→openExternal branch below, or
+    // the dedicated sign-in flow would never fire.
     if (isTikTokUrl && wantsTikTokLogin) {
         setImmediate(() => {
             const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
@@ -1335,12 +1508,36 @@ function handleWindowOpen(details) {
         return { action: 'deny' };
     }
 
-    // In-app popups (settings panes, widget previews, future TikfinityServer login).
+    // Any other TikTok URL (settings pages, feeds, profile) — open in the
+    // user's default browser instead of a popup. The bundle navigating to
+    // privacy/settings inside the Electron shell was bleeding TikTok's full
+    // chrome (with default File/Edit/View menu) into the desktop app.
+    if (isTikTokUrl) {
+        shell.openExternal(url);
+        return { action: 'deny' };
+    }
+
+    // In-app popups (Spotify auth, settings panes, widget previews, future
+    // TikfinityServer login). Without explicit overrides Electron defaults to
+    // a blank window with the OS title (package name) and the full File/Edit
+    // menu — looks like a leftover desktop window. We apply sensible defaults
+    // here so any #electron popup at least looks intentional.
     if (url.includes('#electron')) {
+        const hidden = url.includes('#hidden');
         return {
             action: 'allow',
             overrideBrowserWindowOptions: {
-                show: !url.includes('#hidden')
+                show: false,
+                width: 560,
+                height: 720,
+                autoHideMenuBar: true,
+                title: 'TikFinity',
+                parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+                webPreferences: {
+                    contextIsolation: true,
+                    nodeIntegration: false
+                },
+                ...(!hidden && { backgroundColor: '#1a1a1a' })
             }
         };
     }
