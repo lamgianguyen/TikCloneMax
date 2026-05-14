@@ -1644,6 +1644,82 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
     var blockScript = """
     <script>
     (function(){
+      // While the bundle's #splashScreen ("Getting things ready for you...")
+      // is visible, set body.tf-splash-active so CSS hides the partially
+      // mounted sidebar / topbar underneath. As soon as the bundle hides
+      // (display:none / visibility:hidden) or removes #splashScreen, drop
+      // the class so the real UI becomes visible.
+      function tfIsSplashVisible(el) {
+        if (!el || !el.isConnected) return false;
+        var st;
+        try { st = window.getComputedStyle(el); } catch (e) { return false; }
+        if (!st) return false;
+        if (st.display === 'none') return false;
+        if (st.visibility === 'hidden' || st.visibility === 'collapse') return false;
+        if (parseFloat(st.opacity || '1') === 0) return false;
+        return true;
+      }
+      function tfApplySplashClass() {
+        try {
+          var el = document.getElementById('splashScreen');
+          var body = document.body;
+          if (!body) return;
+          if (tfIsSplashVisible(el)) {
+            body.classList.add('tf-splash-active');
+          } else {
+            body.classList.remove('tf-splash-active');
+          }
+        } catch (_) {}
+      }
+      function tfWatchSplash() {
+        try {
+          tfApplySplashClass();
+          // Narrow observer: only watch #splashScreen itself + its parent for
+          // child removal. Avoid documentElement subtree which fires on every
+          // bundle DOM mutation and blocks the script-load callbacks.
+          function attachSplashObs() {
+            var el = document.getElementById('splashScreen');
+            if (!el) return;
+            try {
+              var attrObs = new MutationObserver(function() { tfApplySplashClass(); });
+              attrObs.observe(el, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+              if (el.parentNode) {
+                var rmObs = new MutationObserver(function(muts) {
+                  for (var i = 0; i < muts.length; i++) {
+                    if (muts[i].removedNodes && muts[i].removedNodes.length) {
+                      tfApplySplashClass();
+                      return;
+                    }
+                  }
+                });
+                rmObs.observe(el.parentNode, { childList: true });
+              }
+            } catch (_) {}
+          }
+          if (document.getElementById('splashScreen')) {
+            attachSplashObs();
+          } else {
+            // Splash element may not exist yet when this script runs in the head.
+            // Poll for ~3s until it appears, then attach.
+            var tries = 0;
+            var poll = setInterval(function() {
+              if (document.getElementById('splashScreen')) {
+                clearInterval(poll);
+                tfApplySplashClass();
+                attachSplashObs();
+              } else if (++tries > 30) {
+                clearInterval(poll);
+              }
+            }, 100);
+          }
+        } catch (_) {}
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', tfWatchSplash, { once: true });
+      } else {
+        tfWatchSplash();
+      }
+
       // One-time cleanup: purge the legacy hardcoded dev token so users
       // who previously had auto-login fall back to the real login flow.
       try {
@@ -5082,6 +5158,43 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       #tf-guest-topbar { display: none; position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 10000; }
       body.tf-logged-out #tf-guest-topbar { display: block !important; }
       body.tf-logged-out #navigation-app .topbar { visibility: hidden !important; }
+
+      /* === "Getting things ready for you..." splash overlay ===
+         While the bundle is bootstrapping (splashScreen still in DOM), cover
+         the entire viewport with a solid dark canvas so the half-rendered
+         sidebar / topbar / guest-topbar don't peek through. The bundle removes
+         #splashScreen itself once init completes, so this CSS auto-disables. */
+      #splashScreen {
+        background: #1c1d22 !important;
+        z-index: 2147483646 !important;
+        color: #cbd5e0;
+      }
+      #splashScreen .loadingSpinner { filter: brightness(1.2); }
+      #splashScreen .loadingStaticText {
+        color: #e5e7eb;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        font-size: 14px;
+        letter-spacing: 0.3px;
+        margin-top: 16px;
+      }
+      #splashScreen .loadingStatus {
+        color: #9ba3af;
+        font-size: 12px;
+        margin-top: 8px;
+      }
+      /* Hide sidebar / topbar while the bundle's splash is showing. We toggle
+         the .tf-splash-active class on the body element via a MutationObserver
+         (defined in blockScript) instead of relying on :has() — :has() matches
+         even after the bundle flips #splashScreen to display:none, so the
+         sidebar would stay hidden forever. The observer watches for display
+         / visibility changes and removes the class as soon as splash is hidden. */
+      body.tf-splash-active #navigation-app,
+      body.tf-splash-active #pages,
+      body.tf-splash-active #sidebar,
+      body.tf-splash-active #tf-guest-topbar,
+      body.tf-splash-active #tf-topbar-mount {
+        visibility: hidden !important;
+      }
     </style>
     """;
     // NOTE: <head> injection is deferred until after `reloadGuard` is declared
@@ -5830,14 +5943,28 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       // Wrap all four so the chain is capped no matter which path bundle picks.
       function shouldAllowNavigation(targetUrl) {
         var current = readCount(targetUrl);
+        var trace = '';
+        try { trace = new Error('nav-trace').stack || ''; } catch(_) {}
         if (current >= MAX_VISIBLE) {
-          console.warn('[reload-guard] BLOCKED nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + ' target=' + targetUrl);
+          console.warn('[reload-guard] BLOCKED nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + ' target=' + targetUrl + '\n' + trace);
           return false;
         }
         bumpCount(targetUrl);
-        console.log('[reload-guard] ALLOW nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + (targetUrl ? ' target=' + targetUrl : ''));
+        console.warn('[reload-guard] ALLOW nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + (targetUrl ? ' target=' + targetUrl : '') + '\n' + trace);
         return true;
       }
+
+      // Catch-all: log every page unload with stack trace. This catches reloads
+      // that bypass location.reload/assign/replace/href setters (e.g. setting
+      // location.search, location.pathname, history.go(0), form.submit, anchor click).
+      try {
+        window.addEventListener('beforeunload', function() {
+          var trace = '';
+          try { trace = new Error('unload-trace').stack || ''; } catch(_) {}
+          console.warn('[reload-guard] BEFOREUNLOAD fired href=' + location.href + '\n' + trace);
+        });
+      } catch (e) {}
+      console.warn('[reload-guard] INSTALLED at ' + Date.now() + ' href=' + location.href);
 
       var Lp = Object.getPrototypeOf(location) || Location.prototype;
       var origReload = location.reload.bind(location);
@@ -5906,6 +6033,69 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           });
         }
       } catch (e) { console.warn('[reload-guard] href setter hook failed:', e && e.message); }
+
+      // Intercept location.search / pathname / hash setters — these also
+      // trigger a full reload but don't go through href. The bundle's
+      // settings.restore() observed firing reloads via one of these.
+      function patchLocationSetter(prop) {
+        try {
+          var desc = Object.getOwnPropertyDescriptor(Lp, prop);
+          if (!desc || !desc.set) return;
+          var origSet = desc.set;
+          Object.defineProperty(Lp, prop, {
+            configurable: true,
+            get: desc.get,
+            set: function(v) {
+              try {
+                var newVal = String(v);
+                if (!shouldAllowNavigation('location.' + prop + ' = ' + newVal)) return;
+              } catch (_) {}
+              return origSet.call(this, v);
+            }
+          });
+        } catch (e) {
+          console.warn('[reload-guard] ' + prop + ' setter hook failed:', e && e.message);
+        }
+      }
+      patchLocationSetter('search');
+      patchLocationSetter('pathname');
+      patchLocationSetter('host');
+      patchLocationSetter('hostname');
+      patchLocationSetter('protocol');
+
+      // history.go(0) triggers a full reload too. Patch History.prototype.go
+      // so go(0) goes through our guard.
+      try {
+        var Hp = History && History.prototype;
+        if (Hp && typeof Hp.go === 'function') {
+          var origGo = Hp.go;
+          Hp.go = function(delta) {
+            try {
+              if (delta === 0 || delta === undefined) {
+                if (!shouldAllowNavigation('history.go(' + delta + ')')) return;
+              }
+            } catch (_) {}
+            return origGo.apply(this, arguments);
+          };
+        }
+      } catch (e) {
+        console.warn('[reload-guard] history.go hook failed:', e && e.message);
+      }
+
+      // Hook HTMLFormElement.prototype.submit — a form whose action targets
+      // the current URL triggers a full reload-like navigation.
+      try {
+        var origSubmit = HTMLFormElement.prototype.submit;
+        HTMLFormElement.prototype.submit = function() {
+          try {
+            var action = (this.action || location.href);
+            if (!shouldAllowNavigation('form.submit -> ' + action)) return;
+          } catch (_) {}
+          return origSubmit.apply(this, arguments);
+        };
+      } catch (e) {
+        console.warn('[reload-guard] form.submit hook failed:', e && e.message);
+      }
 
       // Diagnostic surface for debugging
       window.TFS = window.TFS || {};

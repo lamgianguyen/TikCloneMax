@@ -1209,13 +1209,16 @@ function createMainWindow() {
     // splash up and only swap to the main window once did-finish-load has
     // been quiet for SETTLE_MS. A hard timeout guarantees we never hang.
     const SETTLE_MS = 3000;
-    const MAX_WAIT_MS = 12000;
+    const MAX_WAIT_MS = 5000;
+    const MAX_BOOT_NAVS = 6;
     let _settleTimer = null;
     let _hasShown = false;
-
+    let _initialBootPhase = true;
+    let _bootNavCount = 0;
     function showMainWindowOnce() {
         if (_hasShown) return;
         _hasShown = true;
+        _initialBootPhase = false;   // <<< THÊM DÒNG NÀY
         if (_settleTimer) { clearTimeout(_settleTimer); _settleTimer = null; }
         try { mainWindow.show(); } catch { /* destroyed */ }
         closeSplash();
@@ -1307,10 +1310,24 @@ function createMainWindow() {
     // (sessionStorage-based, injected via BuildIndexHtml) is the primary cap.
     // preventDefault() here used to leave the renderer in a half-loaded
     // broken state (black screen) when it kicked in during a real switch.
-    const BURST_SIZE = 50; // Generous — bundle guard should keep us well below this
+    // Main-process reload rate limiter. The in-renderer reload guard catches
+    // location.reload/assign/replace/href/search/pathname/history.go/form.submit
+    // but the bundle's settings.restore may still slip through via paths we
+    // cannot intercept. This is the last line of defence.
+    //
+    // Profile switch: bundle fires a chain of 8-12 reloads with ~100-500ms
+    // between them. A runaway loop has the same fast cadence but never settles.
+    // We use a SETTLE_GAP to tell them apart:
+    //   - If gap since last nav > SETTLE_GAP_MS, reset the chain counter
+    //     (the previous burst ended, this is a new chain).
+    //   - Allow up to CHAIN_LIMIT navs per chain (profile switch needs ~12).
+    //   - If a chain exceeds CHAIN_LIMIT without ever settling, it's a loop —
+    //     block further reloads until a settle gap is observed.
     const SETTLE_GAP_MS = 1500;
-    let _navTimestamps = [];
+    const CHAIN_LIMIT = 15;
+    let _chainCount = 0;
     let _lastNavTs = 0;
+    let _chainBlocked = false;
 
     function isBackendMainUrl(url) {
         return typeof url === 'string' && url.startsWith(BACKEND_URL);
@@ -1318,24 +1335,55 @@ function createMainWindow() {
 
     mainWindow.webContents.on('will-navigate', (event, url) => {
         if (!isBackendMainUrl(url)) return;
+
         const now = Date.now();
-        if (_lastNavTs && now - _lastNavTs > SETTLE_GAP_MS) {
-            _navTimestamps = [];
+        const gap = _lastNavTs ? now - _lastNavTs : Infinity;
+
+        // Settle gap observed — previous chain ended, this is a new one.
+        if (gap > SETTLE_GAP_MS) {
+            if (_chainBlocked) console.log(`[Main-Guard] Chain released after ${gap}ms settle gap`);
+            _chainCount = 0;
+            _chainBlocked = false;
         }
+
         _lastNavTs = now;
-        _navTimestamps.push(now);
-        if (_navTimestamps.length > BURST_SIZE) {
-            console.warn(`[Main-Guard] Reload burst >${BURST_SIZE} detected (log only, not blocking), url=${url}`);
-            // No preventDefault — blocking mid-flight produces a broken renderer
-            // (black screen). In-bundle guard caps the chain before this fires.
-            _navTimestamps = []; // reset so we don't spam log
+
+        // Boot phase: tolerate a few chained navs while the bundle mounts.
+        // Cap at MAX_BOOT_NAVS so a runaway loop during boot can't accumulate
+        // forever; once exceeded, force-end the boot phase and let the chain
+        // limiter kick in below.
+        if (_initialBootPhase) {
+            _bootNavCount++;
+            if (_bootNavCount <= MAX_BOOT_NAVS) {
+                console.log(`[InitialBoot] nav during boot (#${_bootNavCount}/${MAX_BOOT_NAVS}): ${url}`);
+                _chainCount = 0;
+                return;
+            }
+            // Too many boot navs — force-end boot phase and fall through to
+            // the post-boot chain limiter.
+            console.warn(`[InitialBoot] exceeded ${MAX_BOOT_NAVS} navs — ending boot phase early`);
+            _initialBootPhase = false;
+        }
+
+        // Already blocked — wait for a settle gap.
+        if (_chainBlocked) {
+            console.warn(`[Main-Guard] BLOCKED reload (chain stuck, awaiting ${SETTLE_GAP_MS}ms settle gap, gap so far ${gap}ms) url=${url}`);
+            event.preventDefault();
+            return;
+        }
+
+        _chainCount++;
+        if (_chainCount > CHAIN_LIMIT) {
+            _chainBlocked = true;
+            console.warn(`[Main-Guard] CHAIN OVERFLOW (>${CHAIN_LIMIT} navs without settle). Blocking until ${SETTLE_GAP_MS}ms gap. url=${url}`);
+            event.preventDefault();
         }
     });
 
     mainWindow.webContents.on('did-start-navigation', (_e, url, isInPlace, isMainFrame) => {
         if (!isMainFrame || isInPlace) return;
         if (isBackendMainUrl(url)) {
-            console.log(`[Main-Diag] mainFrame nav (count=${_navTimestamps.length}) url=${url}`);
+            console.log(`[Main-Diag] mainFrame nav (chain=${_chainCount}) url=${url}`);
         } else {
             console.log(`[Main-Diag] did-start-navigation (external) url=${url}`);
         }
