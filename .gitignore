@@ -25,6 +25,17 @@ logs/
 Thumbs.db
 .idea/
 
+# SQLite runtime data — local per-machine state, never commit.
+# *.db is the main database (channels, profiles, points, actions, etc.).
+# *.db-shm and *.db-wal are shared-memory and write-ahead-log working files
+# that SQLite creates while a connection is open; they get cleaned up on
+# clean shutdown but can linger after a crash. None of these should be
+# tracked in git — each user / machine generates their own.
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
 # Env / secrets
 .env
 .env.local
