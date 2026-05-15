@@ -133,6 +133,15 @@ function bootstrap() {
     app.whenReady().then(async () => {
         console.log('[Electron] App ready');
 
+        // Free up our well-known ports BEFORE anything else binds — a previous
+        // crashed run can leave the .NET backend or the tiktok-bridge node
+        // process zombied and still holding TCP listeners. If the bridge can't
+        // bind 5288 it falls back to a random port, which then drifts between
+        // restarts and breaks the backend's reconnect loop ("Bridge not
+        // connected"). This runs synchronously so the rest of bootstrap sees
+        // clean ports.
+        freeOurPorts();
+
         authStore.init(app.getPath('userData'));
         currentAuth = authStore.load();
 
@@ -226,6 +235,50 @@ function bootstrap() {
 }
 
 // ---------------------------------------------------------------------------
+// Port cleanup
+// ---------------------------------------------------------------------------
+
+/**
+ * Kill any process listening on one of our well-known ports. Runs synchronously
+ * during bootstrap so the rest of startup sees clean sockets.
+ *
+ * We target ports by PID (extracted from `netstat -ano`), not by process name,
+ * so unrelated `node.exe` / `dotnet.exe` instances (VS Code, dev tools, other
+ * apps) stay untouched. The taskkill itself is best-effort — if the PID is
+ * already gone or owned by another user, we silently move on.
+ */
+function freeOurPorts() {
+    if (!isWin) return; // POSIX uses lsof/kill — not needed in dev on macOS/Linux
+    const ports = [BACKEND_PORT, 5288 /* bridge */, DAPI_PORT];
+    const seenPids = new Set();
+    try {
+        const out = spawnSync('cmd.exe', ['/c', 'netstat -ano | findstr LISTENING'], {
+            encoding: 'utf-8',
+            timeout: 3000
+        });
+        const lines = (out.stdout || '').split(/\r?\n/);
+        for (const line of lines) {
+            // Format: "  TCP    0.0.0.0:5285    0.0.0.0:0    LISTENING    12345"
+            const m = line.match(/:(\d+)\s+\S+\s+LISTENING\s+(\d+)/);
+            if (!m) continue;
+            const port = Number(m[1]);
+            const pid = Number(m[2]);
+            if (!ports.includes(port) || pid === process.pid || pid <= 0) continue;
+            if (seenPids.has(pid)) continue;
+            seenPids.add(pid);
+            try {
+                spawnSync('taskkill.exe', ['/F', '/PID', String(pid)], { timeout: 3000 });
+                console.log(`[port-cleanup] killed PID ${pid} holding port ${port}`);
+            } catch (err) {
+                console.warn(`[port-cleanup] failed to kill PID ${pid}:`, err.message);
+            }
+        }
+    } catch (err) {
+        console.warn('[port-cleanup] enumerate failed:', err.message);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Backend process
 // ---------------------------------------------------------------------------
 
@@ -257,11 +310,15 @@ function getBackendLaunchConfig() {
             label: `dotnet ${dll}`
         };
     }
+    // Fallback path: no pre-built DLL on disk. This happens on a fresh clone
+    // before the user runs `dotnet build` once. Do NOT pass --no-build here —
+    // that flag would require the DLL to already exist and would fail on
+    // exactly the case this fallback is meant to handle.
     return {
         command: isWin ? 'dotnet.exe' : 'dotnet',
-        args: ['run', '--project', projDir, '--no-launch-profile', '--no-build'],
+        args: ['run', '--project', projDir, '--no-launch-profile'],
         cwd: projDir,
-        label: `dotnet run --project ${projDir} --no-build (fallback — no DLL found)`
+        label: `dotnet run --project ${projDir} (fallback — no DLL found, will build)`
     };
 }
 
@@ -338,7 +395,12 @@ function waitForBackend(maxRetries, delayMs) {
         let attempt = 0;
         const check = () => {
             attempt++;
-            sendSplashStatus(`Đang chờ backend (${attempt}/${maxRetries})...`);
+            // The maxRetries number (e.g. 120) is just a worst-case retry budget,
+            // not a meaningful progress denominator — backend typically replies
+            // within 1-3 attempts. Showing "1/120" confused users into thinking
+            // the app would idle for 119 more steps. Surface only a simple
+            // status string; let the splash spinner indicate progress visually.
+            sendSplashStatus('Đang chờ backend...');
             const req = http.get(BACKEND_HEALTH, res => {
                 if (res.statusCode === 200) resolve();
                 else retry();
