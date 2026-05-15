@@ -1644,6 +1644,82 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
     var blockScript = """
     <script>
     (function(){
+      // While the bundle's #splashScreen ("Getting things ready for you...")
+      // is visible, set body.tf-splash-active so CSS hides the partially
+      // mounted sidebar / topbar underneath. As soon as the bundle hides
+      // (display:none / visibility:hidden) or removes #splashScreen, drop
+      // the class so the real UI becomes visible.
+      function tfIsSplashVisible(el) {
+        if (!el || !el.isConnected) return false;
+        var st;
+        try { st = window.getComputedStyle(el); } catch (e) { return false; }
+        if (!st) return false;
+        if (st.display === 'none') return false;
+        if (st.visibility === 'hidden' || st.visibility === 'collapse') return false;
+        if (parseFloat(st.opacity || '1') === 0) return false;
+        return true;
+      }
+      function tfApplySplashClass() {
+        try {
+          var el = document.getElementById('splashScreen');
+          var body = document.body;
+          if (!body) return;
+          if (tfIsSplashVisible(el)) {
+            body.classList.add('tf-splash-active');
+          } else {
+            body.classList.remove('tf-splash-active');
+          }
+        } catch (_) {}
+      }
+      function tfWatchSplash() {
+        try {
+          tfApplySplashClass();
+          // Narrow observer: only watch #splashScreen itself + its parent for
+          // child removal. Avoid documentElement subtree which fires on every
+          // bundle DOM mutation and blocks the script-load callbacks.
+          function attachSplashObs() {
+            var el = document.getElementById('splashScreen');
+            if (!el) return;
+            try {
+              var attrObs = new MutationObserver(function() { tfApplySplashClass(); });
+              attrObs.observe(el, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+              if (el.parentNode) {
+                var rmObs = new MutationObserver(function(muts) {
+                  for (var i = 0; i < muts.length; i++) {
+                    if (muts[i].removedNodes && muts[i].removedNodes.length) {
+                      tfApplySplashClass();
+                      return;
+                    }
+                  }
+                });
+                rmObs.observe(el.parentNode, { childList: true });
+              }
+            } catch (_) {}
+          }
+          if (document.getElementById('splashScreen')) {
+            attachSplashObs();
+          } else {
+            // Splash element may not exist yet when this script runs in the head.
+            // Poll for ~3s until it appears, then attach.
+            var tries = 0;
+            var poll = setInterval(function() {
+              if (document.getElementById('splashScreen')) {
+                clearInterval(poll);
+                tfApplySplashClass();
+                attachSplashObs();
+              } else if (++tries > 30) {
+                clearInterval(poll);
+              }
+            }, 100);
+          }
+        } catch (_) {}
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', tfWatchSplash, { once: true });
+      } else {
+        tfWatchSplash();
+      }
+
       // One-time cleanup: purge the legacy hardcoded dev token so users
       // who previously had auto-login fall back to the real login flow.
       try {
@@ -5031,6 +5107,10 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       /* Switch-profile loading overlay — covers viewport during the bundle's
          reload chain (typically 8-12 reloads) so the user sees a clean
          loading state instead of UI flicker. Removed after 3s of stability. */
+      /* Match the splash and reload-mask exactly so all three loading
+         states look identical — solid #1c1d22 canvas, brand spinner image,
+         simple title + subtitle. Avoid border-spinner / blue accent which
+         visually clashed with the splash and amplified perceived jitter. */
       #tf-switch-overlay {
         position: fixed; inset: 0;
         background: #1c1d22;
@@ -5038,24 +5118,21 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
         display: flex; align-items: center; justify-content: center; flex-direction: column;
         opacity: 1; transition: opacity 400ms ease-out;
         pointer-events: all;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       }
       #tf-switch-overlay.tf-fade-out { opacity: 0; pointer-events: none; }
       #tf-switch-overlay-spinner {
-        width: 56px; height: 56px;
-        border: 4px solid rgba(255,255,255,0.08);
-        border-top-color: #4dabf7;
-        border-radius: 50%;
-        animation: tf-switch-spin 800ms linear infinite;
+        width: 96px; height: 96px;
+        background: url('/img/loading.svg') center/contain no-repeat;
+        filter: brightness(1.05);
       }
       #tf-switch-overlay-text {
-        margin-top: 22px;
-        color: #cbd5e0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-        font-size: 13px;
-        letter-spacing: 0.5px;
-        opacity: 0.85;
+        margin-top: 18px;
+        color: #e5e7eb;
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.3px;
       }
-      @keyframes tf-switch-spin { to { transform: rotate(360deg); } }
       html, body { width: 100% !important; min-height: 100vh !important; overflow-x: hidden !important; }
       #navigation-app.hidden, #pages.hidden { display: block !important; }
       /* Don't force min-height 100vh on inner page containers — bundle's home
@@ -5068,6 +5145,17 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
          horizontal scroll to the inner page container so the body stays
          clean and the topbar doesn't bounce sideways. */
       #pages .page.pageenabled { display: block !important; opacity: 1 !important; visibility: visible !important; max-width: 100% !important; overflow-x: auto !important; }
+
+      /* Bundle's own media query at @media(max-width: 1918px) sets
+         .greyBackgroundSection min-width: 850px. So at >=1918px the bundle
+         expects 2 cards side-by-side (compactPathBox 315px + graphicSection
+         730px + gap fits in ~1900px content area). At narrower widths the
+         bundle's flex-wrap kicks in and cards stack naturally.
+         We do NOT override flex-direction here — that breaks the bundle's
+         intended 2-column layout on full HD displays. If a 2nd card runs off
+         the right edge it's because the user's content area (after sidebar
+         + sub-sidebar) is narrower than the bundle's design assumes; the
+         page-level `overflow-x: auto` we set above lets the user scroll. */
 
       /* === GUEST STATE (tf-logged-out) === */
       /* Hide dropdowns/popups in profile area */
@@ -5082,6 +5170,43 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       #tf-guest-topbar { display: none; position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 10000; }
       body.tf-logged-out #tf-guest-topbar { display: block !important; }
       body.tf-logged-out #navigation-app .topbar { visibility: hidden !important; }
+
+      /* === "Getting things ready for you..." splash overlay ===
+         While the bundle is bootstrapping (splashScreen still in DOM), cover
+         the entire viewport with a solid dark canvas so the half-rendered
+         sidebar / topbar / guest-topbar don't peek through. The bundle removes
+         #splashScreen itself once init completes, so this CSS auto-disables. */
+      #splashScreen {
+        background: #1c1d22 !important;
+        z-index: 2147483646 !important;
+        color: #cbd5e0;
+      }
+      #splashScreen .loadingSpinner { filter: brightness(1.2); }
+      #splashScreen .loadingStaticText {
+        color: #e5e7eb;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        font-size: 14px;
+        letter-spacing: 0.3px;
+        margin-top: 16px;
+      }
+      #splashScreen .loadingStatus {
+        color: #9ba3af;
+        font-size: 12px;
+        margin-top: 8px;
+      }
+      /* Hide sidebar / topbar while the bundle's splash is showing. We toggle
+         the .tf-splash-active class on the body element via a MutationObserver
+         (defined in blockScript) instead of relying on :has() — :has() matches
+         even after the bundle flips #splashScreen to display:none, so the
+         sidebar would stay hidden forever. The observer watches for display
+         / visibility changes and removes the class as soon as splash is hidden. */
+      body.tf-splash-active #navigation-app,
+      body.tf-splash-active #pages,
+      body.tf-splash-active #sidebar,
+      body.tf-splash-active #tf-guest-topbar,
+      body.tf-splash-active #tf-topbar-mount {
+        visibility: hidden !important;
+      }
     </style>
     """;
     // NOTE: <head> injection is deferred until after `reloadGuard` is declared
@@ -5593,117 +5718,82 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       }
     </style>
     <style id="tf-reload-mask-style">
+      /* Match the bundle's splash visually for a unified loading look. The
+         splash uses a solid #1c1d22 canvas, the brand spinner image, and a
+         simple two-line text block. Our reload mask must mirror that — any
+         transitions, progress bars, or gradient titles read as flicker
+         relative to the splash and amplify the perceived jitter. */
       #tf-reload-mask {
         display: none;
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: #212121;
-        background-image:
-          radial-gradient(circle at 30% 20%, rgba(255, 0, 80, 0.15) 0%, transparent 45%),
-          radial-gradient(circle at 80% 80%, rgba(0, 242, 234, 0.10) 0%, transparent 45%),
-          linear-gradient(160deg, #1a1a1a 0%, #212121 100%);
+        background: #1c1d22;
         z-index: 2147483647;
-        opacity: 0;
-        transition: opacity 150ms ease-out;
+        opacity: 1;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #e5e7eb;
       }
       #tf-reload-mask.active {
         display: flex;
         align-items: center;
         justify-content: center;
-        opacity: 1;
+        flex-direction: column;
         visibility: visible !important;
       }
       #tf-reload-mask .mask-inner {
         text-align: center;
-        color: #fff;
-      }
-      #tf-reload-mask .mask-title {
-        font-size: 22px;
-        font-weight: 700;
-        letter-spacing: 0.5px;
-        background: linear-gradient(90deg, #ff0050, #00f2ea);
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 4px;
-      }
-      #tf-reload-mask .mask-subtitle {
-        font-size: 11px;
-        color: #9aa0a6;
-        letter-spacing: 1.2px;
-        text-transform: uppercase;
-        margin-bottom: 24px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
       }
       #tf-reload-mask .mask-spinner {
-        display: inline-block;
-        width: 18px;
-        height: 18px;
-        border: 2px solid rgba(255, 255, 255, 0.12);
-        border-top-color: #ff0050;
-        border-radius: 50%;
-        animation: tf-spin 0.8s linear infinite;
-        margin-bottom: 16px;
+        width: 96px;
+        height: 96px;
+        background: url('/img/loading.svg') center/contain no-repeat;
+        filter: brightness(1.05);
+        margin-bottom: 18px;
       }
-      @keyframes tf-spin { to { transform: rotate(360deg); } }
-      #tf-reload-mask .mask-progress-bar {
-        width: 240px;
-        height: 4px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 2px;
-        overflow: hidden;
-        margin: 8px auto 0;
+      #tf-reload-mask .mask-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: #e5e7eb;
+        letter-spacing: 0.3px;
       }
-      #tf-reload-mask .mask-progress-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #ff0050, #00f2ea);
-        width: 0%;
-        transition: width 250ms ease-out;
-      }
-      #tf-reload-mask .mask-progress-text {
+      #tf-reload-mask .mask-subtitle {
         font-size: 12px;
-        color: #c4c7c5;
-        margin-top: 10px;
+        color: #9ba3af;
         letter-spacing: 0.2px;
+        margin-top: 8px;
+        min-height: 16px;
       }
     </style>
     <div id="tf-reload-mask">
       <div class="mask-inner">
-        <div class="mask-title">TikFinity</div>
-        <div class="mask-subtitle">Local Stream Studio</div>
         <div class="mask-spinner"></div>
-        <div class="mask-progress-bar">
-          <div id="tf-reload-fill" class="mask-progress-fill"></div>
-        </div>
-        <div id="tf-reload-text" class="mask-progress-text">0/10</div>
+        <div class="mask-title">Getting things ready for you...</div>
+        <div class="mask-subtitle" id="tf-reload-text"></div>
       </div>
     </div>
     <script>
       (function() {
         const mask = document.getElementById('tf-reload-mask');
-        const fill = document.getElementById('tf-reload-fill');
         const text = document.getElementById('tf-reload-text');
-        const TOTAL = 10;
-        const STORAGE_KEY = 'tf-reload-step';
         const STORAGE_TIME_KEY = 'tf-reload-time';
         const RESET_AFTER_MS = 4000;
         let endTimer = null;
 
-        function getStep() {
+        function isActive() {
           const t = parseInt(sessionStorage.getItem(STORAGE_TIME_KEY) || '0', 10);
           if (!t || Date.now() - t > RESET_AFTER_MS) {
-            sessionStorage.removeItem(STORAGE_KEY);
             sessionStorage.removeItem(STORAGE_TIME_KEY);
-            return 0;
+            return false;
           }
-          return parseInt(sessionStorage.getItem(STORAGE_KEY) || '0', 10);
+          return true;
         }
 
-        function render(step) {
+        function render(subtitle) {
           if (!mask) return;
-          const pct = Math.min(100, (step / TOTAL) * 100);
-          fill.style.width = pct + '%';
-          text.textContent = step + '/' + TOTAL;
+          if (text) text.textContent = subtitle || '';
           mask.classList.add('active');
           document.documentElement.classList.add('tf-reloading');
         }
@@ -5712,40 +5802,30 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           if (!mask) return;
           mask.classList.remove('active');
           document.documentElement.classList.remove('tf-reloading');
-          sessionStorage.removeItem(STORAGE_KEY);
           sessionStorage.removeItem(STORAGE_TIME_KEY);
         }
 
         function scheduleHide() {
           if (endTimer) clearTimeout(endTimer);
           const t = parseInt(sessionStorage.getItem(STORAGE_TIME_KEY) || '0', 10);
-          if (!t) {
-            hide();
-            return;
-          }
+          if (!t) { hide(); return; }
           const age = Date.now() - t;
           const remaining = Math.max(0, RESET_AFTER_MS - age);
-          endTimer = setTimeout(() => {
-            hide();
-          }, remaining + 50);
+          endTimer = setTimeout(() => { hide(); }, remaining + 50);
         }
 
-        function showMask() {
-          const current = getStep();
-          const next = Math.min(TOTAL, current + 1);
-          sessionStorage.setItem(STORAGE_KEY, String(next));
+        function showMask(subtitle) {
           sessionStorage.setItem(STORAGE_TIME_KEY, String(Date.now()));
-          render(next);
+          render(typeof subtitle === 'string' ? subtitle : '');
           scheduleHide();
         }
 
-        // On page load: if we're mid-chain, hide everything immediately
-        // and render mask. The class is added on <html> so it applies before
-        // any bundle content paints.
-        const stored = getStep();
-        if (stored > 0) {
-          document.documentElement.classList.add('tf-reloading');
-          render(stored);
+        // On page load: if we're mid-chain, render the mask immediately so
+        // the user doesn't see the bundle's partially rendered shell flicker
+        // through between reloads. The .tf-reloading class on <html> hides
+        // everything but the mask via the companion CSS rule above.
+        if (isActive()) {
+          render('');
           scheduleHide();
         }
 
@@ -5830,14 +5910,28 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
       // Wrap all four so the chain is capped no matter which path bundle picks.
       function shouldAllowNavigation(targetUrl) {
         var current = readCount(targetUrl);
+        var trace = '';
+        try { trace = new Error('nav-trace').stack || ''; } catch(_) {}
         if (current >= MAX_VISIBLE) {
-          console.warn('[reload-guard] BLOCKED nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + ' target=' + targetUrl);
+          console.warn('[reload-guard] BLOCKED nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + ' target=' + targetUrl + '\n' + trace);
           return false;
         }
         bumpCount(targetUrl);
-        console.log('[reload-guard] ALLOW nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + (targetUrl ? ' target=' + targetUrl : ''));
+        console.warn('[reload-guard] ALLOW nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + (targetUrl ? ' target=' + targetUrl : '') + '\n' + trace);
         return true;
       }
+
+      // Catch-all: log every page unload with stack trace. This catches reloads
+      // that bypass location.reload/assign/replace/href setters (e.g. setting
+      // location.search, location.pathname, history.go(0), form.submit, anchor click).
+      try {
+        window.addEventListener('beforeunload', function() {
+          var trace = '';
+          try { trace = new Error('unload-trace').stack || ''; } catch(_) {}
+          console.warn('[reload-guard] BEFOREUNLOAD fired href=' + location.href + '\n' + trace);
+        });
+      } catch (e) {}
+      console.warn('[reload-guard] INSTALLED at ' + Date.now() + ' href=' + location.href);
 
       var Lp = Object.getPrototypeOf(location) || Location.prototype;
       var origReload = location.reload.bind(location);
@@ -5906,6 +6000,69 @@ static byte[] BuildIndexHtml(string frontendPath, int defaultChannelId = 1, stri
           });
         }
       } catch (e) { console.warn('[reload-guard] href setter hook failed:', e && e.message); }
+
+      // Intercept location.search / pathname / hash setters — these also
+      // trigger a full reload but don't go through href. The bundle's
+      // settings.restore() observed firing reloads via one of these.
+      function patchLocationSetter(prop) {
+        try {
+          var desc = Object.getOwnPropertyDescriptor(Lp, prop);
+          if (!desc || !desc.set) return;
+          var origSet = desc.set;
+          Object.defineProperty(Lp, prop, {
+            configurable: true,
+            get: desc.get,
+            set: function(v) {
+              try {
+                var newVal = String(v);
+                if (!shouldAllowNavigation('location.' + prop + ' = ' + newVal)) return;
+              } catch (_) {}
+              return origSet.call(this, v);
+            }
+          });
+        } catch (e) {
+          console.warn('[reload-guard] ' + prop + ' setter hook failed:', e && e.message);
+        }
+      }
+      patchLocationSetter('search');
+      patchLocationSetter('pathname');
+      patchLocationSetter('host');
+      patchLocationSetter('hostname');
+      patchLocationSetter('protocol');
+
+      // history.go(0) triggers a full reload too. Patch History.prototype.go
+      // so go(0) goes through our guard.
+      try {
+        var Hp = History && History.prototype;
+        if (Hp && typeof Hp.go === 'function') {
+          var origGo = Hp.go;
+          Hp.go = function(delta) {
+            try {
+              if (delta === 0 || delta === undefined) {
+                if (!shouldAllowNavigation('history.go(' + delta + ')')) return;
+              }
+            } catch (_) {}
+            return origGo.apply(this, arguments);
+          };
+        }
+      } catch (e) {
+        console.warn('[reload-guard] history.go hook failed:', e && e.message);
+      }
+
+      // Hook HTMLFormElement.prototype.submit — a form whose action targets
+      // the current URL triggers a full reload-like navigation.
+      try {
+        var origSubmit = HTMLFormElement.prototype.submit;
+        HTMLFormElement.prototype.submit = function() {
+          try {
+            var action = (this.action || location.href);
+            if (!shouldAllowNavigation('form.submit -> ' + action)) return;
+          } catch (_) {}
+          return origSubmit.apply(this, arguments);
+        };
+      } catch (e) {
+        console.warn('[reload-guard] form.submit hook failed:', e && e.message);
+      }
 
       // Diagnostic surface for debugging
       window.TFS = window.TFS || {};

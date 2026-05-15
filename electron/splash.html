@@ -112,14 +112,12 @@
     <div class="progress-bar">
       <div id="progress-fill" class="progress-fill"></div>
     </div>
-    <div id="progress-text" class="status" style="margin-top: 8px; font-size: 11px;">0/10</div>
   </div>
   <div class="version" id="version"></div>
   <script>
     function updateProgress(step) {
       const pct = Math.min(95, (step / 10) * 100);
       const progressBar = document.querySelector('.progress-bar');
-      const progressText = document.getElementById('progress-text');
       const statusEl = document.getElementById('status');
 
       if (step === 1) {
@@ -128,7 +126,6 @@
       }
 
       document.getElementById('progress-fill').style.width = pct + '%';
-      progressText.textContent = step + '/10';
     }
     if (window.SPLASH) {
       window.SPLASH.onStatus(function (text) {
