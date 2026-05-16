@@ -231,6 +231,24 @@ async function tryConnectOnce(clean, channelId, attempt) {
     _state.roomId = state.roomId;
     _state.roomInfo = state.roomInfo;
     logger.info(`[TikTokBridge] connected @${_state.username} roomId=${state.roomId} (attempt ${attempt})`);
+    // `fetchRoomInfoOnConnect: false` (set above to keep the connect path
+    // fast) means `state.roomInfo` is empty here. Fetch it explicitly in the
+    // background so `accountSnapshot()` has owner avatar/follower/title to
+    // feed the bundle profile chip + `/api/tiktok/account`. Failure is fine —
+    // chip just keeps showing username with no avatar.
+    setImmediate(() => {
+      Promise.resolve()
+        .then(() => conn.fetchRoomInfo?.())
+        .then((info) => {
+          if (info && _state.username === clean) {
+            _state.roomInfo = info;
+            logger.info(`[TikTokBridge] roomInfo fetched (owner=${info?.owner?.nickname || '?'})`);
+          }
+        })
+        .catch((err) => {
+          logger.warn({ err: err?.message || err }, '[TikTokBridge] fetchRoomInfo failed');
+        });
+    });
     return { success: true, roomId: state.roomId, roomInfo: state.roomInfo };
   } catch (err) {
     if (firstEventAt) {
