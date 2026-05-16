@@ -377,5 +377,76 @@
   }
   setTimeout(function() { checkBackendStatus(3); }, 1500);
 
+  // ── Topbar chip avatar — pull the connected TikTok account's avatar from
+  // /api/tiktok/account and paint it into the topright chip. Tikfinity's
+  // own OAuth flow normally populates this via a separate "Connect TikTok
+  // Account" path; we don't have that, but we DO have the live-room owner's
+  // avatar from the bridge, which is good enough for the chip.
+
+  var _lastAvatarUrl = '';
+  function paintTopbarAvatar(avatarUrl, nickname) {
+    if (!avatarUrl || avatarUrl === _lastAvatarUrl) return;
+    var done = false;
+    // Strategy A: find any <img> inside the topright user chip area whose
+    // src currently looks like a default avatar / data URI / empty, and
+    // swap it. Heuristic: <img> within the last 30vw of the topbar, height
+    // ≤ 48px (chip avatar).
+    try {
+      var imgs = document.querySelectorAll('header img, [class*="topbar"] img, [class*="TopBar"] img, [class*="navbar"] img, nav img');
+      for (var i = 0; i < imgs.length; i++) {
+        var img = imgs[i];
+        var rect = img.getBoundingClientRect();
+        if (rect.top > 80) continue;             // only topbar row
+        if (rect.right < window.innerWidth - 350) continue; // only top-right area
+        if (rect.width > 60 || rect.height > 60) continue;  // chip-sized only
+        img.src = avatarUrl;
+        if (nickname) img.alt = nickname;
+        done = true;
+      }
+    } catch (_) {}
+    // Strategy B: locate the chip by searching for the channelName text
+    // and walking up to find a sibling/ancestor avatar container with a
+    // background-image style, swap that. Vue components often render the
+    // avatar as a CSS background instead of an <img>.
+    try {
+      if (nickname) {
+        var nodes = document.querySelectorAll('header *, nav *, [class*="topbar"] *');
+        for (var j = 0; j < nodes.length; j++) {
+          var el = nodes[j];
+          if (el.children.length) continue;
+          var txt = (el.textContent || '').trim();
+          if (txt !== nickname && txt !== '@' + nickname) continue;
+          var anc = el.parentElement;
+          for (var k = 0; k < 5 && anc; k++) {
+            var bg = anc.querySelector('[style*="background-image"], [class*="avatar"], [class*="Avatar"]');
+            if (bg) {
+              bg.style.backgroundImage = 'url("' + avatarUrl + '")';
+              bg.style.backgroundSize = 'cover';
+              bg.style.backgroundPosition = 'center';
+              done = true;
+            }
+            anc = anc.parentElement;
+          }
+        }
+      }
+    } catch (_) {}
+    if (done) {
+      _lastAvatarUrl = avatarUrl;
+      console.log('[TF] topbar chip avatar updated → ' + avatarUrl.slice(0, 80));
+    }
+  }
+
+  function syncTopbarAvatar() {
+    fetch('/api/tiktok/account').then(function(r) { return r.json(); }).then(function(d) {
+      var acc = (d && d.account) || {};
+      if (acc.avatarUrl) paintTopbarAvatar(acc.avatarUrl, acc.nickname || acc.username);
+    }).catch(function() {});
+  }
+  // Poll periodically — roomInfo arrives a few seconds after `connected`,
+  // and Vue may re-render the chip later than that. Re-running every 5s
+  // ensures the avatar lands even if the DOM wasn't ready on first paint.
+  setInterval(syncTopbarAvatar, 5000);
+  setTimeout(syncTopbarAvatar, 2500);
+
   console.log('[TF] TikTok connect module loaded');
 })();
