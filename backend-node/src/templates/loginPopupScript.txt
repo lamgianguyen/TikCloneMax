@@ -1,0 +1,1442 @@
+<style>
+  /* Hide Google login button and original auth popup */
+  .btnLoginGoogle, .btn-google-login, [data-pageid="google"],
+  .menuitemain[data-pageid="google"], a[href*="google"] .menuitem-icon,
+  .dx-popup-wrapper.authPopup, #buttonLoginWithGoogle { display: none !important; }
+
+  /* Custom auth popup - matches TikFinity dx.dark theme */
+  #customLoginOverlay {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.65); z-index: 99999; justify-content: center; align-items: center;
+  }
+  #customLoginOverlay.show { display: flex; }
+  #customLoginBox {
+    background: #2a2a2a; border: 1px solid #444; border-radius: 8px; padding: 28px 32px; width: 380px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6); color: #dedede; font-family: 'Outfit', 'Segoe UI', sans-serif;
+  }
+  #customLoginBox h2 {
+    margin: 0 0 20px; text-align: center; font-size: 20px; font-weight: 600;
+    color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  #customLoginBox h2::before {
+    content: ''; display: inline-block; width: 28px; height: 28px;
+    background: url('/img/tikfinity.png') center/contain no-repeat;
+  }
+
+  /* Tabs */
+  .auth-tabs { display: flex; margin-bottom: 20px; border-bottom: 1px solid #444; }
+  .auth-tab {
+    flex: 1; padding: 10px; text-align: center; cursor: pointer; font-size: 13px;
+    font-weight: 600; color: #7c7c7c; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .auth-tab:hover { color: #dedede; }
+  .auth-tab.active { color: #1ca8dd; border-bottom-color: #1ca8dd; }
+
+  /* Form panels */
+  .auth-panel { display: none; }
+  .auth-panel.active { display: block; }
+
+  #customLoginBox .field { margin-bottom: 14px; }
+  #customLoginBox label { display: block; margin-bottom: 5px; font-size: 12px; color: #7c7c7c; text-transform: uppercase; letter-spacing: 0.5px; }
+  #customLoginBox input {
+    width: 100%; padding: 9px 12px; border: 1px solid #444; border-radius: 4px;
+    background: #212121; color: #dedede; font-size: 14px; outline: none; box-sizing: border-box;
+    font-family: inherit; transition: border-color 0.2s;
+  }
+  #customLoginBox input:focus { border-color: #1ca8dd; }
+  #customLoginBox input::placeholder { color: #4d4d4d; }
+  .auth-submit-btn {
+    width: 100%; padding: 10px; border: none; border-radius: 4px; cursor: pointer;
+    background: #1ca8dd; color: #fff;
+    font-size: 14px; font-weight: 600; margin-top: 8px; transition: background 0.2s;
+    font-family: inherit;
+  }
+  .auth-submit-btn:hover { background: #1997c6; }
+  .auth-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .auth-error { color: #d9534f; font-size: 13px; margin-top: 10px; text-align: center; display: none; }
+  .auth-success { color: #5cb85c; font-size: 13px; margin-top: 10px; text-align: center; display: none; }
+  .auth-close {
+    position: absolute; top: 12px; right: 16px; background: none; border: none;
+    color: #7c7c7c; font-size: 20px; cursor: pointer; line-height: 1;
+  }
+  .auth-close:hover { color: #dedede; }
+</style>
+
+<div id="customLoginOverlay">
+  <div id="customLoginBox" style="position:relative;">
+    <button class="auth-close" onclick="document.getElementById('customLoginOverlay').classList.remove('show')">&times;</button>
+    <h2>TikFinity</h2>
+    <div style="text-align:center; color:#7c7c7c; font-size:13px; margin:-10px 0 18px;">Đăng nhập bằng Serial Key</div>
+
+    <!-- KEY LOGIN -->
+    <div id="panelLogin" class="auth-panel active">
+      <div class="field">
+        <label>Serial Key <span style="color:#d9534f;">*</span></label>
+        <input type="text" id="loginUser" placeholder="XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" style="font-family:monospace; letter-spacing:1px; text-transform:uppercase;" />
+      </div>
+      <div class="field">
+        <label>Key Code <span style="color:#7c7c7c; text-transform:none;">(tùy chọn)</span></label>
+        <input type="text" id="loginPass" placeholder="Bỏ trống nếu key chưa có code" autocomplete="off" autocapitalize="characters" spellcheck="false" style="font-family:monospace; letter-spacing:1px; text-transform:uppercase;" />
+      </div>
+      <button class="auth-submit-btn" id="loginBtn" onclick="doLogin()">Kích hoạt &amp; Đăng nhập</button>
+      <div class="auth-error" id="loginError"></div>
+      <div class="auth-success" id="loginSuccess"></div>
+      <div style="text-align:center; color:#7c7c7c; font-size:11px; margin-top:18px; line-height:1.6;">
+        Chưa có Serial Key? Liên hệ admin để mua/gia hạn gói TikFinity Pro.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function switchAuthTab(_tab) { /* legacy stub — only key-login panel exists */ }
+
+function readPersistedUiValue(key, fallbackValue) {
+  try {
+    if (window.__tfReadPersistedValue) {
+      return window.__tfReadPersistedValue(key, fallbackValue);
+    }
+  } catch (e) {}
+  try {
+    var value = localStorage.getItem(key);
+    return (value === null || typeof value === 'undefined' || value === '') ? fallbackValue : value;
+  } catch (e) {
+    return fallbackValue;
+  }
+}
+
+function persistUiValue(key, value) {
+  try {
+    if (window.__tfPersistValue) {
+      window.__tfPersistValue(key, value);
+      return;
+    }
+  } catch (e) {}
+  try {
+    if (value !== null && typeof value !== 'undefined') {
+      localStorage.setItem(key, String(value));
+    }
+  } catch (e) {}
+}
+
+function authSuccess(data, user) {
+  try {
+    var overlay = document.getElementById('customLoginOverlay');
+    if (overlay) overlay.classList.remove('show');
+    ['loginSuccess', 'regSuccess', 'loginError', 'regError'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) {
+        el.textContent = '';
+        el.style.display = 'none';
+      }
+    });
+  } catch (e) {}
+  if (data && data.accessToken) persistUiValue('setting_loginaccesstoken', data.accessToken);
+  persistUiValue('setting_loginaccesstokenprovider', 'authapi');
+  persistUiValue('setting_pendinglogin', '1');
+  persistUiValue('setting_channelid', String(data.channelId || '1'));
+  persistUiValue('setting_channelname', data.channelName || user);
+  persistUiValue('setting_ispro', data && data.isPro === false ? 'false' : 'true');
+  persistUiValue('setting_locale', 'VN');
+  var finish = function() {
+    // Clear pending login flag before reload to prevent loop
+    try { localStorage.removeItem('setting_pendinglogin'); } catch(e) {}
+    // Reset the reload-guard counter so the bundle can do its bootstrap reload on the new page.
+    // Without this, if count >= MAX_VISIBLE was already reached, the bundle's first post-login
+    // reload attempt would be blocked, causing the UI to stay in a stale state.
+    try { if (window.TFS && window.TFS.__reloadGuard) window.TFS.__reloadGuard.reset(); } catch(e) {}
+    // Use original reload to bypass the guard (guard blocks bundle's settings.restore, not auth)
+    window.__tfAuthReloading = true;
+    var doReload = window.__tfOrigReload || window.location.reload.bind(window.location);
+    setTimeout(function() { doReload(); }, 300);
+  };
+  if (window.__tfApplyAuthState) {
+    Promise.resolve(window.__tfApplyAuthState(data, user)).then(finish, finish);
+  } else {
+    finish();
+  }
+}
+
+function doLogin() {
+  var keyId = (document.getElementById('loginUser').value || '').trim().toUpperCase();
+  var keyCode = (document.getElementById('loginPass').value || '').trim().toUpperCase();
+  var btn = document.getElementById('loginBtn');
+  var errDiv = document.getElementById('loginError');
+  var okDiv = document.getElementById('loginSuccess');
+  errDiv.style.display = 'none'; okDiv.style.display = 'none';
+
+  if (!keyId) {
+    errDiv.textContent = 'Vui lòng nhập Serial Key';
+    errDiv.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Đang xác thực...';
+
+  var body = { keyId: keyId };
+  if (keyCode) body.keyCode = keyCode;
+
+  fetch('/api/auth/key-login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  .then(function(r) { return r.json().then(function(d){ return { status: r.status, body: d }; }); })
+  .then(function(res) {
+    var data = res.body || {};
+    if (res.status >= 200 && res.status < 300 && data.status === 'ok' && data.accessToken) {
+      if (data.license) {
+        try {
+          localStorage.setItem('setting_license_keyid', data.license.keyId || keyId);
+          if (data.license.expiredAt) localStorage.setItem('setting_license_expires_at', data.license.expiredAt);
+          if (typeof data.license.daysLeft === 'number') localStorage.setItem('setting_license_days_left', String(data.license.daysLeft));
+        } catch(e) {}
+      }
+      okDiv.textContent = data.license && data.license.daysLeft != null
+        ? 'Kích hoạt thành công — còn ' + data.license.daysLeft + ' ngày'
+        : 'Đăng nhập thành công';
+      okDiv.style.display = 'block';
+      authSuccess(data, data.channelName || keyId);
+    } else {
+      var msg = data.message || 'Serial Key không hợp lệ';
+      if (data.reason === 'UNREACHABLE')   msg = 'Không kết nối được tới license server.';
+      else if (data.reason === 'TIMEOUT')  msg = 'License server không phản hồi (timeout).';
+      else if (data.reason === 'EXPIRED')  msg = 'Serial Key đã hết hạn' + (data.expiredAt ? ' từ ' + new Date(data.expiredAt).toLocaleDateString('vi-VN') : '') + '.';
+      else if (data.reason === 'DISABLED') msg = 'Serial Key đã bị khóa.';
+      else if (data.reason === 'NOT_ACTIVATED') msg = 'Serial Key chưa được kích hoạt.';
+      else if (data.reason === 'NOT_FOUND') msg = 'Serial Key không tồn tại.';
+      errDiv.textContent = msg;
+      errDiv.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Kích hoạt & Đăng nhập';
+    }
+  })
+  .catch(function(e) {
+    errDiv.textContent = 'Lỗi kết nối tới backend';
+    errDiv.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Kích hoạt & Đăng nhập';
+  });
+}
+
+// Enter key to submit
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && document.getElementById('customLoginOverlay').classList.contains('show')) {
+    doLogin();
+  }
+});
+
+(function(){
+  function readUiAccessToken() {
+    try {
+      if (window.__tfReadAccessToken) {
+        var bridgeToken = window.__tfReadAccessToken() || '';
+        if (bridgeToken) return bridgeToken;
+      }
+    } catch (e) {}
+    return readPersistedUiValue('setting_loginaccesstoken', '');
+  }
+
+  function isLoggedIn() {
+    var token = readUiAccessToken();
+    return !!token && token.length > 10;
+  }
+  function hasStoredAuthIdentity() {
+    try {
+      var token = readPersistedUiValue('setting_loginaccesstoken', '');
+      if (!!token && token.length > 10) return true;
+      if (readPersistedUiValue('setting_pendinglogin', '') === '1') return true;
+    } catch (e) {}
+    return false;
+  }
+  function hasAuthenticatedUiState() {
+    return isLoggedIn() || hasStoredAuthIdentity();
+  }
+  function getChannelName() {
+    try {
+      var session = window.session || {};
+      return session.accountChannelName ||
+        session.channelName ||
+        (session.me && (session.me.accountChannelName || session.me.AccountChannelName || session.me.channelName || session.me.ChannelName)) ||
+        readPersistedUiValue('setting_channelname', '') ||
+        '';
+    } catch (e) {
+      return readPersistedUiValue('setting_channelname', '');
+    }
+  }
+
+  function normalizeText(value) {
+    var text = (value || '').toLowerCase();
+    if (typeof text.normalize === 'function') {
+      text = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+    return text
+      .replace(/\u0111/g, 'd')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function pushCandidate(list, node) {
+    if (!node || list.indexOf(node) >= 0) return;
+    list.push(node);
+  }
+
+  function hasLegacyAuthButtons(root) {
+    if (!root || !root.querySelectorAll) return false;
+    var matched = false;
+    root.querySelectorAll('button, a, .dx-button, .dx-button-text, [role="button"]').forEach(function(el) {
+      if (matched) return;
+      var txt = normalizeText(el.textContent || el.getAttribute('aria-label') || '');
+      if (txt.indexOf('google') >= 0 || txt.indexOf('e mail') >= 0 || txt.indexOf('email') >= 0) {
+        matched = true;
+      }
+    });
+    return matched;
+  }
+
+  function getSetupPage() {
+    return document.querySelector('.page[data-pageid="setup"]') || document.body;
+  }
+
+  function findSettingsAuthCandidates() {
+    var setupPage = getSetupPage();
+    var candidates = [];
+    setupPage.querySelectorAll('.dx-fieldset, .dx-box-item, .dx-item-content, .dx-field-item-content, .dx-form-group, .dx-layout-manager .dx-item, .greyBackgroundSection').forEach(function(node) {
+      pushCandidate(candidates, node);
+    });
+    setupPage.querySelectorAll('button, a, .dx-button-text, [role="button"]').forEach(function(el) {
+      var txt = normalizeText(el.textContent || el.getAttribute('aria-label') || '');
+      if (txt.indexOf('google') >= 0 || txt.indexOf('e mail') >= 0 || txt.indexOf('email') >= 0) {
+        pushCandidate(candidates,
+          el.closest('.dx-fieldset') ||
+          el.closest('.dx-box-item') ||
+          el.closest('.dx-item-content') ||
+          el.closest('.dx-field-item-content') ||
+          el.parentElement);
+      }
+    });
+    return candidates;
+  }
+
+  function resolveLegacySettingsRoot(node) {
+    if (!node) return null;
+    return node.closest('.greyBackgroundSection') ||
+      node.closest('.dx-fieldset') ||
+      node.closest('.dx-box-item') ||
+      node.closest('.dx-item-content') ||
+      node.closest('.dx-field-item-content') ||
+      node.closest('.setupConnected') ||
+      node.closest('.setupUnconnected') ||
+      node.parentElement;
+  }
+
+  function findLegacySetupLoginRoots() {
+    var setupPage = getSetupPage();
+    var roots = [];
+    ['#buttonLoginWithEmail', '#buttonLoginWithGoogle', '#loginPopup'].forEach(function(selector) {
+      pushCandidate(roots, resolveLegacySettingsRoot(setupPage.querySelector(selector)));
+    });
+    setupPage.querySelectorAll(
+      '.setupUnconnected.loginSection .greyBackgroundSection, ' +
+      '.setupUnconnected.loginSection .dx-fieldset, ' +
+      '.setupUnconnected.loginSection'
+    ).forEach(function(node) {
+      pushCandidate(roots, resolveLegacySettingsRoot(node));
+    });
+    return roots;
+  }
+
+  function findLegacySetupConnectedRoots() {
+    var setupPage = getSetupPage();
+    var roots = [];
+    ['#textboxChannelName', '#manualConnectButtonSetup', '#invalidUsernameHint'].forEach(function(selector) {
+      pushCandidate(roots, resolveLegacySettingsRoot(setupPage.querySelector(selector)));
+    });
+    setupPage.querySelectorAll(
+      '.setupConnected #setup-basic, ' +
+      '.setupConnected .greyBackgroundSection, ' +
+      '.setupConnected .dx-fieldset'
+    ).forEach(function(node) {
+      pushCandidate(roots, resolveLegacySettingsRoot(node));
+    });
+    return roots;
+  }
+
+  function hideLegacySetupPlaceholders(scope) {
+    var root = scope && scope.querySelectorAll ? scope : getSetupPage();
+    root.querySelectorAll('#buttonLoginWithEmail, #buttonLoginWithGoogle, #loginPopup, .btnLoginGoogle, .btn-google-login').forEach(function(el) {
+      el.style.display = 'none';
+      el.dataset.tfPatched = '1';
+    });
+  }
+
+  function hideLegacyGoogleUi() {
+    document.querySelectorAll('.btnLoginGoogle, .btn-google-login, [data-pageid="google"], .menuitemain[data-pageid="google"], #buttonLoginWithGoogle').forEach(function(el) {
+      el.style.display = 'none';
+      el.dataset.tfPatched = '1';
+    });
+  }
+
+  function normalizeTikTokName(value) {
+    return String(value || '').trim().replace(/^@+/, '');
+  }
+
+  function syncCookie(name, value) {
+    try {
+      document.cookie = name + '=' + encodeURIComponent(String(value || '')) + '; path=/; SameSite=Lax';
+    } catch (e) {}
+  }
+
+  function syncSettingsLikeStores(username) {
+    if (!username) return;
+    try {
+      [window.settings, window.tfSettings, window.appSettings].forEach(function(store) {
+        if (!store) return;
+        ['channelName', 'tiktokUsername', 'username', 'uniqueId'].forEach(function(key) {
+          try {
+            if (typeof store.set === 'function') {
+              store.set(key, username);
+            } else if (typeof store.setValue === 'function') {
+              store.setValue(key, username);
+            } else {
+              store[key] = username;
+            }
+          } catch (e) {}
+        });
+        try {
+          if (typeof store.save === 'function') store.save();
+        } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
+  function getLastTikTokName() {
+    var sources = [
+      window.__tfLastTikTokConnectName,
+      (function() {
+        var input = document.getElementById('tfTiktokName');
+        return input ? input.value : '';
+      })(),
+      window.session && (window.session.tiktokUsername || window.session.channelName),
+      window.tfPageloadData && window.tfPageloadData.me && (
+        window.tfPageloadData.me.tiktokUsername ||
+      window.tfPageloadData.me.channelName ||
+      (window.tfPageloadData.me.channel && (window.tfPageloadData.me.channel.tiktokUsername || window.tfPageloadData.me.channel.channelName))
+    ),
+    (function() {
+        return readPersistedUiValue('setting_tiktokname', '');
+    })()
+  ];
+
+    for (var i = 0; i < sources.length; i++) {
+      var username = normalizeTikTokName(sources[i]);
+      if (username) return username;
+    }
+
+    return '';
+  }
+
+  function startForcedTikTokNameWindow(durationMs) {
+    try {
+      window.__tfForceTikTokNameUntil = Date.now() + (durationMs || 90000);
+    } catch (e) {}
+  }
+
+  function hasForcedTikTokNameWindow() {
+    try {
+      return !!window.__tfForceTikTokNameUntil && Date.now() < window.__tfForceTikTokNameUntil;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function syncTikTokRuntimeName(username) {
+    username = normalizeTikTokName(username);
+    if (!username) return '';
+
+    startForcedTikTokNameWindow(90000);
+    try { window.__tfLastTikTokConnectName = username; } catch (e) {}
+    try { localStorage.setItem('setting_tiktokname', username); } catch (e) {}
+    syncCookie('tf_tiktokname', username);
+
+    try {
+      window.session = window.session || {};
+      window.session.channelName = username;
+      window.session.tiktokUsername = username;
+
+      if (window.session.me) {
+        window.session.me.ChannelName = username;
+        window.session.me.channelName = username;
+        window.session.me.TiktokUsername = username;
+        window.session.me.tiktokUsername = username;
+        window.session.me.dynamicSettings = window.session.me.dynamicSettings || {};
+        window.session.me.dynamicSettings.setting_tiktokname = username;
+      }
+
+      if (window.session.channel) {
+        window.session.channel.ChannelName = username;
+        window.session.channel.channelName = username;
+        window.session.channel.TiktokUsername = username;
+        window.session.channel.tiktokUsername = username;
+        window.session.channel.dynamicSettings = window.session.channel.dynamicSettings || {};
+        window.session.channel.dynamicSettings.setting_tiktokname = username;
+      }
+    } catch (e) {}
+
+    try {
+      window.tfPageloadData = window.tfPageloadData || {};
+      window.tfPageloadData.me = window.tfPageloadData.me || {};
+      window.tfPageloadData.me.channelName = username;
+      window.tfPageloadData.me.tiktokUsername = username;
+      window.tfPageloadData.me.channel = window.tfPageloadData.me.channel || {};
+      window.tfPageloadData.me.channel.ChannelName = username;
+      window.tfPageloadData.me.channel.channelName = username;
+      window.tfPageloadData.me.channel.TiktokUsername = username;
+      window.tfPageloadData.me.channel.tiktokUsername = username;
+      window.tfPageloadData.me.channel.dynamicSettings = window.tfPageloadData.me.channel.dynamicSettings || {};
+      window.tfPageloadData.me.channel.dynamicSettings.setting_tiktokname = username;
+    } catch (e) {}
+
+    syncSettingsLikeStores(username);
+    return username;
+  }
+
+  function patchDialogPayload(value, username) {
+    if (!username || value === null || typeof value === 'undefined') return value;
+    if (typeof value === 'string') return replaceConnectionErrorText(value, username);
+    if (Array.isArray(value)) {
+      return value.map(function(item) { return patchDialogPayload(item, username); });
+    }
+    if (typeof value === 'object') {
+      var clone = Array.isArray(value) ? value.slice() : Object.assign({}, value);
+      ['title', 'message', 'messageHtml', 'html', 'text', 'content', 'messageText'].forEach(function(key) {
+        if (typeof clone[key] === 'string') {
+          clone[key] = replaceConnectionErrorText(clone[key], username);
+        }
+      });
+      if (Array.isArray(clone.buttons)) {
+        clone.buttons = clone.buttons.map(function(btn) {
+          if (!btn || typeof btn !== 'object') return btn;
+          var nextBtn = Object.assign({}, btn);
+          if (typeof nextBtn.text === 'string') {
+            nextBtn.text = replaceConnectionErrorText(nextBtn.text, username);
+          }
+          return nextBtn;
+        });
+      }
+      return clone;
+    }
+    return value;
+  }
+
+  function hookDevExpressDialogs() {
+    var dialog = window.DevExpress && window.DevExpress.ui && window.DevExpress.ui.dialog;
+    if (!dialog) return false;
+    if (dialog.__tfHooked) return true;
+
+    ['alert', 'confirm'].forEach(function(methodName) {
+      var original = dialog[methodName];
+      if (typeof original !== 'function') return;
+      dialog[methodName] = function(message, title) {
+        var username = getLastTikTokName();
+        return original.call(this, patchDialogPayload(message, username), patchDialogPayload(title, username));
+      };
+    });
+
+    if (typeof dialog.custom === 'function') {
+      var originalCustom = dialog.custom;
+      dialog.custom = function(options) {
+        return originalCustom.call(this, patchDialogPayload(options, getLastTikTokName()));
+      };
+    }
+
+    dialog.__tfHooked = true;
+    return true;
+  }
+
+  function hookSettingsStore() {
+    var hooked = false;
+    [window.settings, window.tfSettings, window.appSettings].forEach(function(store) {
+      if (!store || store.__tfHooked || typeof store.get !== 'function') return;
+
+      var originalGet = store.get.bind(store);
+      var originalSet = typeof store.set === 'function' ? store.set.bind(store) : null;
+
+      store.get = function(key) {
+        var normalizedKey = String(key || '').toLowerCase();
+        if (hasForcedTikTokNameWindow() &&
+            (normalizedKey === 'channelname' ||
+             normalizedKey === 'channel_name' ||
+             normalizedKey === 'username' ||
+             normalizedKey === 'tiktokusername' ||
+             normalizedKey === 'uniqueid' ||
+             normalizedKey === 'screenname')) {
+          var forcedUsername = getLastTikTokName();
+          if (forcedUsername) return forcedUsername;
+        }
+        return originalGet.apply(this, arguments);
+      };
+
+      if (originalSet) {
+        store.set = function(key, value) {
+          var normalizedKey = String(key || '').toLowerCase();
+          if (hasForcedTikTokNameWindow() &&
+              (normalizedKey === 'channelname' ||
+               normalizedKey === 'channel_name' ||
+               normalizedKey === 'username' ||
+               normalizedKey === 'tiktokusername' ||
+               normalizedKey === 'uniqueid' ||
+               normalizedKey === 'screenname')) {
+            var forcedUsername = getLastTikTokName();
+            if (forcedUsername) value = forcedUsername;
+          }
+          return originalSet.call(this, key, value);
+        };
+      }
+
+      store.__tfHooked = true;
+      hooked = true;
+    });
+    return hooked;
+  }
+
+  function replaceConnectionErrorText(text, username) {
+    if (!text) return text;
+
+    var handle = '@' + username;
+    var next = String(text);
+    next = next.replace(/@testuser\b/gi, handle);
+    next = next.replace(/(Unable to connect to your TikTok channel\s+)@[A-Za-z0-9._-]+/gi, '$1' + handle);
+    next = next.replace(/(We were unable to find your TikTok channel\s+)@[A-Za-z0-9._-]+/gi, '$1' + handle);
+    next = next.replace(/(your TikTok channel\s+)@[A-Za-z0-9._-]+/gi, '$1' + handle);
+
+    if (/^@?[A-Za-z0-9._-]{2,}$/.test(next.trim()) && next.toLowerCase().indexOf(username.toLowerCase()) < 0) {
+      next = handle;
+    }
+
+    return next;
+  }
+
+  function patchConnectionErrorPopup(root) {
+    var username = getLastTikTokName();
+    if (!username || !root || !root.querySelectorAll) return;
+
+    root.querySelectorAll('.dx-overlay-wrapper, .dx-popup-wrapper, .dx-overlay-content, .dx-dialog').forEach(function(wrapper) {
+      var titleEl = wrapper.querySelector('.dx-popup-title, .dx-dialog-title, .dx-toolbar-label');
+      var bodyText = wrapper.textContent || '';
+      var titleText = normalizeText(titleEl ? titleEl.textContent : '');
+      var normalizedBody = normalizeText(bodyText);
+      var isConnectionPopup =
+        titleText.indexOf('connection error') >= 0 ||
+        normalizedBody.indexOf('unable to connect to your tiktok channel') >= 0 ||
+        normalizedBody.indexOf('unable to find your tiktok channel') >= 0;
+
+      if (!isConnectionPopup) return;
+
+      if (titleEl) {
+        var replacedTitle = replaceConnectionErrorText(titleEl.textContent, username);
+        if (replacedTitle !== titleEl.textContent) {
+          titleEl.textContent = replacedTitle;
+        }
+      }
+
+      wrapper.querySelectorAll('*').forEach(function(el) {
+        if (el.children && el.children.length > 0) return;
+        var original = el.textContent || '';
+        if (!original) return;
+        if (!/@?[A-Za-z0-9._-]+/.test(original) &&
+            original.indexOf('Unable to connect to your TikTok channel') < 0 &&
+            original.indexOf('We were unable to find your TikTok channel') < 0 &&
+            original.indexOf('testuser') < 0) {
+          return;
+        }
+
+        var replaced = replaceConnectionErrorText(original, username);
+        if (replaced !== original) {
+          el.textContent = replaced;
+        }
+      });
+    });
+  }
+
+  window.__tfSyncTikTokName = syncTikTokRuntimeName;
+  window.__tfGetLastTikTokName = getLastTikTokName;
+  window.__tfPatchConnectionErrorPopup = patchConnectionErrorPopup;
+  window.__tfStartForcedTikTokNameWindow = startForcedTikTokNameWindow;
+  window.__tfRequireLogin = false;
+
+  window.__tfOpenLogin = function(tab) {
+    var overlay = document.getElementById('customLoginOverlay');
+    if (!overlay) return;
+    try { switchAuthTab(tab === 'register' ? 'register' : 'login'); } catch (e) {}
+    overlay.classList.add('show');
+  };
+
+  // Local mode does not force auth, so only show the popup when explicitly requested.
+  function checkShowLogin() {
+    if (!window.__tfRequireLogin || isLoggedIn()) return;
+    window.__tfOpenLogin('login');
+  }
+  window.__customLoginReady = true;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(checkShowLogin, 2000); });
+  } else {
+    setTimeout(checkShowLogin, 2000);
+  }
+
+  // ========== HEADER: leave bundle visuals untouched ==========
+  function patchHeader() {
+    return;
+    var channelName = getChannelName();
+    if (!hasAuthenticatedUiState()) return;
+    if (!channelName) channelName = readPersistedUiValue('setting_channelname', '') || 'Account';
+    // Find header area: look for text containing "Login", "New User", "create account" etc.
+    var allEls = document.querySelectorAll('.header-right *, .dx-toolbar-after *, .toolbar-right *, [class*="header"] *, [class*="toolbar"] *, [class*="topbar"] *, [class*="nav"] *');
+    if (!allEls.length) allEls = document.querySelectorAll('*');
+    allEls.forEach(function(el) {
+      if (el.children && el.children.length === 0) {
+        var t = normalizeText(el.textContent || '');
+        var rawText = (el.textContent || '').trim();
+        // Replace "New User", "Login", etc. with actual channel name (only in header area, top < 80px)
+        if (t === 'new user' || t === 'login' || t === 'dang nhap' || t === 'sign in') {
+          var rect = el.getBoundingClientRect();
+          if (rect.top < 80 && rect.top > 0) {
+            el.textContent = channelName;
+            el.style.color = '#dedede';
+            el.dataset.tfPatched = '1';
+            return;
+          }
+        }
+        if (t === 'or create account' || t === 'hoac tao tai khoan' || t === 'disconnected') {
+          var rect2 = el.getBoundingClientRect();
+          if (rect2.top < 80 && rect2.top > 0) {
+            el.textContent = 'Disconnected';
+            el.style.color = '#d9534f';
+            el.style.fontSize = '11px';
+            el.dataset.tfPatched = '1';
+            return;
+          }
+        }
+      }
+    });
+  }
+
+  // ========== SETTINGS PAGE: keep only one visible auth/connect surface ==========
+  var _settingsPatched = false;
+  function patchSettingsPage() {
+    patchLegacySetupPage();
+    return;
+    // Only patch ONCE ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â avoid MutationObserver loop
+    if (_settingsPatched) return;
+
+    patchLegacySetupPage();
+    var currentAuthState = hasAuthenticatedUiState() ? 'loggedin' : 'loggedout';
+
+    if (currentAuthState === 'loggedin') {
+      var _setupPage = getSetupPage();
+      var _allFieldsets = _setupPage.querySelectorAll('.dx-fieldset, .greyBackgroundSection, .dx-box-item, .dx-item-content');
+      var _replaced = false;
+      _allFieldsets.forEach(function(el) {
+        if (_replaced) return;
+        if (el.dataset.tfPatched === '1') { _replaced = true; return; }
+        if (el.querySelector('[data-tf-connect-section="1"]')) { _replaced = true; return; }
+        var _t = el.textContent || '';
+        var _hasLogin = (_t.indexOf('sign in') >= 0 || _t.indexOf('Sign in') >= 0 || _t.indexOf('Please sign in') >= 0 || _t.indexOf('create a free account') >= 0);
+        var _hasForm = el.querySelector('#ilLoginUser') || el.querySelector('input[placeholder*="username"]') || el.querySelector('input[placeholder*="email"]');
+        var _hasBundle = (_t.indexOf('Login or Signup') >= 0 || _t.indexOf('E-Mail') >= 0);
+        if (_hasLogin || _hasForm || _hasBundle) {
+          el.dataset.tfAuthState = 'loggedin';
+          el.dataset.tfPatched = '1';
+          el.innerHTML = buildLoggedInSection();
+          _replaced = true;
+          _settingsPatched = true;
+        }
+      });
+      if (_replaced) return;
+    }
+
+    if (_settingsPatched) return;
+    findSettingsAuthCandidates().forEach(function(root) {
+      if (!root || _settingsPatched) return;
+      if (root.querySelector('[data-tf-connect-section="1"]')) { _settingsPatched = true; return; }
+      if (root.dataset.tfAuthState === currentAuthState) return;
+      var txtNormalized = normalizeText(root.textContent || '');
+      var hasLoginTextNormalized = (txtNormalized.indexOf('login') >= 0 ||
+          txtNormalized.indexOf('sign in') >= 0 ||
+          txtNormalized.indexOf('dang nhap') >= 0 ||
+          txtNormalized.indexOf('create a free account') >= 0 ||
+          txtNormalized.indexOf('tao tai khoan') >= 0 ||
+          txtNormalized.indexOf('register') >= 0);
+      var hasLegacyProvidersNormalized = (txtNormalized.indexOf('e mail') >= 0 ||
+          txtNormalized.indexOf('email') >= 0 ||
+          txtNormalized.indexOf('google') >= 0 ||
+          txtNormalized.indexOf('username') >= 0 ||
+          txtNormalized.indexOf('password') >= 0 ||
+          hasLegacyAuthButtons(root));
+      var hasRequiredNoticeNormalized = txtNormalized.indexOf('required') >= 0 || txtNormalized.indexOf('bat buoc') >= 0;
+      // Also detect our own custom inline login form
+      var hasInlineLoginForm = root.querySelector('#ilLoginUser') || root.querySelector('#ilLoginPass');
+
+      if ((hasLoginTextNormalized && hasLegacyProvidersNormalized) || (hasRequiredNoticeNormalized && hasLegacyProvidersNormalized) || hasInlineLoginForm) {
+        root.dataset.tfAuthState = currentAuthState;
+        if (currentAuthState === 'loggedin') {
+          root.dataset.tfPatched = '1';
+          root.innerHTML = buildLoggedInSection();
+          _settingsPatched = true;
+        }
+      }
+    });
+
+    if (_settingsPatched) return;
+    var fieldsets = getSetupPage().querySelectorAll('.dx-fieldset');
+    fieldsets.forEach(function(fs) {
+      if (fs.dataset.tfAuthState === currentAuthState) return;
+      if (fs.querySelector('#tfTiktokName') || fs.querySelector('[data-tf-connect-section="1"]')) return;
+      var txt = fs.textContent || '';
+      var hasLoginText = (txt.indexOf('sign in') >= 0 || txt.indexOf('Sign in') >= 0 ||
+          txt.indexOf('create a free account') >= 0 || txt.indexOf('tÃƒÂ¡Ã‚ÂºÃ‚Â¡o tÃƒÆ’Ã‚Â i khoÃƒÂ¡Ã‚ÂºÃ‚Â£n') >= 0 ||
+          txt.indexOf('Ãƒâ€žÃ¢â‚¬ËœÃƒâ€žÃ†â€™ng nhÃƒÂ¡Ã‚ÂºÃ‚Â­p') >= 0 || txt.indexOf('Login') >= 0 || txt.indexOf('login') >= 0);
+      var hasAuthButtons = (txt.indexOf('E-Mail') >= 0 || txt.indexOf('Google') >= 0 ||
+          txt.indexOf('e-mail') >= 0 || txt.indexOf('Username') >= 0 || txt.indexOf('Password') >= 0);
+      var hasInlineLoginForm = fs.querySelector('#ilLoginUser') || fs.querySelector('#ilLoginPass');
+
+      if (hasLoginText || hasAuthButtons || hasInlineLoginForm) {
+        fs.dataset.tfAuthState = currentAuthState;
+        if (currentAuthState === 'loggedin') {
+          fs.dataset.tfPatched = '1';
+          fs.innerHTML = buildLoggedInSection();
+        }
+        // When logged out, let the bundle show its own Login UI
+      }
+    });
+
+    // Also check for "Login" section headers (dx-fieldset-header) near auth content
+    if (!fieldsets.length) {
+      getSetupPage().querySelectorAll('.dx-item-content, .dx-box-item').forEach(function(el) {
+        if (el.dataset.tfPatched) return;
+        if (el.querySelector('#tfTiktokName') || el.querySelector('[data-tf-connect-section="1"]')) return;
+        var txt = el.textContent || '';
+        if ((txt.indexOf('sign in') >= 0 || txt.indexOf('create a free account') >= 0) &&
+            (txt.indexOf('E-Mail') >= 0 || txt.indexOf('Google') >= 0 || txt.indexOf('Login') >= 0)) {
+          if (hasAuthenticatedUiState()) {
+            el.dataset.tfPatched = '1';
+            el.innerHTML = '<div class="dx-fieldset">' + buildLoggedInSection() + '</div>';
+          }
+          // When logged out, let the bundle show its own Login UI
+        }
+      });
+    }
+
+    // Direct fallback: if our inline login form exists and user is logged in, replace it
+    if (currentAuthState === 'loggedin') {
+      var inlineForm = getSetupPage().querySelector('#ilLoginUser') || getSetupPage().querySelector('#ilLoginPass');
+      if (inlineForm) {
+        // Walk up to find a suitable container to replace
+        var container = inlineForm.closest('.dx-fieldset') || inlineForm.closest('.dx-box-item') || inlineForm.closest('.dx-item-content') || inlineForm.closest('.greyBackgroundSection');
+        if (!container) {
+          // Try going up from the form's wrapper div
+          var wrapper = inlineForm.closest('div[style]');
+          while (wrapper && wrapper.parentElement && wrapper.parentElement !== getSetupPage()) {
+            if (wrapper.parentElement.classList.contains('dx-fieldset') || wrapper.parentElement.classList.contains('dx-box-item')) {
+              container = wrapper.parentElement;
+              break;
+            }
+            wrapper = wrapper.parentElement;
+          }
+          if (!container) container = inlineForm.parentElement.parentElement || inlineForm.parentElement;
+        }
+        if (container && container.dataset.tfAuthState !== 'loggedin') {
+          container.dataset.tfAuthState = 'loggedin';
+          container.dataset.tfPatched = '1';
+          container.innerHTML = buildLoggedInSection();
+        }
+      }
+
+      // Also find the bundle's own login form (with "Login or Signup" buttons)
+      var bundleLoginBtns = getSetupPage().querySelectorAll('button, .dx-button');
+      bundleLoginBtns.forEach(function(btn) {
+        var btnTxt = (btn.textContent || '').trim();
+        if (btnTxt.indexOf('Login or Signup') >= 0 || btnTxt.indexOf('Ãƒâ€žÃ‚ÂÃƒâ€žÃ†â€™ng nhÃƒÂ¡Ã‚ÂºÃ‚Â­p') >= 0) {
+          var loginContainer = btn.closest('.dx-fieldset') || btn.closest('.dx-box-item') || btn.closest('.greyBackgroundSection');
+          if (loginContainer && loginContainer.dataset.tfAuthState !== 'loggedin') {
+            loginContainer.dataset.tfAuthState = 'loggedin';
+            loginContainer.dataset.tfPatched = '1';
+            loginContainer.innerHTML = buildLoggedInSection();
+          }
+        }
+      });
+    }
+
+    // Bundle's own connect UI handles TikTok connection
+  }
+
+  function patchLegacySetupPage() {
+    var setupPage = getSetupPage();
+    var channelName = getChannelName();
+    var loginRoots = findLegacySetupLoginRoots();
+    var connectedRoots = findLegacySetupConnectedRoots();
+    var loginContainers = setupPage.querySelectorAll('.setupUnconnected.loginSection, .setupUnconnected');
+    var connectedContainers = setupPage.querySelectorAll('.setupConnected');
+
+    if (hasAuthenticatedUiState()) {
+      loginContainers.forEach(function(node) {
+        node.style.display = 'none';
+      });
+      connectedContainers.forEach(function(node) {
+        node.style.display = '';
+      });
+      loginRoots.forEach(function(root) {
+        if (!root || root.dataset.tfLegacyHidden === '1') return;
+        root.style.display = 'none';
+        root.dataset.tfLegacyHidden = '1';
+      });
+      // Show bundle's own connected UI (has TikTok name input + Connect button)
+      connectedRoots.forEach(function(root) {
+        if (!root) return;
+        root.style.display = '';
+      });
+    } else {
+      connectedContainers.forEach(function(node) {
+        node.style.display = 'none';
+      });
+      loginContainers.forEach(function(node) {
+        node.style.display = '';
+      });
+      connectedRoots.forEach(function(root) {
+        if (!root || root.dataset.tfLegacyHidden === '1') return;
+        root.style.display = 'none';
+        root.dataset.tfLegacyHidden = '1';
+      });
+      loginRoots.forEach(function(root) {
+        if (!root || root.dataset.tfAuthState === 'loggedout') return;
+        root.style.display = '';
+        root.dataset.tfAuthState = 'loggedout';
+        root.dataset.tfPatched = '1';
+        root.innerHTML = buildSetupLoginSection();
+      });
+
+      // Fallback: if no legacy login roots found AND no login form exists yet,
+      // inject login form at the top of the settings page
+      if (!document.getElementById('ilLoginUser')) {
+        console.log('[TF-Auth] No login form found, injecting at top of setup page');
+        var loginDiv = document.createElement('div');
+        loginDiv.id = 'tf-injected-login';
+        loginDiv.className = 'greyBackgroundSection';
+        loginDiv.style.cssText = 'margin:16px 24px;padding:20px 24px;background:#1e1e2d;border-radius:8px;border:1px solid #333;';
+        loginDiv.innerHTML = buildSetupLoginSection();
+        // Find first content area in setup page
+        var firstContent = setupPage.querySelector('.dx-fieldset, .greyBackgroundSection, .dx-scrollable-content > div');
+        if (firstContent && firstContent.parentNode) {
+          firstContent.parentNode.insertBefore(loginDiv, firstContent);
+        } else if (setupPage !== document.body) {
+          setupPage.insertBefore(loginDiv, setupPage.firstChild);
+        }
+      }
+    }
+
+    // When logged in, remove injected login form and show logged-in section
+    if (hasAuthenticatedUiState()) {
+      var injectedLogin = document.getElementById('tf-injected-login');
+      if (injectedLogin) injectedLogin.remove();
+      // Show "Signed in as X" + Logout if not already present
+      if (!document.getElementById('tf-loggedin-section')) {
+        var loggedInDiv = document.createElement('div');
+        loggedInDiv.id = 'tf-loggedin-section';
+        loggedInDiv.style.cssText = 'margin:16px 24px;';
+        loggedInDiv.innerHTML = buildLoggedInSection();
+        var firstContent2 = setupPage.querySelector('.dx-fieldset, .greyBackgroundSection, .dx-scrollable-content > div');
+        if (firstContent2 && firstContent2.parentNode) {
+          firstContent2.parentNode.insertBefore(loggedInDiv, firstContent2);
+        } else if (setupPage !== document.body) {
+          setupPage.insertBefore(loggedInDiv, setupPage.firstChild);
+        }
+      }
+    } else {
+      var loggedInSection = document.getElementById('tf-loggedin-section');
+      if (loggedInSection) loggedInSection.remove();
+    }
+
+    hideLegacySetupPlaceholders(setupPage);
+    // Bundle's own connect UI handles TikTok connection
+  }
+
+  function buildLoggedInSection() {
+    var name = getChannelName();
+    return '<div class="dx-fieldset" data-tf-connect-section="1" style="padding:16px 24px;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;">' +
+        '<div style="color:#7c7c7c;font-size:13px;">Signed in as <span style="color:#dedede;font-weight:600;">' + name + '</span></div>' +
+        '<button onclick="doLogout()" style="padding:6px 16px;border:1px solid #555;border-radius:4px;background:transparent;color:#d9534f;font-size:12px;cursor:pointer;font-family:inherit;">Logout</button>' +
+      '</div>' +
+    '</div>';
+    // Connect UI (input + button) is handled by tf-connect.js
+  }
+
+  function isActuallyVisible(el) {
+    if (!el) return false;
+    try {
+      var style = window.getComputedStyle(el);
+      if (!style) return false;
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+      if (!el.offsetParent && style.position !== 'fixed') return false;
+      var rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Custom connect UI functions removed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â bundle's own UI + browserbridge hook handles TikTok connection
+
+  function buildSetupLoginSection() {
+    return '<h3 class="blueheading noTopMarginHeader">Login</h3>' + buildLoginFormSection();
+  }
+
+  function buildLoginFormSection() {
+    var S = 'font-family:Outfit,sans-serif;';
+    var inputS = 'width:100%;padding:9px 12px;border:1px solid #444;border-radius:4px;background:#212121;color:#dedede;font-size:14px;box-sizing:border-box;outline:none;font-family:inherit;';
+    var labelS = 'display:block;margin-bottom:4px;font-size:12px;color:#7c7c7c;text-transform:uppercase;letter-spacing:0.5px;';
+    var btnS = 'width:100%;padding:10px;border:none;border-radius:4px;background:#1ca8dd;color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;';
+    return '<div style="max-width:380px;'+S+'">' +
+      '<div style="margin-bottom:12px;font-size:13px;color:#7c7c7c;">Please sign in or create a free account to continue. <span style="color:#d9534f;">(Required!)</span></div>' +
+      '<div style="display:flex;margin-bottom:16px;border-bottom:1px solid #444;">' +
+        '<div class="il-tab active" onclick="switchInlineTab(\'login\')" style="flex:1;padding:8px;text-align:center;cursor:pointer;font-weight:600;color:#1ca8dd;border-bottom:2px solid #1ca8dd;margin-bottom:-1px;">Login</div>' +
+        '<div class="il-tab" onclick="switchInlineTab(\'register\')" style="flex:1;padding:8px;text-align:center;cursor:pointer;font-weight:600;color:#7c7c7c;border-bottom:2px solid transparent;margin-bottom:-1px;">Register</div>' +
+      '</div>' +
+      '<div id="ilLogin">' +
+        '<div style="margin-bottom:12px;"><label style="'+labelS+'">Username / Email</label>' +
+        '<input type="text" id="ilLoginUser" placeholder="Enter username or email" style="'+inputS+'" /></div>' +
+        '<div style="margin-bottom:12px;"><label style="'+labelS+'">Password</label>' +
+        '<input type="password" id="ilLoginPass" placeholder="Enter password" style="'+inputS+'" /></div>' +
+        '<button onclick="doInlineLogin()" style="'+btnS+'">Login</button>' +
+        '<div id="ilLoginMsg" style="font-size:13px;margin-top:8px;text-align:center;"></div>' +
+      '</div>' +
+      '<div id="ilRegister" style="display:none;">' +
+        '<div style="margin-bottom:10px;"><label style="'+labelS+'">Username</label>' +
+        '<input type="text" id="ilRegUser" placeholder="Choose a username" style="'+inputS+'" /></div>' +
+        '<div style="margin-bottom:10px;"><label style="'+labelS+'">Email</label>' +
+        '<input type="email" id="ilRegEmail" placeholder="Enter email" style="'+inputS+'" /></div>' +
+        '<div style="margin-bottom:10px;"><label style="'+labelS+'">Password</label>' +
+        '<input type="password" id="ilRegPass" placeholder="Create a password" style="'+inputS+'" /></div>' +
+        '<div style="margin-bottom:10px;"><label style="'+labelS+'">Confirm Password</label>' +
+        '<input type="password" id="ilRegPass2" placeholder="Confirm password" style="'+inputS+'" /></div>' +
+        '<button onclick="doInlineRegister()" style="'+btnS+'">Create Account</button>' +
+        '<div id="ilRegMsg" style="font-size:13px;margin-top:8px;text-align:center;"></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // window.connectTikTokLive removed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â browserbridge hook handles connection
+
+  // ========== MutationObserver: watch for DOM changes ==========
+  var _patching = false;
+  var _mainObs = null;
+
+  function _readAuth() {
+    try { return localStorage.getItem('setting_loginaccesstoken') || ''; } catch(e) { return ''; }
+  }
+
+  function patchNavForAuthState() {
+    var token = _readAuth();
+    var isLoggedIn = token && token.length >= 10;
+    console.log('[TF-Auth] patchNavForAuthState: isLoggedIn=' + isLoggedIn + ', token=' + (token ? token.substring(0,10) + '...' : 'null') + ', body.tf-logged-out=' + document.body.classList.contains('tf-logged-out'));
+
+    // Toggle body class for CSS rules
+    if (isLoggedIn) {
+      document.body.classList.remove('tf-logged-out');
+    } else {
+      document.body.classList.add('tf-logged-out');
+    }
+    console.log('[TF-Auth] body classes after toggle: ' + document.body.className);
+
+    if (isLoggedIn) {
+      // Clean up guest patches
+      if (window.__tfGuestTextInterval) {
+        clearInterval(window.__tfGuestTextInterval);
+        window.__tfGuestTextInterval = null;
+        console.log('[TF-Auth] Cleaned up guest text interval (logged in)');
+      }
+      // Restore nav text: replace "Login"→channelName only. Don't inject
+      // "PRO" into the secondary line — original Tikfinity doesn't show
+      // a hardcoded PRO badge there. Let the bundle render whatever it
+      // computes from session.subscription / session.userFeatures.
+      var channelNameForNav = '';
+      try { channelNameForNav = window.session && (window.session.accountChannelName || window.session.channelName) || ''; } catch(e) {}
+      if (!channelNameForNav) {
+        try { channelNameForNav = localStorage.getItem('setting_channelname') || ''; } catch(e) {}
+      }
+      if (channelNameForNav) {
+        var nav = document.getElementById('navigation-app');
+        if (nav) {
+          var leafEls = nav.querySelectorAll('span, div, p, a');
+          for (var i = 0; i < leafEls.length; i++) {
+            var el = leafEls[i];
+            if (el.children && el.children.length > 0) continue;
+            var txt = (el.textContent || '').trim();
+            var rect = el.getBoundingClientRect();
+            if (rect.top > 80 || rect.top < 0 || rect.right < window.innerWidth - 350) continue;
+            if (txt === 'Login' || txt === 'New User' || txt === 'new user') {
+              el.textContent = channelNameForNav;
+              el.style.cursor = '';
+            }
+          }
+          // Restore avatar
+          var imgs = nav.querySelectorAll('img');
+          for (var j = 0; j < imgs.length; j++) {
+            if (imgs[j].dataset.tfOrigSrc) {
+              imgs[j].src = imgs[j].dataset.tfOrigSrc;
+              delete imgs[j].dataset.tfOrigSrc;
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    // === GUEST STATE: 3 mechanisms ===
+    console.log('[TF-Auth] Applying guest state mechanisms...');
+
+    // 1. Document-level event blocker using mouse coordinates (simple, reliable)
+    if (!window.__tfGuestEventsBlocked) {
+      window.__tfGuestEventsBlocked = true;
+      console.log('[TF-Auth] Registering document-level event blockers');
+      ['mousedown','pointerdown','click','mouseup','pointerup'].forEach(function(evtType) {
+        document.addEventListener(evtType, function(e) {
+          if (!document.body.classList.contains('tf-logged-out')) return;
+          // Block clicks in the profile area: top 65px, rightmost 220px of screen
+          var x = e.clientX, y = e.clientY;
+          var threshold = window.innerWidth - 220;
+          if (y >= 0 && y < 65 && x > threshold) {
+            console.log('[TF-Auth] BLOCKED ' + evtType + ' at (' + x + ',' + y + ') threshold=' + threshold + ' innerWidth=' + window.innerWidth);
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            if (evtType === 'click') navigateToLogin();
+          }
+        }, true); // capture phase = fires FIRST, before Vue
+      });
+    }
+
+    // 2. Guest topbar is now a separate static HTML element (no DOM patching needed)
+
+    // 3. Dropdown killer: watch for new elements and hide dropdown-like ones
+    if (!window.__tfGuestDropdownObs) {
+      window.__tfGuestDropdownObs = new MutationObserver(function(mutations) {
+        if (!document.body.classList.contains('tf-logged-out')) return;
+        for (var m = 0; m < mutations.length; m++) {
+          for (var n = 0; n < mutations[m].addedNodes.length; n++) {
+            var node = mutations[m].addedNodes[n];
+            if (node.nodeType !== 1) continue;
+            // Check if this looks like a dropdown/popup near top-right
+            setTimeout(function(nd) {
+              if (!document.body.classList.contains('tf-logged-out')) return;
+              var r = nd.getBoundingClientRect();
+              if (r.top > 30 && r.top < 400 && r.right > window.innerWidth - 350 &&
+                  r.width > 100 && r.height > 80) {
+                var text = (nd.textContent || '');
+                if (text.indexOf('Roadmap') >= 0 || text.indexOf('Feature Request') >= 0 ||
+                    text.indexOf('PRO') >= 0 || text.indexOf('TikTok') >= 0 ||
+                    text.indexOf('Vietnamese') >= 0) {
+                  nd.style.display = 'none';
+                  nd.style.visibility = 'hidden';
+                  nd.style.pointerEvents = 'none';
+                }
+              }
+            }.bind(null, node), 0);
+          }
+        }
+      });
+      window.__tfGuestDropdownObs.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+
+  function navigateToLogin() {
+    console.log('[TF-Auth] navigateToLogin() called');
+    window.location.hash = '#/tiktok/setup';
+    setTimeout(function() {
+      patchAll();
+      var attempts = 0;
+      var tryFocus = function() {
+        var inp = document.getElementById('ilLoginUser');
+        if (inp) {
+          inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setTimeout(function() { inp.focus(); }, 200);
+        } else if (attempts < 10) {
+          attempts++;
+          setTimeout(tryFocus, 300);
+        }
+      };
+      tryFocus();
+    }, 300);
+  }
+  // Expose globally so guest topbar can call it
+  window.navigateToLogin = navigateToLogin;
+
+  function applyGuestTextPatch() {
+    if (!document.body.classList.contains('tf-logged-out')) return;
+    var nav = document.getElementById('navigation-app');
+    if (!nav) return;
+    var topbar = nav.querySelector('.topbar');
+    if (!topbar) return;
+
+    // Find right section (last direct child of topbar)
+    var topbarChildren = topbar.children;
+    var rightSection = topbarChildren[topbarChildren.length - 1];
+    if (!rightSection || rightSection.dataset.tfGuestCleaned === 'true') return;
+
+    var children = rightSection.children;
+    for (var c = 0; c < children.length; c++) {
+      var child = children[c];
+      // Mark connect button hidden (CSS handles display:none)
+      if (child.hasAttribute && child.hasAttribute('data-tf-connect-button')) {
+        child.classList.add('tf-guest-hidden');
+      }
+      // Mark empty div.relative (no visible content)
+      if (child.classList && child.classList.contains('relative')) {
+        var txt = (child.textContent || '').trim();
+        if (!txt && !child.querySelector('img, i, svg, a')) {
+          child.classList.add('tf-guest-hidden');
+        }
+      }
+    }
+
+    // Mark separators adjacent to hidden elements
+    for (var s = 0; s < children.length; s++) {
+      var sep = children[s];
+      var cn = sep.className || '';
+      if (cn.indexOf('w-px') >= 0 && cn.indexOf('h-6') >= 0) {
+        var prev = s > 0 ? children[s - 1] : null;
+        var next = s < children.length - 1 ? children[s + 1] : null;
+        if ((prev && prev.classList && prev.classList.contains('tf-guest-hidden')) ||
+            (next && next.classList && next.classList.contains('tf-guest-hidden'))) {
+          sep.classList.add('tf-guest-hidden');
+        }
+      }
+    }
+    rightSection.dataset.tfGuestCleaned = 'true';
+  }
+
+  function closeGuestDropdown() {
+    if (!document.body.classList.contains('tf-logged-out')) return;
+    // Search entire document for dropdown-like elements
+    var allEls = document.querySelectorAll('div');
+    for (var k = 0; k < allEls.length; k++) {
+      var r = allEls[k].getBoundingClientRect();
+      if (r.top > 30 && r.top < 400 && r.right > window.innerWidth - 350 &&
+          r.width > 120 && r.height > 100) {
+        var style = window.getComputedStyle(allEls[k]);
+        var pos = style.position;
+        if (pos === 'absolute' || pos === 'fixed') {
+          var text = (allEls[k].textContent || '');
+          if (text.indexOf('Roadmap') >= 0 || text.indexOf('Feature Request') >= 0 ||
+              text.indexOf('Vietnamese') >= 0) {
+            allEls[k].style.display = 'none';
+          }
+        }
+      }
+    }
+  }
+
+  function injectNavLogout() {
+    // Add logout button to navigation bar if not already present
+    if (document.getElementById('tf-nav-logout')) return;
+    var nav = document.getElementById('navigation-app');
+    if (!nav) return;
+    // Find the right area in nav (look for the LIVE button area or last flex child)
+    var rightArea = nav.querySelector('.right-side, .nav-actions, .nav-right');
+    if (!rightArea) {
+      // Try finding the container with the LIVE button
+      var liveBtn = nav.querySelector('[class*="live"], [class*="Live"]');
+      rightArea = liveBtn ? liveBtn.parentElement : null;
+    }
+    if (!rightArea) {
+      // Fallback: find the rightmost flex container in the nav header
+      var header = nav.querySelector('header, .header, nav, [class*="header"]');
+      if (header) {
+        var children = header.children;
+        rightArea = children.length > 0 ? children[children.length - 1] : null;
+      }
+    }
+    if (!rightArea) return;
+    var btn = document.createElement('a');
+    btn.id = 'tf-nav-logout';
+    btn.href = '#';
+    btn.textContent = 'Logout';
+    btn.style.cssText = 'margin-left:12px;padding:4px 12px;border:1px solid #555;border-radius:4px;color:#d9534f;font-size:12px;cursor:pointer;text-decoration:none;white-space:nowrap;';
+    btn.onclick = function(e) { e.preventDefault(); doLogout(); };
+    rightArea.appendChild(btn);
+  }
+
+  function patchAll() {
+    if (_patching) return;
+    _patching = true;
+    console.log('[TF-Auth] patchAll() called');
+    // Disconnect observer to prevent re-triggering while we modify DOM
+    if (_mainObs) try { _mainObs.disconnect(); } catch(e) {}
+    try {
+      hideLegacyGoogleUi();
+      hookSettingsStore();
+      hookDevExpressDialogs();
+      patchSettingsPage();
+      patchConnectionErrorPopup(document.body);
+      injectNavLogout();
+      console.log('[TF-Auth] About to call patchNavForAuthState()');
+      patchNavForAuthState();
+      console.log('[TF-Auth] patchNavForAuthState() completed');
+    } catch(e) { console.error('[TF-Auth] patchAll ERROR:', e.message, e.stack); }
+    _patching = false;
+    // Reconnect observer after a short delay
+    if (_mainObs) {
+      setTimeout(function() {
+        try { _mainObs.observe(document.body, { childList: true, subtree: true }); } catch(e) {}
+      }, 200);
+    }
+  }
+  window.__tfPatchAll = patchAll;
+
+  // Initial patch attempts (wait for SPA to render)
+  setTimeout(patchAll, 2000);
+  setTimeout(patchAll, 4000);
+  setTimeout(patchAll, 7000);
+
+  // Hooks only (no DOM changes) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â safe to repeat
+  setInterval(function() {
+    hookSettingsStore();
+    hookDevExpressDialogs();
+  }, 5000);
+
+  // Observer for SPA navigation / re-renders
+  if (window.MutationObserver) {
+    var patchTimeout = null;
+    _mainObs = new MutationObserver(function(mutations) {
+      // Only check added nodes for login popups (lightweight)
+      mutations.forEach(function(m) {
+        m.addedNodes.forEach(function(node) {
+          if (node.nodeType === 1) {
+            var popup = node.querySelector ? node.querySelector('.dx-popup-title') : null;
+            var popupTitle = normalizeText(popup ? popup.textContent : '');
+            if (popup && (popupTitle.indexOf('login') >= 0 || popupTitle.indexOf('dang nhap') >= 0 || popupTitle.indexOf('sign in') >= 0
+              || popupTitle.indexOf('connection error') >= 0 || popupTitle.indexOf('loi ket noi') >= 0)) {
+              var wrapper = node.closest('.dx-overlay-wrapper') || node;
+              wrapper.style.display = 'none';
+            }
+            // Also check body text for connection error popups
+            var popupRoot = node.closest('.dx-overlay-wrapper, .dx-popup-wrapper') || node;
+            var bodyText = normalizeText(popupRoot.textContent || '');
+            if (bodyText.indexOf('unable to connect to your tiktok') >= 0 || bodyText.indexOf('unable to find your tiktok') >= 0) {
+              popupRoot.style.display = 'none';
+            }
+            patchConnectionErrorPopup(popupRoot);
+            // Auto-dismiss TikFinity Pro popup (user is already Pro)
+            if (popupTitle.indexOf('tikfinity pro') >= 0 || bodyText.indexOf('tikfinity pro') >= 0
+                || bodyText.indexOf('pro_only') >= 0 || bodyText.indexOf('danh rieng cho thanh vien') >= 0
+                || bodyText.indexOf('only for tikfinity pro') >= 0) {
+              console.log('[TF-PRO] Auto-dismissing Pro dialog');
+              var proWrapper = node.closest('.dx-overlay-wrapper, .dx-popup-wrapper') || node;
+              // Try clicking OK/Close button first
+              var okBtn = proWrapper.querySelector('.dx-button-has-text, .dx-popup-bottom .dx-button, .dx-dialog-button-ok');
+              if (okBtn) { okBtn.click(); }
+              // Also hide the wrapper entirely
+              proWrapper.style.display = 'none';
+              // Remove the backdrop overlay if present
+              var shade = proWrapper.previousElementSibling;
+              if (shade && shade.classList && shade.classList.contains('dx-overlay-shader')) {
+                shade.style.display = 'none';
+              }
+            }
+          }
+        });
+      });
+
+      // Debounce full patchAll: only run once per 2s
+      if (patchTimeout) return;
+      patchTimeout = setTimeout(function() {
+        patchTimeout = null;
+        patchAll();
+      }, 2000);
+    });
+    setTimeout(function(){ _mainObs.observe(document.body, { childList: true, subtree: true }); }, 1000);
+  }
+})();
+
+function switchInlineTab(tab) {
+  var tabs = document.querySelectorAll('.il-tab');
+  if (tab === 'login') {
+    tabs[0].style.color = '#1ca8dd'; tabs[0].style.borderBottomColor = '#1ca8dd';
+    tabs[1].style.color = '#7c7c7c'; tabs[1].style.borderBottomColor = 'transparent';
+    document.getElementById('ilLogin').style.display = 'block';
+    document.getElementById('ilRegister').style.display = 'none';
+  } else {
+    tabs[1].style.color = '#1ca8dd'; tabs[1].style.borderBottomColor = '#1ca8dd';
+    tabs[0].style.color = '#7c7c7c'; tabs[0].style.borderBottomColor = 'transparent';
+    document.getElementById('ilLogin').style.display = 'none';
+    document.getElementById('ilRegister').style.display = 'block';
+  }
+}
+
+function doInlineLogin() {
+  var user = document.getElementById('ilLoginUser').value.trim();
+  var pass = document.getElementById('ilLoginPass').value;
+  var msg = document.getElementById('ilLoginMsg');
+  if (!user || !pass) { msg.style.color='#d9534f'; msg.textContent='Please fill in all fields'; return; }
+  msg.style.color='#7c7c7c'; msg.textContent='Logging in...';
+  fetch('/api/v1/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:user,password:pass}) })
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.status==='ok'&&d.accessToken){ msg.textContent=''; authSuccess(d,user); }
+    else { msg.style.color='#d9534f'; msg.textContent=d.message||'Login failed'; }
+  }).catch(function(){ msg.style.color='#d9534f'; msg.textContent='Connection error'; });
+}
+
+function doInlineRegister() {
+  var user = document.getElementById('ilRegUser').value.trim();
+  var email = document.getElementById('ilRegEmail').value.trim();
+  var pass = document.getElementById('ilRegPass').value;
+  var pass2 = document.getElementById('ilRegPass2').value;
+  var msg = document.getElementById('ilRegMsg');
+  if (!user||!email||!pass) { msg.style.color='#d9534f'; msg.textContent='Please fill in all fields'; return; }
+  if (pass!==pass2) { msg.style.color='#d9534f'; msg.textContent='Passwords do not match'; return; }
+  msg.style.color='#7c7c7c'; msg.textContent='Creating account...';
+  fetch('/api/v1/auth/register', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:user,email:email,password:pass}) })
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.status==='ok'&&d.accessToken){ msg.textContent=''; authSuccess(d,user); }
+    else { msg.style.color='#d9534f'; msg.textContent=d.message||'Registration failed'; }
+  }).catch(function(){ msg.style.color='#d9534f'; msg.textContent='Connection error'; });
+}
+
+function doLogout() {
+  console.log('[TF-Auth] doLogout() called');
+  // 1. Clear all auth data (cookies + localStorage)
+  if (window.__tfClearPersistedAuth) {
+    window.__tfClearPersistedAuth();
+  } else {
+    localStorage.removeItem('setting_loginaccesstoken');
+    localStorage.removeItem('setting_loginaccesstokenprovider');
+    localStorage.removeItem('setting_pendinglogin');
+    localStorage.removeItem('setting_channelid');
+    localStorage.removeItem('setting_channelname');
+    localStorage.removeItem('setting_tiktokname');
+    localStorage.removeItem('setting_email');
+    localStorage.removeItem('setting_owneruserid');
+    localStorage.removeItem('setting_featurebasetoken');
+    localStorage.removeItem('setting_dynamicsettings');
+    localStorage.removeItem('setting_channelsignature');
+    localStorage.removeItem('setting_ispro');
+  }
+  if (window.__tfClearAuthState) window.__tfClearAuthState();
+  // 2. Clear in-memory state
+  try {
+    if (window.tfPageloadData) {
+      window.tfPageloadData.me = {
+        channelId: 0, channelName: '', accountChannelName: '', tiktokUsername: '',
+        channel: { channelId: 0, channelName: '', dynamicSettings: {}, profiles: [] },
+        isPro: false, authenticated: false,
+        userFeatures: { isPro: false }, subscription: { isPro: false, plan: '', active: false }
+      };
+    }
+  } catch (e) {}
+  // 3. Notify server
+  fetch('/api/v1/auth/logout', {method:'POST'}).catch(function(){});
+  // 4. Full reload — Socket.IO will reconnect without cookie → guest session
+  window.location.reload();
+}
+</script>

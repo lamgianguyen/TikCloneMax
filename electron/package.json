@@ -12,9 +12,11 @@
     "build:installer": "electron-builder --win nsis"
   },
   "dependencies": {
+    "socket.io-client": "^4.8.3",
     "ws": "^8.20.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
     "electron": "^33.4.11",
     "electron-builder": "^25.0.0"
   },
@@ -33,10 +35,16 @@
       "splash-logo.png",
       "login.html",
       "auth-store.js",
+      "auth-flow.js",
+      "state-persistence.js",
       "wsserver.js",
       "icon.ico",
       "icon.png",
-      "node_modules/**/*"
+      "nosign.js",
+      "node_modules/**/*",
+      "!**/*.test.js",
+      "!**/test_*.js",
+      "!**/full_test.js"
     ],
     "win": {
       "target": [
@@ -59,11 +67,21 @@
     },
     "extraResources": [
       {
-        "from": "../dist/app",
-        "to": "backend",
+        "from": "../dist/app/backend-node",
+        "to": "backend-node",
         "filter": [
           "**/*",
-          "!node_modules/.cache/**"
+          "!data/**",
+          "!node_modules/.cache/**",
+          "!**/*.md",
+          "!**/.git/**"
+        ]
+      },
+      {
+        "from": "../dist/app/downloads",
+        "to": "downloads",
+        "filter": [
+          "**/*"
         ]
       }
     ]

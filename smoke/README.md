@@ -1,12 +1,12 @@
 # Smoke Tests
 
-Minimum baseline tests that verify the core flows still work after a change.
-Run before any high-risk edit (especially `Program.cs:BuildIndexHtml`,
-`preload.js` auth seed, `MeController`).
+Minimum baseline tests verifying core flows still work after a change.
+Run before any high-risk edit (especially `middleware/index-html.js`,
+`electron/preload.js` auth seed, `routes/me.js`).
 
 ## Setup
 
-1. Start the app (backend + Electron, or backend alone)
+1. Start the backend (Electron + backend, or `npm run web` standalone)
 2. Backend must respond on `http://localhost:5285`
 
 ## Run
@@ -34,7 +34,7 @@ pwsh -File smoke\03-connect-disconnect.ps1
 | # | File | What it checks |
 |---|---|---|
 | 1 | `01-boot.ps1` | `/api/health` responds 200 within 30s |
-| 2 | `02-me-status.ps1` | `/api/me` returns channelId; `/api/tiktok/status` returns status=ok; `/api/getAppConfig` hides unstable modules |
+| 2 | `02-me-status.ps1` | `/api/me` returns channelId; `/api/tiktok/status` returns connected=false; `/api/getAppConfig` returns the expected modules |
 | 3 | `03-connect-disconnect.ps1` | Bridge accepts connect, accepts disconnect, settles to disconnected state |
 
 ## Adding a new test
@@ -44,9 +44,10 @@ Convention: `NN-name.ps1`. Source `common.ps1` for helpers (`Invoke-BackendApi`,
 ## When tests must be run
 
 - **Mandatory** before merging changes that touch:
-  - `backend/Program.cs` (especially `BuildIndexHtml`)
+  - `backend-node/src/middleware/index-html.js` (bundle injection)
   - `electron/preload.js` auth seed
-  - `backend/Controllers/MeController.cs`
-  - `backend/Controllers/ConfigController.cs`
-  - `backend/Services/FeatureGate.cs`
-- **Recommended** before any release
+  - `backend-node/src/routes/me.js` (auth + dynamicSettings shape)
+  - `backend-node/src/routes/config.js` (isPro + module list)
+  - `backend-node/src/services/widget-settings-cache.js`
+  - `backend-node/src/services/tiktok-bridge.js`
+- **Recommended** before any release build (`build-app.bat`)

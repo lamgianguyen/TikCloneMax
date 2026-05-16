@@ -1,0 +1,136 @@
+<style id="tf-nav-early">
+  /* Paint a dark canvas from the very first frame so the multiple
+     bootstrap reloads (and switchProfile-triggered location.reload())
+     don't flash white between renders. Matches Electron's
+     backgroundColor #212121 used in main.js. */
+  html { background: #1c1d22 !important; }
+  body { background: #1c1d22 !important; color: #e5e7eb; }
+
+  /* Switch-profile loading overlay — covers viewport during the bundle's
+     reload chain (typically 8-12 reloads) so the user sees a clean
+     loading state instead of UI flicker. Removed after 3s of stability. */
+  /* Match the splash and reload-mask exactly so all three loading
+     states look identical — solid #1c1d22 canvas, brand spinner image,
+     simple title + subtitle. Avoid border-spinner / blue accent which
+     visually clashed with the splash and amplified perceived jitter. */
+  #tf-switch-overlay {
+    position: fixed; inset: 0;
+    background: #1c1d22;
+    z-index: 2147483647;
+    display: flex; align-items: center; justify-content: center; flex-direction: column;
+    opacity: 1; transition: opacity 400ms ease-out;
+    pointer-events: all;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  #tf-switch-overlay.tf-fade-out { opacity: 0; pointer-events: none; }
+  #tf-switch-overlay-spinner {
+    width: 96px; height: 96px;
+    background: url('/img/loading.svg') center/contain no-repeat;
+    filter: brightness(1.05);
+  }
+  #tf-switch-overlay-text {
+    margin-top: 18px;
+    color: #e5e7eb;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+  }
+  html, body { width: 100% !important; min-height: 100vh !important; overflow-x: hidden !important; }
+  #navigation-app.hidden, #pages.hidden { display: block !important; }
+  /* Don't force min-height 100vh on inner page containers — bundle's home
+     page can be short (just Welcome text) and a forced viewport-height
+     leaves a black gap between topbar and Welcome footer. Let content
+     flow naturally. */
+  #navigation-app, #pages { width: 100% !important; max-width: 100vw !important; }
+  /* Some bundle pages (Overlays gallery, Goals) put two wide cards side
+     by side that overflow the viewport on narrower windows. Confine
+     horizontal scroll to the inner page container so the body stays
+     clean and the topbar doesn't bounce sideways. */
+  #pages .page.pageenabled { display: block !important; opacity: 1 !important; visibility: visible !important; max-width: 100% !important; overflow-x: auto !important; }
+
+  /* Bundle's own media query at @media(max-width: 1918px) sets
+     .greyBackgroundSection min-width: 850px. So at >=1918px the bundle
+     expects 2 cards side-by-side (compactPathBox 315px + graphicSection
+     730px + gap fits in ~1900px content area). At narrower widths the
+     bundle's flex-wrap kicks in and cards stack naturally.
+     We do NOT override flex-direction here — that breaks the bundle's
+     intended 2-column layout on full HD displays. If a 2nd card runs off
+     the right edge it's because the user's content area (after sidebar
+     + sub-sidebar) is narrower than the bundle's design assumes; the
+     page-level `overflow-x: auto` we set above lets the user scroll. */
+
+  /* === Wide-display scale fix ============================================
+     Bundle ships `.obsOverlayContainer { zoom: 0.9 }` at min-width: 1914px
+     and `zoom: 1` at min-width: 2100px (downloads/combo/modules.css). The
+     band BETWEEN ~1500px and 1914px gets no responsive treatment — content
+     area is wider than the bundle's CSS expects (max-width content cards
+     ~1500px), so the Overlay Gallery's 2-card grid overflows past the
+     right edge and the user's maximize button hides the rightmost Test /
+     Customize / "open external" controls behind the scrollbar.
+
+     Trigger the bundle's own zoom-out earlier so users with 1600+ px
+     panels (or anyone who maximizes the window) get a usable layout
+     without us forcing an unmaximize on every reload. */
+  @media (min-width: 1500px) and (max-width: 1913px) {
+    .obsOverlayContainer { zoom: 0.85 !important; }
+  }
+  @media (min-width: 1914px) and (max-width: 2099px) {
+    .obsOverlayContainer { zoom: 0.9 !important; }
+  }
+  /* Belt-and-braces: anywhere a card row would overflow horizontally,
+     allow the row to scroll within the page rather than pushing the
+     viewport. Bundle's `.graphicSection` is the overlay-row wrapper. */
+  .graphicSection { max-width: 100% !important; }
+  .obsOverlayContainer { max-width: 100% !important; overflow-x: auto !important; }
+
+  /* === GUEST STATE (tf-logged-out) === */
+  /* Hide dropdowns/popups in profile area */
+  body.tf-logged-out #navigation-app [class*="dropdown"],
+  body.tf-logged-out #navigation-app [class*="Dropdown"],
+  body.tf-logged-out #navigation-app [class*="popover"],
+  body.tf-logged-out #navigation-app [class*="Popover"] {
+    display: none !important;
+    pointer-events: none !important;
+  }
+  /* === TWO TOPBARS: guest (static) vs logged-in (Vue) === */
+  #tf-guest-topbar { display: none; position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 10000; }
+  body.tf-logged-out #tf-guest-topbar { display: block !important; }
+  body.tf-logged-out #navigation-app .topbar { visibility: hidden !important; }
+
+  /* === "Getting things ready for you..." splash overlay ===
+     While the bundle is bootstrapping (splashScreen still in DOM), cover
+     the entire viewport with a solid dark canvas so the half-rendered
+     sidebar / topbar / guest-topbar don't peek through. The bundle removes
+     #splashScreen itself once init completes, so this CSS auto-disables. */
+  #splashScreen {
+    background: #1c1d22 !important;
+    z-index: 2147483646 !important;
+    color: #cbd5e0;
+  }
+  #splashScreen .loadingSpinner { filter: brightness(1.2); }
+  #splashScreen .loadingStaticText {
+    color: #e5e7eb;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    letter-spacing: 0.3px;
+    margin-top: 16px;
+  }
+  #splashScreen .loadingStatus {
+    color: #9ba3af;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  /* Hide sidebar / topbar while the bundle's splash is showing. We toggle
+     the .tf-splash-active class on the body element via a MutationObserver
+     (defined in blockScript) instead of relying on :has() — :has() matches
+     even after the bundle flips #splashScreen to display:none, so the
+     sidebar would stay hidden forever. The observer watches for display
+     / visibility changes and removes the class as soon as splash is hidden. */
+  body.tf-splash-active #navigation-app,
+  body.tf-splash-active #pages,
+  body.tf-splash-active #sidebar,
+  body.tf-splash-active #tf-guest-topbar,
+  body.tf-splash-active #tf-topbar-mount {
+    visibility: hidden !important;
+  }
+</style>

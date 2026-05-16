@@ -8,10 +8,15 @@ yarn-error.log*
 dist/
 build/
 out/
+electron/dist/
 
-# .NET
-bin/
-obj/
+# SQLite — never check in user data
+*.db
+*.db-shm
+*.db-wal
+backend-node/data/
+
+# IDE
 *.user
 *.suo
 .vs/

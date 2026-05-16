@@ -1,8 +1,9 @@
 # TikFinity Clone — Database Design
 
-SQLite, EF Core 9. File: `tikfinity.db` (cạnh exe lúc runtime).
-Migrations: [backend/Migrations/](../backend/Migrations).
-Schema được EF auto-migrate lúc boot ([Program.cs:165](../backend/Program.cs#L165)).
+SQLite via `better-sqlite3`. File: `<userData>/tikfinity-data/tikfinity.db` at runtime
+(when packaged) or `backend-node/data/tikfinity.db` in dev.
+Migrations: [backend-node/src/db/migrations/](../backend-node/src/db/migrations).
+Schema applied via Knex at boot from `backend-node/src/index.js::bootstrapDb()`.
 
 ---
 
@@ -210,7 +211,7 @@ erDiagram
 |---|---|---|
 | **Channel** | User account + profile streamer. PK: `ChannelId` | Unique: `ChannelName`, `Email` (filter `<> ''`), `GoogleId` (filter NOT NULL). Có lockout: `FailedLoginCount` + `LockedUntil` cho rate-limit login |
 | **Subscription** | Pro/Free plan, expiry | 1:1 với Channel. Cascade delete |
-| **RevokedToken** | JWT blacklist (logout) | Không FK Channel. Lookup theo `Jti` mỗi request ở [Program.cs:121-130](../backend/Program.cs#L121). Index `ExpiresAt` để clean up |
+| **RevokedToken** | JWT blacklist (logout) | Không FK Channel. Lookup theo `Jti` mỗi request ở [middleware/auth.js](../backend-node/src/middleware/auth.js). Index `ExpiresAt` để clean up |
 
 ### 2.2 Personalization
 
@@ -241,7 +242,7 @@ erDiagram
 
 ---
 
-## 3. Indexes & Constraints (cấu hình ở [AppDbContext.cs:26-184](../backend/Data/AppDbContext.cs#L26))
+## 3. Indexes & Constraints (cấu hình ở [migrations/20260515000001_initial.js](../backend-node/src/db/migrations/20260515000001_initial.js))
 
 | Bảng | Index | Loại |
 |---|---|---|
@@ -262,27 +263,26 @@ erDiagram
 
 | Migration | Date | Mô tả |
 |---|---|---|
-| `20260317022209_InitialCreate_SQLite` | 2026-03-17 | Schema gốc |
-| `20260422094051_AuthHardening_2026_04_22` | 2026-04-22 | Thêm `FailedLoginCount`, `LockedUntil`, `RevokedToken` table, hardening cho [LoginRateLimiter](../backend/Services/LoginRateLimiter.cs) |
+| `20260515000001_initial.js` | 2026-05-15 | Consolidated initial migration: all 16 tables + indexes + AuthHardening cols + ProfileId on per-profile tables (replaced 3 C# EF migrations during the Node port) |
 
-Tự apply lúc boot: `db.Database.Migrate()` ([Program.cs:165](../backend/Program.cs#L165)).
+Tự apply lúc boot bằng Knex: `knex.migrate.latest()` ở [index.js::bootstrapDb()](../backend-node/src/index.js).
 
 ---
 
 ## 5. Lifecycle dữ liệu
 
-1. **Boot lần đầu**: SQLite tạo file `tikfinity.db`, EF chạy migrations, DB rỗng (chưa có channel nào)
-2. **Register** ([AuthController:44](../backend/Controllers/AuthController.cs#L44)): tạo `Channel` + `Subscription` (free) + `Profile` default + 9 `ChannelModule` mặc định
-3. **Login** ([AuthController:98](../backend/Controllers/AuthController.cs#L98)): kiểm `LockedUntil`, hash compare, reset `FailedLoginCount`. Sinh JWT có `jti` claim
-4. **Logout** ([AuthController:175](../backend/Controllers/AuthController.cs#L175)): insert `RevokedToken` với `Jti` của token hiện tại + `ExpiresAt` = exp claim
-5. **Mỗi request authenticated**: middleware kiểm `IsRevoked(jti)` ([TokenRevocationService](../backend/Services/TokenRevocationService.cs))
-6. **Settings change**: ghi vào `DynamicSetting` (key-value), cache merged JSON ở [WidgetSettingsCache](../backend/Services/WidgetSettingsCache.cs), broadcast Socket.IO event
+1. **Boot lần đầu**: SQLite tạo file `tikfinity.db`, Knex chạy migrations, [db/seed.js](../backend-node/src/db/seed.js) tạo default channel + welcome notifications
+2. **Serial Key login** ([routes/key-auth.js](../backend-node/src/routes/key-auth.js)): proxy đến TikfinityServer ở 127.0.0.1:5194, sau đó upsert `Subscription` (Pro)
+3. **Local JWT mint** ([services/jwt.js](../backend-node/src/services/jwt.js)): sinh access token (HS256, 7-day) có `jti` claim
+4. **Logout** ([routes/auth.js](../backend-node/src/routes/auth.js)): insert `RevokedToken` với `Jti` của token hiện tại + `ExpiresAt` = exp claim
+5. **Mỗi request authenticated**: middleware kiểm `IsRevoked(jti)` ([middleware/auth.js](../backend-node/src/middleware/auth.js))
+6. **Settings change**: ghi vào `DynamicSetting` (key-value), cache merged JSON ở [services/widget-settings-cache.js](../backend-node/src/services/widget-settings-cache.js), broadcast Socket.IO event
 
 ---
 
 ## 6. Lưu ý vận hành
 
-- **DB file** đi kèm exe lúc runtime. Khi deploy lên server, mount volume giữ `tikfinity.db` để không mất data lúc redeploy
-- **Chưa có** bảng riêng cho user spend/ranking realtime — đang aggregate **trong RAM** ở [TikTokBridgeService](../backend/Services/TikTokBridgeService.cs) (`_topGifters`, `_rankingUsers`, …). Restart = reset
+- **DB file** sống ở `<userData>/tikfinity-data/` (mỗi user Windows một bản). App update không đụng vào — installer chỉ ghi vào `Program Files`
+- **Chưa có** bảng riêng cho user spend/ranking realtime — đang aggregate **trong RAM** ở [services/aggregates.js](../backend-node/src/services/aggregates.js) (`topGifters`, `topLikers`, `ranking`, …). Restart = reset
 - **Chưa có** cleanup job cho `RevokedToken` — index `ExpiresAt` đã sẵn sàng nhưng cần background service xoá row có `ExpiresAt < now`
 - `Transaction.Amount` lưu kiểu `TEXT` (workaround SQLite không có decimal native) — convert ở app layer

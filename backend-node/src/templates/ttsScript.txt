@@ -1,0 +1,80 @@
+<script>
+(function() {
+  if (!window.speechSynthesis) return;
+  var SETTINGS_KEY = 'tf_tts_settings';
+
+  function getSettings() {
+    try {
+      var raw = localStorage.getItem(SETTINGS_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return { enabled: false, voice: '', rate: 1, pitch: 1, volume: 1, lang: 'vi-VN', readChat: true, readBot: true, maxLen: 200 };
+  }
+  function saveSettings(s) {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
+  }
+
+  function speak(text) {
+    var s = getSettings();
+    if (!s.enabled || !text) return;
+    text = String(text).slice(0, s.maxLen || 200);
+    // Strip emoji-only and trivial messages
+    if (!/[\p{L}\p{N}]/u.test(text)) return;
+
+    var utt = new SpeechSynthesisUtterance(text);
+    utt.lang = s.lang || 'vi-VN';
+    utt.rate = Math.max(0.1, Math.min(10, s.rate || 1));
+    utt.pitch = Math.max(0, Math.min(2, s.pitch || 1));
+    utt.volume = Math.max(0, Math.min(1, s.volume || 1));
+
+    if (s.voice) {
+      var voices = speechSynthesis.getVoices();
+      var match = voices.find(function(v) { return v.name === s.voice; });
+      if (match) utt.voice = match;
+    }
+    try { window.speechSynthesis.speak(utt); } catch (e) {}
+  }
+
+  // Hook the bundle's socket so we don't need a separate connection.
+  function attach(io) {
+    if (!io || io.__tfTtsAttached) return;
+    io.__tfTtsAttached = true;
+    if (typeof io.on === 'function') {
+      io.on('chat', function(d) {
+        var s = getSettings();
+        if (!s.readChat) return;
+        var msg = d && (d.comment || d.message);
+        if (msg) speak(msg);
+      });
+      io.on('bot:say', function(d) {
+        var s = getSettings();
+        if (!s.readBot) return;
+        var resp = d && d.response;
+        if (resp) speak(resp);
+      });
+    }
+  }
+
+  // Wait for the bundle's socket instance.
+  var attempts = 0;
+  var poll = setInterval(function() {
+    attempts++;
+    if (window.__tfSocket || (window.io && window.io.connect)) {
+      attach(window.__tfSocket);
+    }
+    if (attempts > 100) clearInterval(poll);
+  }, 200);
+
+  // Also expose on window so a settings panel can poke it.
+  window.tfTts = {
+    get: getSettings,
+    set: function(patch) { saveSettings(Object.assign(getSettings(), patch)); },
+    speak: speak,
+    voices: function() {
+      return (speechSynthesis.getVoices() || []).map(function(v) {
+        return { name: v.name, lang: v.lang, default: v.default };
+      });
+    }
+  };
+})();
+</script>

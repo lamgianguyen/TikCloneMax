@@ -1,0 +1,247 @@
+<script>
+(function() {
+  var KEY_PREFIX = 'tf-reload-lock:';
+  var TIME_SUFFIX = ':time';
+  var LOCK_TTL_MS = 60000;
+  var MAX_VISIBLE = 1;
+  // Profile-switch grace window. Bundle's switchProfile flow needs 3-5
+  // reloads in quick succession to apply the new profile's settings,
+  // refresh widgets, and re-bootstrap the dashboard. While `__tf_post_switch_ts`
+  // is fresh, raise the cap so those reloads aren't blocked.
+  var SWITCH_GRACE_MS = 8000;
+  var SWITCH_GRACE_MAX = 6;
+  function effectiveMaxVisible() {
+    try {
+      var ts = parseInt(localStorage.getItem('__tf_post_switch_ts') || '0', 10) || 0;
+      if (ts > 0 && (Date.now() - ts) < SWITCH_GRACE_MS) return SWITCH_GRACE_MAX;
+    } catch (_) {}
+    return MAX_VISIBLE;
+  }
+
+  function readStableScopeValue(key) {
+    try {
+      var localValue = localStorage.getItem(key);
+      var sessionValue = sessionStorage.getItem(key);
+      if (localValue) {
+        if (sessionValue !== localValue) {
+          sessionStorage.setItem(key, localValue);
+        }
+        return String(localValue);
+      }
+      if (sessionValue) {
+        return String(sessionValue);
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  function getProfileScope() {
+    var channelId = readStableScopeValue('setting_channelid') || 'unknown-channel';
+    var profileId = readStableScopeValue('setting_profileid') || 'unknown-profile';
+    return channelId + ':' + profileId;
+  }
+
+  function getScopeKey(targetUrl) {
+    var path = location.pathname;
+    try {
+      if (targetUrl) {
+        var parsed = new URL(String(targetUrl), location.href);
+        path = parsed.pathname || location.pathname;
+      }
+    } catch (_) {}
+    return KEY_PREFIX + getProfileScope() + ':' + path;
+  }
+
+  function readCount(targetUrl) {
+    var key = getScopeKey(targetUrl);
+    var timeKey = key + TIME_SUFFIX;
+    var t = parseInt(sessionStorage.getItem(timeKey) || '0', 10);
+    if (!t || Date.now() - t > LOCK_TTL_MS) {
+      sessionStorage.removeItem(key);
+      sessionStorage.removeItem(timeKey);
+      return 0;
+    }
+    return parseInt(sessionStorage.getItem(key) || '0', 10);
+  }
+
+  function bumpCount(targetUrl) {
+    var key = getScopeKey(targetUrl);
+    var timeKey = key + TIME_SUFFIX;
+    var c = readCount(targetUrl) + 1;
+    sessionStorage.setItem(key, String(c));
+    sessionStorage.setItem(timeKey, String(Date.now()));
+    return c;
+  }
+
+  // Bundle uses location.reload(), location.href = X, location.assign(),
+  // and location.replace() interchangeably for "refresh state" actions.
+  // Wrap all four so the chain is capped no matter which path bundle picks.
+  function shouldAllowNavigation(targetUrl) {
+    var current = readCount(targetUrl);
+    var trace = '';
+    try { trace = new Error('nav-trace').stack || ''; } catch(_) {}
+    var cap = effectiveMaxVisible();
+    if (current >= cap) {
+      console.warn('[reload-guard] BLOCKED nav #' + (current + 1) + ' cap=' + cap + ' scope=' + getScopeKey(targetUrl) + ' target=' + targetUrl + '\n' + trace);
+      return false;
+    }
+    bumpCount(targetUrl);
+    console.warn('[reload-guard] ALLOW nav #' + (current + 1) + ' scope=' + getScopeKey(targetUrl) + (targetUrl ? ' target=' + targetUrl : '') + '\n' + trace);
+    return true;
+  }
+
+  // Catch-all: log every page unload with stack trace. This catches reloads
+  // that bypass location.reload/assign/replace/href setters (e.g. setting
+  // location.search, location.pathname, history.go(0), form.submit, anchor click).
+  try {
+    window.addEventListener('beforeunload', function() {
+      var trace = '';
+      try { trace = new Error('unload-trace').stack || ''; } catch(_) {}
+      console.warn('[reload-guard] BEFOREUNLOAD fired href=' + location.href + '\n' + trace);
+    });
+  } catch (e) {}
+  console.warn('[reload-guard] INSTALLED at ' + Date.now() + ' href=' + location.href);
+
+  var Lp = Object.getPrototypeOf(location) || Location.prototype;
+  var origReload = location.reload.bind(location);
+  var origAssign = location.assign.bind(location);
+  var origReplace = location.replace.bind(location);
+
+  function guardedReload() {
+    if (!shouldAllowNavigation(location.href)) return;
+    return origReload();
+  }
+  function guardedAssign(url) {
+    if (!shouldAllowNavigation(url)) return;
+    return origAssign(url);
+  }
+  function guardedReplace(url) {
+    if (!shouldAllowNavigation(url)) return;
+    return origReplace(url);
+  }
+
+  try {
+    Object.defineProperty(Lp, 'reload', { configurable: true, writable: true, value: guardedReload });
+    Object.defineProperty(Lp, 'assign', { configurable: true, writable: true, value: guardedAssign });
+    Object.defineProperty(Lp, 'replace', { configurable: true, writable: true, value: guardedReplace });
+  } catch (e) {
+    try {
+      location.reload = guardedReload;
+      location.assign = guardedAssign;
+      location.replace = guardedReplace;
+    } catch (e2) {
+      console.warn('[reload-guard] could not install:', e2 && e2.message);
+    }
+  }
+  // An earlier script (blockScript injected in head) may have set window.location.reload
+  // as an own property, which shadows the prototype patch above.
+  // Force-override the own property so our guard is always in the call path.
+  try { location.reload = guardedReload; } catch(e) {}
+  try { location.assign = guardedAssign; } catch(e) {}
+  try { location.replace = guardedReplace; } catch(e) {}
+
+  // location.href = X is a separate path — intercept the setter.
+  // Same-document hash changes don't trigger full reload, so we only guard
+  // navigations whose target differs from current pathname.
+  try {
+    var hrefDesc = Object.getOwnPropertyDescriptor(Lp, 'href');
+    if (hrefDesc && hrefDesc.set) {
+      var origHrefSetter = hrefDesc.set;
+      Object.defineProperty(Lp, 'href', {
+        configurable: true,
+        get: hrefDesc.get,
+        set: function(v) {
+          try {
+            var newUrl = String(v);
+            // Same-page hash navigation → allow without counting
+            if (newUrl.indexOf('#') !== -1) {
+              var basePart = newUrl.split('#')[0];
+              if (!basePart || basePart === location.href.split('#')[0]) {
+                return origHrefSetter.call(this, v);
+              }
+            }
+            if (!shouldAllowNavigation(newUrl)) return;
+            return origHrefSetter.call(this, v);
+          } catch (e) {
+            return origHrefSetter.call(this, v);
+          }
+        }
+      });
+    }
+  } catch (e) { console.warn('[reload-guard] href setter hook failed:', e && e.message); }
+
+  // Intercept location.search / pathname / hash setters — these also
+  // trigger a full reload but don't go through href. The bundle's
+  // settings.restore() observed firing reloads via one of these.
+  function patchLocationSetter(prop) {
+    try {
+      var desc = Object.getOwnPropertyDescriptor(Lp, prop);
+      if (!desc || !desc.set) return;
+      var origSet = desc.set;
+      Object.defineProperty(Lp, prop, {
+        configurable: true,
+        get: desc.get,
+        set: function(v) {
+          try {
+            var newVal = String(v);
+            if (!shouldAllowNavigation('location.' + prop + ' = ' + newVal)) return;
+          } catch (_) {}
+          return origSet.call(this, v);
+        }
+      });
+    } catch (e) {
+      console.warn('[reload-guard] ' + prop + ' setter hook failed:', e && e.message);
+    }
+  }
+  patchLocationSetter('search');
+  patchLocationSetter('pathname');
+  patchLocationSetter('host');
+  patchLocationSetter('hostname');
+  patchLocationSetter('protocol');
+
+  // history.go(0) triggers a full reload too. Patch History.prototype.go
+  // so go(0) goes through our guard.
+  try {
+    var Hp = History && History.prototype;
+    if (Hp && typeof Hp.go === 'function') {
+      var origGo = Hp.go;
+      Hp.go = function(delta) {
+        try {
+          if (delta === 0 || delta === undefined) {
+            if (!shouldAllowNavigation('history.go(' + delta + ')')) return;
+          }
+        } catch (_) {}
+        return origGo.apply(this, arguments);
+      };
+    }
+  } catch (e) {
+    console.warn('[reload-guard] history.go hook failed:', e && e.message);
+  }
+
+  // Hook HTMLFormElement.prototype.submit — a form whose action targets
+  // the current URL triggers a full reload-like navigation.
+  try {
+    var origSubmit = HTMLFormElement.prototype.submit;
+    HTMLFormElement.prototype.submit = function() {
+      try {
+        var action = (this.action || location.href);
+        if (!shouldAllowNavigation('form.submit -> ' + action)) return;
+      } catch (_) {}
+      return origSubmit.apply(this, arguments);
+    };
+  } catch (e) {
+    console.warn('[reload-guard] form.submit hook failed:', e && e.message);
+  }
+
+  // Diagnostic surface for debugging
+  window.TFS = window.TFS || {};
+  window.TFS.__reloadGuard = {
+    currentCount: function(targetUrl) { return readCount(targetUrl); },
+    reset: function() {
+      var key = getScopeKey();
+      sessionStorage.removeItem(key);
+      sessionStorage.removeItem(key + TIME_SUFFIX);
+    }
+  };
+})();
+</script>

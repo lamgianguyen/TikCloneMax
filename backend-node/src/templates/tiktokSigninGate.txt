@@ -1,0 +1,185 @@
+<style id="tf-signin-style">
+  .tf-signin-overlay {
+    position: fixed; inset: 0; z-index: 99999;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.55);
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  .tf-signin-card {
+    width: min(92vw, 460px);
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    padding: 20px 22px 18px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.55);
+    color: #f0f0f0;
+  }
+  .tf-signin-card h3 {
+    margin: 0 0 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #ffffff;
+  }
+  .tf-signin-card p {
+    margin: 0 0 8px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: #c8c8c8;
+  }
+  .tf-signin-card p + p { margin-bottom: 22px; }
+  .tf-signin-actions {
+    display: flex; justify-content: flex-end; gap: 10px;
+  }
+  .tf-signin-btn {
+    appearance: none;
+    cursor: pointer;
+    padding: 7px 26px;
+    min-width: 80px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    background: #3a3a3a;
+    color: #f0f0f0;
+    border: 1px solid #4a4a4a;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .tf-signin-btn:hover {
+    background: #454545;
+    border-color: #5a5a5a;
+  }
+  .tf-signin-btn[disabled] { opacity: 0.5; cursor: progress; }
+</style>
+<script>
+(function() {
+  if (!window.TFS || typeof window.TFS.tiktokSignIn !== 'function') {
+    // Running outside Electron (browser dev) — skip the gate so the
+    // bundle's normal Connect flow runs untouched.
+    return;
+  }
+
+  function isConnectButton(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.tagName !== 'BUTTON' && el.getAttribute('role') !== 'button' && !el.classList.contains('dx-button')) return false;
+    if (el.closest('nav, aside, [role="navigation"], .sidebar, .menu, .dropdown')) return false;
+    var text = (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (text.length > 120) return false;
+
+    // Fast-path for known exact labels.
+    if (text === 'connect to tiktok live'
+        || text === 'kết nối với tiktok live'
+        || text === 'kết nối tiktok live') {
+      return true;
+    }
+
+    // Robust matching for localized/variant labels from the obfuscated bundle.
+    var hasConnectVerb = /\bconnect\b|\bkết nối\b/.test(text);
+    var hasTikTok = text.indexOf('tiktok') >= 0;
+    var hasTarget = /\blive\b|\btài khoản\b|\baccount\b/.test(text);
+    if (hasConnectVerb && hasTikTok && hasTarget) return true;
+
+    // Some controls use stable IDs even when label text changes.
+    var id = String(el.id || '').toLowerCase();
+    if (id.indexOf('manualconnectbuttonsetup') >= 0) return true;
+    if (id.indexOf('connect') >= 0 && id.indexOf('tiktok') >= 0) return true;
+
+    return false;
+  }
+
+  function findButton(target) {
+    var el = target;
+    for (var i = 0; i < 6 && el; i++) {
+      if (isConnectButton(el)) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function showModal() {
+    return new Promise(function(resolve) {
+      var overlay = document.createElement('div');
+      overlay.className = 'tf-signin-overlay';
+      overlay.innerHTML =
+        '<div class="tf-signin-card" role="dialog" aria-modal="true" aria-labelledby="tf-signin-title">' +
+          '<h3 id="tf-signin-title">TikTok Login required</h3>' +
+          '<p>To connect to TikTok LIVE you need to log in to your TikTok account.</p>' +
+          '<p>Do you want to log in now?</p>' +
+          '<div class="tf-signin-actions">' +
+            '<button type="button" class="tf-signin-btn" data-tf-signin="yes">Yes</button>' +
+            '<button type="button" class="tf-signin-btn" data-tf-signin="no">No</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+
+      var yesBtn = overlay.querySelector('[data-tf-signin="yes"]');
+      var noBtn = overlay.querySelector('[data-tf-signin="no"]');
+      var done = false;
+
+      function finish(result) {
+        if (done) return; done = true;
+        try { overlay.remove(); } catch (e) {}
+        resolve(result);
+      }
+
+      noBtn.addEventListener('click', function() { finish({ ok: false, cancelled: true }); });
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) finish({ ok: false, cancelled: true });
+      });
+
+      yesBtn.addEventListener('click', async function() {
+        yesBtn.disabled = true;
+        noBtn.disabled = true;
+        yesBtn.textContent = 'Đang mở…';
+        try {
+          var r = await window.TFS.tiktokSignIn();
+          finish(r || { ok: false });
+        } catch (err) {
+          finish({ ok: false, error: err && err.message ? err.message : String(err) });
+        }
+      });
+    });
+  }
+
+  var clickInProgress = false;
+
+  document.addEventListener('click', async function(e) {
+    if (clickInProgress) return;
+    var btn = findButton(e.target);
+    if (!btn) return;
+
+    // Re-emitted programmatic click after sign-in succeeds — let it through.
+    if (btn.dataset.tfSigninPassthrough === '1') {
+      delete btn.dataset.tfSigninPassthrough;
+      return;
+    }
+
+    // Ignore synthetic clicks fired by the bundle during boot/reload.
+    // Only real user clicks should open the TikTok auth prompt.
+    if (!e.isTrusted) return;
+
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    e.stopPropagation();
+    clickInProgress = true;
+
+    try {
+      var status = await window.TFS.tiktokGetStatus();
+      if (status && status.signedIn) {
+        // Already have a saved sessionid — re-emit the click so the
+        // bundle's own handler runs.
+        btn.dataset.tfSigninPassthrough = '1';
+        btn.click();
+        return;
+      }
+      var result = await showModal();
+      if (result && result.ok) {
+        btn.dataset.tfSigninPassthrough = '1';
+        btn.click();
+      }
+    } catch (err) {
+      console.error('[tf-signin] gate error:', err);
+    } finally {
+      clickInProgress = false;
+    }
+  }, true); // capture phase — runs before Vue's delegated handler
+})();
+</script>

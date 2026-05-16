@@ -1,0 +1,38 @@
+<!DOCTYPE html><html><head><title>Logging out...</title></head><body>
+<script>
+try {
+  localStorage.removeItem('setting_loginaccesstoken');
+  localStorage.removeItem('setting_loginaccesstokenprovider');
+  localStorage.removeItem('setting_pendinglogin');
+  localStorage.removeItem('setting_channelid');
+  localStorage.removeItem('setting_channelname');
+  localStorage.removeItem('setting_tiktokname');
+  localStorage.removeItem('setting_email');
+  localStorage.removeItem('setting_owneruserid');
+  localStorage.removeItem('setting_featurebasetoken');
+  localStorage.removeItem('setting_dynamicsettings');
+  localStorage.removeItem('setting_channelsignature');
+  localStorage.removeItem('setting_ispro');
+  localStorage.removeItem('setting_locale');
+  sessionStorage.clear();
+  var authCookies = [
+    'tf_login_token',
+    'tf_channelid',
+    'tf_channelname',
+    'tf_ispro',
+    'tf_locale',
+    'tf_tiktokname',
+    'tf_email',
+    'tf_channelsignature',
+    'tf_owneruserid',
+    'tf_featurebasetoken',
+    'tf_pendinglogin'
+  ];
+  authCookies.forEach(function(name) {
+    document.cookie = name + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+    document.cookie = name + '=; path=/; max-age=0; SameSite=Lax';
+  });
+} catch(e) {}
+window.location.href = '__TF_LOGOUT_NEXT__';
+</script>
+</body></html>

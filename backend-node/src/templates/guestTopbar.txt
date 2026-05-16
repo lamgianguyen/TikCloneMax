@@ -1,0 +1,38 @@
+<div id="tf-guest-topbar">
+  <div class="topbar bg-white/10 backdrop-blur-lg px-4 py-2 flex items-center pointer-events-auto relative z-2 overflow-visible">
+    <div class="absolute z-0 h-full left-0 top-0 w-64 bg-[linear-gradient(92deg,rgba(212,53,85,0.14)_0%,rgba(48,46,46,0.00)_100%)] pointer-events-none"></div>
+    <div class="absolute h-full right-0 top-0 w-32 bg-[linear-gradient(270deg,#343333_0%,rgba(52,51,51,0)_100%)] pointer-events-none"></div>
+    <img src="/img/navigation/topbar-corner-left.svg" alt="" class="absolute left-0 top-full pointer-events-none">
+    <img src="/img/navigation/topbar-corner-right.svg" alt="" class="absolute right-0 top-full pointer-events-none">
+    <div class="flex items-center shrink-0 min-w-0 relative z-1">
+      <a href="/" class="hover:scale-105 transition-all duration-200 shrink-0 relative"><img src="/img/tikfinity.png" alt="TikFinity Logo" class="size-8 tf-logo"></a>
+      <div role="button" tabindex="0" class="search-trigger ml-6 flex items-center justify-between bg-[#222222] border border-white/8 rounded-lg p-2 cursor-pointer hover:border-white/12 overflow-hidden" style="opacity:1;width:15rem;margin-left:1.5rem;padding:0.5rem;"><div class="flex items-center gap-2"><i class="fa-solid fa-search text-sm"></i><span class="text-white/50 text-sm">Tìm kiếm</span></div><div class="flex items-center gap-2"><div class="flex items-center justify-center bg-white/16 rounded-md text-[10px] px-1.5 py-1 gap-1 border border-white/4"><i class="fa-solid fa-command"></i><span class="font-medium">K</span></div></div></div>
+      <div class="flex items-center gap-2 text-sm mr-4 ml-8"><span class="flex gap-2 items-center text-white/50"><i class="fa-home fa-regular"></i><span class="truncate">Bắt đầu</span></span><span>/</span><span class="truncate">Bắt đầu</span><span class="bg-white/10 text-white/50 rounded-lg px-2 py-1 text-xs font-bold">10</span></div>
+    </div>
+    <div class="flex-1 min-w-0 flex items-center justify-center overflow-hidden relative z-1"></div>
+    <div class="flex items-center gap-2.5 shrink-0 min-w-0 relative z-1">
+      <div class="flex items-center gap-1">
+        <div class="relative"><div class="relative cursor-pointer text-white/70 rounded-md px-2 py-2.5 hover:bg-white/6 hover:text-white group transition-all duration-200" tabindex="0" role="button"><i class="fa-regular fa-bell text-lg"></i></div></div>
+        <div class="relative"><div class="relative cursor-pointer text-white/70 rounded-md px-2 py-2.5 hover:bg-white/6 hover:text-white transition-all duration-200" tabindex="0" role="button"><i class="fa-regular fa-question-circle text-lg"></i></div></div>
+      </div>
+      <div class="h-6 w-px bg-white/8"></div>
+      <div class="relative" id="tf-guest-profile-btn" style="cursor:pointer;" onclick="event.preventDefault();event.stopPropagation();if(window.navigateToLogin)window.navigateToLogin();else{window.location.hash='#/tiktok/setup';setTimeout(function(){var i=document.getElementById('ilLoginUser');if(i){i.scrollIntoView({behavior:'smooth',block:'center'});i.focus();}},1000);}">
+        <div class="px-2 py-1 rounded-md hover:bg-white/6 transition-all duration-200 flex gap-2 items-center cursor-pointer select-none h-10" role="button" tabindex="0">
+          <div class="profile-avatar-wrap relative flex justify-center items-center w-10 h-10 shrink-0"><img src="/img/nothumb.webp" alt="Profile" class="size-8 rounded-full relative z-0"></div>
+          <div class="flex flex-col"><span class="text-sm">Login</span><span class="text-xs text-white/70"> or create account</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  var btn = document.getElementById('tf-guest-profile-btn');
+  if (btn) btn.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (window.navigateToLogin) window.navigateToLogin();
+    else window.location.hash = '#/tiktok/setup';
+  });
+})();
+</script>

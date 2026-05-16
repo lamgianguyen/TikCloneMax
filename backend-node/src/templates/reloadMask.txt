@@ -1,0 +1,121 @@
+<style id="tf-reload-hide-all">
+  html.tf-reloading > body > *:not(#tf-reload-mask) {
+    visibility: hidden !important;
+  }
+</style>
+<style id="tf-reload-mask-style">
+  /* Match the bundle's splash visually for a unified loading look. The
+     splash uses a solid #1c1d22 canvas, the brand spinner image, and a
+     simple two-line text block. Our reload mask must mirror that — any
+     transitions, progress bars, or gradient titles read as flicker
+     relative to the splash and amplify the perceived jitter. */
+  #tf-reload-mask {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #1c1d22;
+    z-index: 2147483647;
+    opacity: 1;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #e5e7eb;
+  }
+  #tf-reload-mask.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    visibility: visible !important;
+  }
+  #tf-reload-mask .mask-inner {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #tf-reload-mask .mask-spinner {
+    width: 96px;
+    height: 96px;
+    background: url('/img/loading.svg') center/contain no-repeat;
+    filter: brightness(1.05);
+    margin-bottom: 18px;
+  }
+  #tf-reload-mask .mask-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #e5e7eb;
+    letter-spacing: 0.3px;
+  }
+  #tf-reload-mask .mask-subtitle {
+    font-size: 12px;
+    color: #9ba3af;
+    letter-spacing: 0.2px;
+    margin-top: 8px;
+    min-height: 16px;
+  }
+</style>
+<div id="tf-reload-mask">
+  <div class="mask-inner">
+    <div class="mask-spinner"></div>
+    <div class="mask-title">Getting things ready for you...</div>
+    <div class="mask-subtitle" id="tf-reload-text"></div>
+  </div>
+</div>
+<script>
+  (function() {
+    const mask = document.getElementById('tf-reload-mask');
+    const text = document.getElementById('tf-reload-text');
+    const STORAGE_TIME_KEY = 'tf-reload-time';
+    const RESET_AFTER_MS = 4000;
+    let endTimer = null;
+
+    function isActive() {
+      const t = parseInt(sessionStorage.getItem(STORAGE_TIME_KEY) || '0', 10);
+      if (!t || Date.now() - t > RESET_AFTER_MS) {
+        sessionStorage.removeItem(STORAGE_TIME_KEY);
+        return false;
+      }
+      return true;
+    }
+
+    function render(subtitle) {
+      if (!mask) return;
+      if (text) text.textContent = subtitle || '';
+      mask.classList.add('active');
+      document.documentElement.classList.add('tf-reloading');
+    }
+
+    function hide() {
+      if (!mask) return;
+      mask.classList.remove('active');
+      document.documentElement.classList.remove('tf-reloading');
+      sessionStorage.removeItem(STORAGE_TIME_KEY);
+    }
+
+    function scheduleHide() {
+      if (endTimer) clearTimeout(endTimer);
+      const t = parseInt(sessionStorage.getItem(STORAGE_TIME_KEY) || '0', 10);
+      if (!t) { hide(); return; }
+      const age = Date.now() - t;
+      const remaining = Math.max(0, RESET_AFTER_MS - age);
+      endTimer = setTimeout(() => { hide(); }, remaining + 50);
+    }
+
+    function showMask(subtitle) {
+      sessionStorage.setItem(STORAGE_TIME_KEY, String(Date.now()));
+      render(typeof subtitle === 'string' ? subtitle : '');
+      scheduleHide();
+    }
+
+    // On page load: if we're mid-chain, render the mask immediately so
+    // the user doesn't see the bundle's partially rendered shell flicker
+    // through between reloads. The .tf-reloading class on <html> hides
+    // everything but the mask via the companion CSS rule above.
+    if (isActive()) {
+      render('');
+      scheduleHide();
+    }
+
+    window.TFS = window.TFS || {};
+    window.TFS.__reloadMask = { show: showMask, hide: hide };
+  })();
+</script>

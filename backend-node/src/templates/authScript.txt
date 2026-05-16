@@ -1,0 +1,563 @@
+<script>
+(function(){
+  var defaultChannelId = "{{defaultChannelId}}";
+  var defaultChannelName = "{{defaultChannelName}}";
+  var authCookieMap = {
+    setting_loginaccesstoken: 'tf_login_token',
+    setting_channelid: 'tf_channelid',
+    setting_channelname: 'tf_channelname',
+    setting_ispro: 'tf_ispro',
+    setting_locale: 'tf_locale',
+    setting_tiktokname: 'tf_tiktokname',
+    setting_email: 'tf_email',
+    setting_channelsignature: 'tf_channelsignature',
+    setting_owneruserid: 'tf_owneruserid',
+    setting_featurebasetoken: 'tf_featurebasetoken',
+    setting_pendinglogin: 'tf_pendinglogin'
+  };
+
+  function readCookie(name) {
+    try {
+      var escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var match = document.cookie.match(new RegExp('(?:^|;\\s*)' + escaped + '=([^;]*)'));
+      return match ? decodeURIComponent(match[1]) : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function writeCookie(name, value) {
+    try {
+      document.cookie = String(name) + '=' + encodeURIComponent(String(value || '')) + '; path=/; max-age=' + (60 * 60 * 24 * 30) + '; SameSite=Lax';
+    } catch (e) {}
+  }
+
+  function clearCookie(name) {
+    try {
+      document.cookie = String(name) + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+    } catch (e) {}
+  }
+
+  function readPersistedValue(key, fallbackValue) {
+    var value = fallbackValue;
+    try {
+      value = localStorage.getItem(key);
+    } catch (e) {}
+    if (value === null || typeof value === 'undefined' || value === '') {
+      var cookieName = authCookieMap[key];
+      if (cookieName) {
+        var cookieValue = readCookie(cookieName);
+        if (cookieValue !== '') {
+          return cookieValue;
+        }
+      }
+      return fallbackValue;
+    }
+    return value;
+  }
+
+  function persistValue(key, value) {
+    try {
+      if (value !== null && typeof value !== 'undefined') {
+        localStorage.setItem(key, String(value));
+      }
+    } catch (e) {}
+    var cookieName = authCookieMap[key];
+    if (cookieName && value !== null && typeof value !== 'undefined') {
+      writeCookie(cookieName, value);
+    }
+  }
+
+  function clearPersistedAuth() {
+    [
+      'setting_loginaccesstoken',
+      'setting_loginaccesstokenprovider',
+      'setting_pendinglogin',
+      'setting_channelid',
+      'setting_channelname',
+      'setting_tiktokname',
+      'setting_email',
+      'setting_owneruserid',
+      'setting_featurebasetoken',
+      'setting_dynamicsettings',
+      'setting_channelsignature',
+      'setting_ispro',
+      'setting_locale'
+    ].forEach(function(key) {
+      try { localStorage.removeItem(key); } catch (e) {}
+      if (authCookieMap[key]) {
+        clearCookie(authCookieMap[key]);
+      }
+    });
+  }
+  window.__tfClearPersistedAuth = clearPersistedAuth;
+
+  function readStorage(key, fallbackValue) {
+    return readPersistedValue(key, fallbackValue);
+  }
+  window.__tfReadPersistedValue = readPersistedValue;
+  window.__tfPersistValue = persistValue;
+
+  function readAccessToken() {
+    return readStorage('setting_loginaccesstoken', '');
+  }
+  window.__tfReadAccessToken = readAccessToken;
+
+  window.__tfGetAuthHeaders = function(extraHeaders) {
+    var headers = Object.assign({}, extraHeaders || {});
+    var token = readAccessToken();
+    if (token) {
+      headers.Authorization = 'Bearer ' + token;
+    }
+    return headers;
+  };
+
+  function writeStoredBasics(channelId, channelName, isPro, locale, signature) {
+    if (channelId) persistValue('setting_channelid', String(channelId));
+    if (channelName) persistValue('setting_channelname', String(channelName));
+    if (typeof isPro !== 'undefined') persistValue('setting_ispro', isPro ? 'true' : 'false');
+    if (locale) persistValue('setting_locale', String(locale));
+    if (signature) persistValue('setting_channelsignature', String(signature));
+  }
+
+  function readStoredJson(key, fallbackValue) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) return fallbackValue;
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : fallbackValue;
+    } catch (e) {
+      return fallbackValue;
+    }
+  }
+
+  function parsePositiveInt(value, fallbackValue) {
+    var parsed = parseInt(String(value == null ? '' : value), 10);
+    return parsed > 0 ? parsed : fallbackValue;
+  }
+
+  function toBase64Url(value) {
+    try {
+      return btoa(unescape(encodeURIComponent(String(value))))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function buildPseudoJwt(payload) {
+    var header = toBase64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+    var body = toBase64Url(JSON.stringify(payload || {}));
+    if (!header || !body) return '';
+    return header + '.' + body + '.local';
+  }
+
+  function buildFeaturebaseToken(channelName, channelId, email) {
+    var stored = readStorage('setting_featurebasetoken', '');
+    if (stored) return stored;
+    return buildPseudoJwt({
+      name: channelName || 'user',
+      email: email || '',
+      userId: String(channelId || '0'),
+      iat: Math.floor(Date.now() / 1000)
+    });
+  }
+
+  function buildSafeDynamicSettings(baseSettings, channelName, featurebaseToken, ownerUserId) {
+    var settings = Object.assign({
+      events: '[]',
+      timer: '[]',
+      soundsdatasource: '[]',
+      widget_wheelofactions_wheels: '[]',
+      wheelcustomsegments: '[]',
+      widget_socialmediarotator_socials: '[]',
+      'FBVisitedChangelogsTracker-tikfinity': '{"shownChangelogs":[],"unviewedChangelogs":[]}',
+      featurebaseIdentifyData: '{}'
+    }, baseSettings || {});
+
+    if (!settings.profilechannelname && channelName) {
+      settings.profilechannelname = channelName;
+    }
+    if (!settings.textboxchannelname && channelName) {
+      settings.textboxchannelname = '@' + channelName;
+    }
+    if (!settings.owneruserid) {
+      settings.owneruserid = ownerUserId || '';
+    }
+    if (!settings.featurebaseGlobalAuth && featurebaseToken) {
+      settings.featurebaseGlobalAuth = JSON.stringify({
+        organization: 'tikfinity',
+        jwt: featurebaseToken
+      });
+    }
+
+    return settings;
+  }
+
+  function buildFallbackPayload() {
+    var token = readStorage('setting_loginaccesstoken', '');
+    var storedChannelId = readStorage('setting_channelid', '');
+    var storedChannelName = readStorage('setting_channelname', '');
+    var hasStoredIdentity = !!storedChannelId || !!storedChannelName || readStorage('setting_pendinglogin', '') === '1';
+    var channelId = readStorage('setting_channelid', String(defaultChannelId || '1'));
+    var profileId = parsePositiveInt(readStorage('setting_profileid', '1'), 1);
+    var accountChannelName = readStorage('setting_channelname', defaultChannelName || 'user');
+    var tiktokName = readStorage('setting_tiktokname', '');
+    var locale = readStorage('setting_locale', 'VN');
+    var signature = readStorage('setting_channelsignature', '');
+    var email = readStorage('setting_email', '');
+    var isPro = readStorage('setting_ispro', 'true') !== 'false';
+    var channelName = tiktokName || accountChannelName;
+    var featureBaseToken = buildFeaturebaseToken(channelName, channelId, email);
+    var dynamicSettings = buildSafeDynamicSettings(
+      readStoredJson('setting_dynamicsettings', {}),
+      channelName,
+      featureBaseToken,
+      readStorage('setting_owneruserid', '')
+    );
+
+    return {
+      status: 200,
+      message: 'OK',
+      channelId: channelId,
+      profileId: profileId,
+      isPro: isPro,
+      channelName: channelName,
+      accountChannelName: accountChannelName,
+      tiktokUsername: tiktokName,
+      channel: {
+        ChannelId: channelId,
+        channelId: channelId,
+        ProfileId: profileId,
+        profileId: profileId,
+        ChannelName: channelName,
+        channelName: channelName,
+        AccountChannelName: accountChannelName,
+        accountChannelName: accountChannelName,
+        TiktokUsername: tiktokName,
+        tiktokUsername: tiktokName,
+        ChannelSignature: signature,
+        channelSignature: signature,
+        Email: email,
+        email: email,
+        Locale: locale,
+        locale: locale,
+        dynamicSettings: dynamicSettings,
+        dynamicProfileSettings: [],
+        challengeRunning: false,
+        challengeName: null,
+        challengeStartAt: null,
+        isChatbotApproved: false,
+        catchApplied: false,
+        catchEnabled: false,
+        catchEnabledInGrid: true,
+        catchEnabledAt: null,
+        catchProEnabled: false,
+        catchProEnabledAt: null,
+        catchRandom: 5,
+        isCatchAdmin: false,
+        halvingLastExecutionAt: null,
+        customInfoText: null,
+        patreonUserId: null,
+        discordUsername: null,
+        bmcEmail: null,
+        lmSubscriptionId: null,
+        monthlyEarnings: 0,
+        monthlyEarningsMax: 0,
+        streamGifter: 0,
+        streamGifterMax: 0,
+        lastActiveProDate: null,
+        firstActiveProDate: null,
+        lastActiveProInfo: null,
+        proCanceledAt: null,
+        banReason: null,
+        upgradeIntent: null,
+        upgradeIntentUpdatedAt: null,
+        paymentMethodSelected: null,
+        paymentMethodSelectedAt: null,
+        specialProOfferPrice: null,
+        trialStartedAt: null,
+        trialExpiresAt: null,
+        trialOfferNotificationSentAt: null,
+        profiles: [],
+        proExpireAt: null,
+        proExpireSetBy: null
+      },
+      channeluser: null,
+      userFeatures: { isPro: isPro, proInfo: { plan: isPro ? 'pro' : 'free', active: isPro } },
+      profile: null,
+      cookieAuth: !!readStorage('setting_loginaccesstoken', ''),
+      wsAuthToken: readStorage('setting_loginaccesstoken', ''),
+      discordVerifyToken: signature,
+      countryCode: locale,
+      overloadSettings: { enabled: false, suffixIds: [0,1,2,3,4,5,6,7,8,9], minAccountAge: 5 },
+      activePromotions: [],
+      mobileVoucherCode: '',
+      isTrialAvailable: false,
+      hasActiveTrial: false,
+      trialEnded: false,
+      trialInfo: null,
+      featureBaseToken: featureBaseToken,
+      subscription: { isPro: isPro, plan: isPro ? 'pro' : 'free', active: isPro }
+    };
+  }
+
+  function applySessionPayload(payload) {
+    if (!payload) return;
+
+    // If the API returned unauthenticated response (channelId=0), don't write to localStorage
+    if (payload.channelId === 0 && !payload.wsAuthToken) {
+      window.session = window.session || {};
+      window.session.channelId = 0;
+      window.session.channelName = '';
+      var _guestChannel = { channelId: 0, channelName: '', challengeRunning: false, challengeName: null, challengeStartAt: null, dynamicSettings: {}, profiles: [], subscription: { isPro: false, plan: '', active: false }, userFeatures: { isPro: false, proInfo: { plan: '', active: false } } };
+      window.session.channel = _guestChannel;
+      window.session.me = _guestChannel;
+      window.session.userFeatures = _guestChannel.userFeatures;
+      window.session.subscription = _guestChannel.subscription;
+      window.tfPageloadData = window.tfPageloadData || {};
+      window.tfPageloadData.me = { channelId: 0, channelName: '', isPro: false, channel: _guestChannel, userFeatures: _guestChannel.userFeatures, subscription: _guestChannel.subscription };
+      return;
+    }
+
+    var channel = payload.channel || {};
+    var channelId = payload.channelId || channel.channelId || channel.ChannelId || readStorage('setting_channelid', String(defaultChannelId || '1'));
+    var accountChannelName =
+      channel.accountChannelName ||
+      channel.AccountChannelName ||
+      payload.accountChannelName ||
+      readStorage('setting_channelname', defaultChannelName || 'user');
+    var tiktokName =
+      channel.tiktokUsername ||
+      channel.TiktokUsername ||
+      payload.tiktokUsername ||
+      (channel.dynamicSettings && channel.dynamicSettings.setting_tiktokname) ||
+      readStorage('setting_tiktokname', '');
+    var channelName = tiktokName || channel.channelName || channel.ChannelName || payload.channelName || accountChannelName;
+    var activeProfileId = parsePositiveInt(
+      channel.profileId ||
+      channel.ProfileId ||
+      payload.profileId ||
+      readStorage('setting_profileid', '1'),
+      1
+    );
+    var signature = channel.channelSignature || channel.ChannelSignature || readStorage('setting_channelsignature', '');
+    var locale = channel.locale || channel.Locale || payload.countryCode || readStorage('setting_locale', 'VN');
+    var isPro = typeof payload.isPro === 'boolean'
+      ? payload.isPro
+      : !!(payload.subscription && payload.subscription.isPro) ||
+        !!(payload.userFeatures && payload.userFeatures.isPro) ||
+        true;
+
+    writeStoredBasics(channelId, accountChannelName || channelName, isPro, locale, signature);
+    try {
+      persistValue('setting_profileid', String(activeProfileId));
+      sessionStorage.setItem('setting_channelid', String(channelId));
+      sessionStorage.setItem('setting_profileid', String(activeProfileId));
+      if (tiktokName) persistValue('setting_tiktokname', String(tiktokName));
+      if ((channel.Email || channel.email)) persistValue('setting_email', String(channel.Email || channel.email));
+      if ((channel.OwnerUserId || channel.ownerUserId)) persistValue('setting_owneruserid', String(channel.OwnerUserId || channel.ownerUserId));
+      if (payload.featureBaseToken) persistValue('setting_featurebasetoken', String(payload.featureBaseToken));
+    } catch (e) {}
+    if (tiktokName) {
+      try { window.__tfLastTikTokConnectName = String(tiktokName); } catch (e) {}
+    }
+
+    var dynamicSettings = buildSafeDynamicSettings(
+      channel.dynamicSettings || {},
+      channelName,
+      payload.featureBaseToken || buildFeaturebaseToken(channelName, channelId, channel.Email || channel.email || readStorage('setting_email', '')),
+      channel.OwnerUserId || channel.ownerUserId || readStorage('setting_owneruserid', '')
+    );
+    try {
+      localStorage.setItem('setting_dynamicsettings', JSON.stringify(dynamicSettings));
+    } catch (e) {}
+
+    window.session = window.session || {};
+    window.session.channelId = channelId;
+    window.session.profileId = activeProfileId;
+    window.session.channelName = channelName;
+    window.session.accountChannelName = accountChannelName || channelName;
+    window.session.tiktokUsername = tiktokName || '';
+    window.session.featureBaseToken = payload.featureBaseToken || buildFeaturebaseToken(channelName, channelId, channel.Email || channel.email || readStorage('setting_email', ''));
+    window.session.me = Object.assign({
+      challengeRunning: false,
+      challengeName: null,
+      challengeStartAt: null,
+      ChallengeRunning: false,
+      ChallengeName: null,
+      ChallengeStartAt: null
+    }, channel, {
+      ChannelId: channelId,
+      channelId: channelId,
+      ProfileId: activeProfileId,
+      profileId: activeProfileId,
+      ChannelName: channelName,
+      channelName: channelName,
+      AccountChannelName: accountChannelName || channelName,
+      accountChannelName: accountChannelName || channelName,
+      TiktokUsername: tiktokName || '',
+      tiktokUsername: tiktokName || '',
+      ChannelSignature: signature,
+      channelSignature: signature,
+      Locale: locale,
+      locale: locale,
+      dynamicSettings: dynamicSettings,
+      profiles: channel.profiles || []
+    });
+    window.session.channel = window.session.me;
+    window.session.channeluser = payload.channeluser || null;
+    window.session.userFeatures = payload.userFeatures || { isPro: isPro, proInfo: { plan: 'local', active: true } };
+    window.session.profile = payload.profile || null;
+    window.session.subscription = payload.subscription || { isPro: isPro, plan: 'local', active: true };
+    window.session.cookieAuth = !!payload.cookieAuth;
+    window.session.wsAuthToken = payload.wsAuthToken || '';
+    window.session.discordVerifyToken = payload.discordVerifyToken || '';
+    window.session.countryCode = payload.countryCode || locale || 'VN';
+
+    window.tfPageloadData = window.tfPageloadData || {};
+    window.tfPageloadData.me = Object.assign({}, payload, {
+      profileId: activeProfileId,
+      channelName: channelName,
+      accountChannelName: accountChannelName || channelName,
+      tiktokUsername: tiktokName || '',
+      channel: window.session.me
+    });
+  }
+
+  // Dedupe hydrate calls — bootAuthBridge / __tfApplyAuthState / DOMContentLoaded
+  // all kick this off in the same tick. Sharing the in-flight promise (plus
+  // a short cooldown after success) prevents three back-to-back /api/me hits
+  // that each apply a fresh session payload, causing visible state shake.
+  var _hydrateInflight = null;
+  var _hydrateLastDoneAt = 0;
+  var HYDRATE_COOLDOWN_MS = 1500;
+
+  function hydrateFromApi() {
+    if (!window.fetch) return Promise.resolve(buildFallbackPayload());
+
+    // Share in-flight promise
+    if (_hydrateInflight) return _hydrateInflight;
+
+    // Cooldown — recent hydrate result is still fresh
+    if (Date.now() - _hydrateLastDoneAt < HYDRATE_COOLDOWN_MS) {
+      return Promise.resolve(window.session || buildFallbackPayload());
+    }
+
+    // No auth token → don't call API, use guest fallback
+    var _authToken = readStorage('setting_loginaccesstoken', '');
+    if (!_authToken || _authToken.length < 10) {
+      console.log('[TF-Auth] No auth token, skipping API hydrate');
+      var _guestPayload = buildFallbackPayload();
+      applySessionPayload(_guestPayload);
+      return Promise.resolve(_guestPayload);
+    }
+
+    _hydrateInflight = window.fetch('/api/me', {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: window.__tfGetAuthHeaders()
+    })
+    .then(function(response) {
+      if (!response || !response.ok) throw new Error('me_failed');
+      return response.json();
+    })
+    .then(function(data) {
+      applySessionPayload(data);
+      return data;
+    })
+    .catch(function(error) {
+      console.warn('[TF-Auth] Safe hydrate fallback:', error && error.message ? error.message : error);
+      var fallback = buildFallbackPayload();
+      applySessionPayload(fallback);
+      return fallback;
+    })
+    .then(function(result) {
+      _hydrateLastDoneAt = Date.now();
+      _hydrateInflight = null;
+      return result;
+    });
+
+    return _hydrateInflight;
+  }
+
+  function bootAuthBridge() {
+    applySessionPayload(buildFallbackPayload());
+    hydrateFromApi();
+  }
+
+  // Only auto-populate defaults if user has a valid auth token
+  try {
+    var hasToken = readStorage('setting_loginaccesstoken', '');
+    if (hasToken && hasToken.length > 10 && !readStorage('setting_channelid', '')) {
+      persistValue('setting_channelid', String(defaultChannelId || '1'));
+      persistValue('setting_channelname', defaultChannelName || 'user');
+      persistValue('setting_ispro', 'true');
+      persistValue('setting_locale', 'VN');
+    }
+  } catch (e) {}
+
+  window.__tfApplyAuthState = function(data, user) {
+    // Remove tf-logged-out → hides guest topbar, shows Vue topbar
+    document.body.classList.remove('tf-logged-out');
+    try {
+      if (data && data.accessToken) persistValue('setting_loginaccesstoken', data.accessToken);
+      persistValue('setting_pendinglogin', '1');
+      persistValue('setting_channelid', String((data && data.channelId) || readStorage('setting_channelid', String(defaultChannelId || '1'))));
+      persistValue('setting_channelname', (data && data.channelName) || user || readStorage('setting_channelname', defaultChannelName || 'user'));
+      if (data && data.email) persistValue('setting_email', data.email);
+      persistValue('setting_ispro', data && data.isPro === false ? 'false' : 'true');
+      persistValue('setting_locale', 'VN');
+    } catch (e) {}
+
+    applySessionPayload(buildFallbackPayload());
+    return hydrateFromApi();
+  };
+
+  window.__tfClearAuthState = function() {
+    try {
+      window.session = window.session || {};
+      window.session.channelId = 0;
+      window.session.channelName = '';
+      window.session.accountChannelName = '';
+      window.session.tiktokUsername = '';
+      window.session.featureBaseToken = '';
+      window.session.me = { channelId: 0, channelName: '', challengeRunning: false, challengeName: null, challengeStartAt: null, dynamicSettings: {}, profiles: [] };
+      window.session.channel = window.session.me;
+      window.session.channeluser = null;
+      window.session.userFeatures = { isPro: false, proInfo: { plan: 'free', active: false } };
+      window.session.subscription = { isPro: false, plan: 'free', active: false };
+      window.session.profile = null;
+      window.session.wsAuthToken = '';
+      window.session.discordVerifyToken = '';
+    } catch (e) {}
+  };
+
+  // Check if user has a valid token → toggle tf-logged-out class early
+  try {
+    var _earlyToken = readStorage('setting_loginaccesstoken', '');
+    if (_earlyToken && _earlyToken.length > 10) {
+      document.body.classList.remove('tf-logged-out');
+      console.log('[TF-Auth] Token found, removing tf-logged-out');
+    } else {
+      console.log('[TF-Auth] No token, staying in guest mode');
+    }
+  } catch (e) {}
+
+  // Set session data IMMEDIATELY (synchronous)
+  try {
+    var _earlyPayload = buildFallbackPayload();
+    console.log('[TF-Auth] Early init: channelId=' + _earlyPayload.channelId);
+    applySessionPayload(_earlyPayload);
+  } catch (e) { console.warn('[TF-Auth] Early session init error:', e); }
+
+  // Then hydrate from API async (updates session after API response)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() { hydrateFromApi(); }, { once: true });
+  } else {
+    setTimeout(function() { hydrateFromApi(); }, 0);
+  }
+})();
+</script>

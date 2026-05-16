@@ -1,7 +1,7 @@
 // TikFinity Desktop — Electron main process.
 //
 // Architecture:
-//   1. Spawn the local .NET backend (TikFinityBackend) on port 5285.
+//   1. Spawn the local Node backend (backend-node) on port 5285.
 //   2. Show splash window while backend warms up (~2-5s on first run).
 //   3. Configure session header rewriting + UA spoofing so embedded TikTok /
 //      Spotify / Younow / Easemob / Agora flows pass anti-bot heuristics.
@@ -134,22 +134,21 @@ function bootstrap() {
         console.log('[Electron] App ready');
 
         // Free up our well-known ports BEFORE anything else binds — a previous
-        // crashed run can leave the .NET backend or the tiktok-bridge node
-        // process zombied and still holding TCP listeners. If the bridge can't
-        // bind 5288 it falls back to a random port, which then drifts between
-        // restarts and breaks the backend's reconnect loop ("Bridge not
-        // connected"). This runs synchronously so the rest of bootstrap sees
-        // clean ports.
+        // crashed run can leave the backend node process zombied and still
+        // holding TCP listeners. With the Node port the TikTok bridge runs
+        // in-process so 5288 is only kept in the cleanup list for backwards
+        // compatibility (old installs still have that port leased).
+        // Runs synchronously so the rest of bootstrap sees clean ports.
         freeOurPorts();
 
         authStore.init(app.getPath('userData'));
         currentAuth = authStore.load();
 
         // TikTok session cookie store. hydrateEnv() pushes the saved cookie
-        // into process.env.TIKTOK_SESSIONID so the bridge spawn (which is a
-        // child of the backend, which is a child of this process) inherits
-        // it. Without this the bridge has to fall back to Eulerstream signing
-        // and gets rate-limited / IP-flagged.
+        // into process.env.TIKTOK_SESSIONID so the Node backend (child of this
+        // process, runs tiktok-live-connector in-process) inherits it.
+        // Without this the bridge has to fall back to Eulerstream signing and
+        // gets rate-limited / IP-flagged.
         tiktokSessionStore.init(app.getPath('userData'));
         await tiktokSignin.hydrateEnv();
 
@@ -175,6 +174,20 @@ function bootstrap() {
         }
 
         startBackend();
+
+        // ── Bridge → DAPI relay ──────────────────────────────────────────
+        // Some overlays (activity-feed, custom Streamerbot plugins, raw
+        // websocket consumers in `downloads/widget/vite/`) connect to the
+        // Desktop API at ws://localhost:21213 and expect TikTok events as
+        // `{event, data}` JSON frames. The C# backend used to inject
+        // events into that pipeline directly; the Node bridge only emits
+        // via Socket.IO, so without this relay activity-feed connects but
+        // never receives a single event.
+        //
+        // Subscribing here (Electron main) means we stay on a single
+        // canonical event stream (Node bridge as source-of-truth) and
+        // wsserver.js doesn't need to grow message-handling logic.
+        startBridgeToDapiRelay();
         createTray();
 
         try {
@@ -186,7 +199,7 @@ function bootstrap() {
             dialog.showErrorBox(
                 'Startup Error',
                 'Không thể khởi động TikFinity backend.\n\n' +
-                `Hãy chắc chắn .NET 9 đã cài đặt và port ${BACKEND_PORT} đang rảnh.\n\n` +
+                `Hãy chắc chắn port ${BACKEND_PORT} đang rảnh và Node.js có sẵn (nếu chạy từ source).\n\n` +
                 err.message
             );
             app.quit();
@@ -243,7 +256,7 @@ function bootstrap() {
  * during bootstrap so the rest of startup sees clean sockets.
  *
  * We target ports by PID (extracted from `netstat -ano`), not by process name,
- * so unrelated `node.exe` / `dotnet.exe` instances (VS Code, dev tools, other
+ * so unrelated `node.exe` instances (VS Code, dev tools, other
  * apps) stay untouched. The taskkill itself is best-effort — if the PID is
  * already gone or owned by another user, we silently move on.
  */
@@ -283,42 +296,34 @@ function freeOurPorts() {
 // ---------------------------------------------------------------------------
 
 function getBackendLaunchConfig() {
+    // Node port lives under `backend-node/` (sibling of `backend/`). Entry
+    // point: `src/index.js`. In packaged builds the whole tree is shipped
+    // under `resources/backend-node/` and we re-execute Electron itself in
+    // Node mode (ELECTRON_RUN_AS_NODE=1) so we don't have to bundle a second
+    // node.exe alongside the app.
+    const projDir = app.isPackaged
+        ? path.join(process.resourcesPath, 'backend-node')
+        : path.join(__dirname, '..', 'backend-node');
+    const entry = path.join(projDir, 'src', 'index.js');
+
     if (app.isPackaged) {
-        const exeName = isWin ? 'TikFinityBackend.exe' : 'TikFinityBackend';
-        const exePath = path.join(process.resourcesPath, 'backend', exeName);
         return {
-            command: exePath,
-            args: [],
-            cwd: path.join(process.resourcesPath, 'backend'),
-            label: exePath
-        };
-    }
-    const projDir = path.join(__dirname, '..', 'backend');
-    // Direct DLL exec ~525ms faster than `dotnet run --no-build` (1375ms vs 1900ms
-    // measured) because it skips csproj parse / target / dep resolution. Falls
-    // back to `dotnet run` if the DLL hasn't been built yet.
-    const releaseDll = path.join(projDir, 'bin', 'Release', 'net9.0', 'TikFinityBackend.dll');
-    const debugDll   = path.join(projDir, 'bin', 'Debug',   'net9.0', 'TikFinityBackend.dll');
-    const dll = fs.existsSync(releaseDll) ? releaseDll
-              : fs.existsSync(debugDll)   ? debugDll
-              : null;
-    if (dll) {
-        return {
-            command: isWin ? 'dotnet.exe' : 'dotnet',
-            args: [dll],
+            command: process.execPath,
+            args: [entry],
             cwd: projDir,
-            label: `dotnet ${dll}`
+            label: `electron --node ${entry}`,
+            extraEnv: { ELECTRON_RUN_AS_NODE: '1' },
         };
     }
-    // Fallback path: no pre-built DLL on disk. This happens on a fresh clone
-    // before the user runs `dotnet build` once. Do NOT pass --no-build here —
-    // that flag would require the DLL to already exist and would fail on
-    // exactly the case this fallback is meant to handle.
+    // Dev: use the user's node (faster startup than spinning up Electron). If
+    // the user lacks a global node we'd still fall back to Electron-as-node,
+    // but every dev box that has Electron also has Node.
     return {
-        command: isWin ? 'dotnet.exe' : 'dotnet',
-        args: ['run', '--project', projDir, '--no-launch-profile'],
+        command: isWin ? 'node.exe' : 'node',
+        args: [entry],
         cwd: projDir,
-        label: `dotnet run --project ${projDir} (fallback — no DLL found, will build)`
+        label: `node ${entry}`,
+        extraEnv: {},
     };
 }
 
@@ -340,9 +345,22 @@ function startBackend() {
     console.log(`[Electron] Backend log file: ${logPath}`);
 
     try {
+        // Pin data dir to per-user app dir so DB + uploads survive app updates.
+        // Better-sqlite3 needs Electron's node ABI when running under Electron;
+        // ELECTRON_RUN_AS_NODE in extraEnv handles that for packaged builds.
+        const dataDir = path.join(app.getPath('userData'), 'tikfinity-data');
+        try { fs.mkdirSync(dataDir, { recursive: true }); } catch { /* exists */ }
+
         backendProcess = spawn(cfg.command, cfg.args, {
             cwd: cfg.cwd,
-            env: { ...process.env, PORT: String(BACKEND_PORT) },
+            env: {
+                ...process.env,
+                ...(cfg.extraEnv || {}),
+                PORT: String(BACKEND_PORT),
+                HOST: '127.0.0.1',
+                TIKMAX_DATA_DIR: dataDir,
+                NODE_ENV: app.isPackaged ? 'production' : 'development',
+            },
             stdio: ['ignore', 'pipe', 'pipe']
         });
         backendProcess.stdout.on('data', d => {
@@ -388,6 +406,84 @@ function startBackend() {
     } catch (err) {
         console.error('[Electron] Failed to spawn backend:', err);
     }
+}
+
+// Relay TikTok events from Node bridge (Socket.IO) → Desktop API (raw WS at
+// 21213) so raw-WS overlays (activity-feed, custom plugins) get events.
+//
+// The C# version had the bridge service itself dual-broadcast; the Node port
+// only emits via Socket.IO. Without this relay, /downloads/widget/vite/
+// overlays connect to DAPI fine but never see a single TikTok event.
+//
+// Events relayed (the set the activity-feed widget filters on, plus extras
+// the original DAPI exposed): chat, gift, like, share, follow, member,
+// subscribe, emote, envelope, questionNew, roomUser, connected,
+// disconnected, streamEnd, error.
+let _bridgeRelaySocket = null;
+let _bridgeRelayRetryTimer = null;
+const RELAYED_EVENTS = [
+    'chat', 'gift', 'like', 'share', 'follow', 'member', 'subscribe',
+    'emote', 'envelope', 'questionNew', 'roomUser', 'liveIntro',
+    'connected', 'disconnected', 'streamEnd', 'error',
+];
+
+function startBridgeToDapiRelay() {
+    let io;
+    try { io = require('socket.io-client'); }
+    catch (err) {
+        console.warn('[Relay] socket.io-client not installed — bridge→DAPI relay disabled. Run `npm install` inside electron/.');
+        return;
+    }
+
+    const connect = () => {
+        if (_bridgeRelayRetryTimer) {
+            clearTimeout(_bridgeRelayRetryTimer);
+            _bridgeRelayRetryTimer = null;
+        }
+        if (_bridgeRelaySocket && _bridgeRelaySocket.connected) return;
+
+        const sock = io(BACKEND_URL, {
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionDelay: 2000,
+            reconnectionDelayMax: 10000,
+            timeout: 5000,
+            autoConnect: true,
+        });
+        _bridgeRelaySocket = sock;
+
+        sock.on('connect', () => {
+            console.log('[Relay] Bridge→DAPI Socket.IO client connected (id=' + sock.id + ')');
+            // Identify as a relay client so the bridge's per-channel
+            // broadcasts don't filter us out (we want EVERY event).
+            sock.emit('setContext', { channelId: 0, appType: 'relay' });
+        });
+        sock.on('disconnect', (reason) => {
+            console.log('[Relay] Bridge→DAPI socket disconnected:', reason);
+        });
+        sock.on('connect_error', (err) => {
+            // Backend not up yet — Socket.IO client auto-reconnects, no log spam.
+            if (process.env.TIKMAX_RELAY_DEBUG === '1') {
+                console.log('[Relay] connect_error:', err.message);
+            }
+        });
+
+        // Forward each TikTok-shaped event to every DAPI client.
+        for (const eventName of RELAYED_EVENTS) {
+            sock.on(eventName, (data) => {
+                if (!dapi) return;
+                try {
+                    dapi.broadcast({ event: eventName, data });
+                } catch (err) {
+                    console.warn('[Relay] dapi.broadcast threw:', err.message);
+                }
+            });
+        }
+    };
+
+    // Try to connect immediately. If backend isn't up yet (race during
+    // bootstrap), the Socket.IO client's internal reconnect loop handles it.
+    connect();
 }
 
 function waitForBackend(maxRetries, delayMs) {
@@ -991,6 +1087,37 @@ function configureSession() {
         }
     });
 
+    // Bundle's overlay-gallery UI links to `/widget/<name>?cid=1&preview=1`
+    // using an `<a download>` element. Chromium honours `download` attribute
+    // for same-origin URLs and shows a Save dialog INSTEAD of navigating —
+    // even though Content-Type is text/html. Cancel that download and re-open
+    // the URL in a real BrowserWindow so the user sees the widget render.
+    sess.on('will-download', (event, item, _wc) => {
+        const url = item.getURL();
+        if (url.startsWith(BACKEND_URL + '/widget/') ||
+            url.startsWith('http://localhost:' + BACKEND_PORT + '/widget/') ||
+            url.startsWith('http://127.0.0.1:' + BACKEND_PORT + '/widget/')) {
+            event.preventDefault();
+            try { item.cancel(); } catch { /* may already be torn down */ }
+            const popup = new BrowserWindow({
+                show: false,
+                width: 800,
+                height: 600,
+                autoHideMenuBar: true,
+                title: 'TikFinity Widget',
+                backgroundColor: '#000000',
+                parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+                webPreferences: { contextIsolation: false, nodeIntegration: false },
+            });
+            popup.setMenuBarVisibility(false);
+            popup.once('ready-to-show', () => { if (!popup.isDestroyed()) popup.show(); });
+            popup.loadURL(url).catch((err) => {
+                console.warn('[Widget Preview] loadURL failed:', err.message);
+                if (!popup.isDestroyed()) popup.close();
+            });
+        }
+    });
+
 
     // Strip CSP / open CORS for the third-party domains TikFinity plugins hit.
     sess.webRequest.onHeadersReceived({
@@ -1221,15 +1348,43 @@ async function prepareRendererAuthSeed() {
     return rendererAuthSeedPromise;
 }
 
+// Persist window position/size/maximize state across launches so the user's
+// chosen layout survives reload + restart. Without this, every relaunch
+// reset the user to 1400x900 and force-unmaximize, which clashed with the
+// idol's preference for a fullscreen TikFinity panel.
+function loadWindowState() {
+    const file = path.join(app.getPath('userData'), 'window-state.json');
+    try {
+        if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch { /* corrupt — fall through to defaults */ }
+    return null;
+}
+function saveWindowState(win) {
+    if (!win || win.isDestroyed()) return;
+    try {
+        const bounds = win.getBounds();
+        const state = { ...bounds, isMaximized: win.isMaximized() };
+        const file = path.join(app.getPath('userData'), 'window-state.json');
+        fs.writeFileSync(file, JSON.stringify(state, null, 2));
+    } catch (err) {
+        console.warn('[window-state] save failed:', err.message);
+    }
+}
+
 function createMainWindow() {
     if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.show();
         return;
     }
 
+    const saved = loadWindowState();
+    const defaults = { width: 1400, height: 900 };
+    const init = saved && Number.isFinite(saved.width) && Number.isFinite(saved.height)
+        ? { width: saved.width, height: saved.height, x: saved.x, y: saved.y }
+        : defaults;
+
     mainWindow = new BrowserWindow({
-        width: 1400,
-        height: 900,
+        ...init,
         minWidth: 1230,
         minHeight: 700,
         show: false,
@@ -1245,6 +1400,20 @@ function createMainWindow() {
             preload: path.join(__dirname, 'preload.js')
         }
     });
+    if (saved && saved.isMaximized) {
+        try { mainWindow.maximize(); } catch { /* ignore */ }
+    }
+    // Save state on every move/resize/maximize toggle so a hard crash still
+    // preserves the most recent layout.
+    let _saveDebounce = null;
+    const debouncedSave = () => {
+        if (_saveDebounce) clearTimeout(_saveDebounce);
+        _saveDebounce = setTimeout(() => saveWindowState(mainWindow), 500);
+    };
+    mainWindow.on('resize', debouncedSave);
+    mainWindow.on('move', debouncedSave);
+    mainWindow.on('maximize', debouncedSave);
+    mainWindow.on('unmaximize', debouncedSave);
 
     // Use Chromium's default UA on the main window — only popups (TikTok login,
     // bridge windows) need the spoofed TikTokLIVEStudio UA from app.userAgentFallback.
@@ -1255,11 +1424,15 @@ function createMainWindow() {
 
     mainWindow.once('ready-to-show', () => {
         try { mainWindow.webContents.setZoomFactor(1); } catch { /* page not ready */ }
-        // Force non-maximized so the bundle's overlay grid doesn't expand into
-        // a 3-column layout that overflows the right edge on wide displays.
-        // The bundle's CSS isn't responsive past ~1500px.
-        try { if (mainWindow.isMaximized()) mainWindow.unmaximize(); } catch { /* race */ }
-        try { mainWindow.setSize(1400, 900); mainWindow.center(); } catch { /* race */ }
+        // NOTE: we used to force-unmaximize + setSize(1400, 900) here on
+        // every `ready-to-show` because the bundle's CSS at wide widths
+        // (e.g. fullscreen on a 1920x1080 panel) overflows buttons off-screen.
+        // That was a sledgehammer fix — every bundle reload reset the user's
+        // chosen window size, which felt jittery. The bundle ships
+        // `.obsOverlayContainer { zoom: 0.9 }` at >=1914px and
+        // `zoom: 1` again at >=2100px (combo/modules.css), so HD/QHD users
+        // get a responsive layout natively. For the 1500-1900px gap we
+        // inject scale-clamp CSS in backend-node/src/templates/earlyCss.txt.
         if (process.env.TIKMAX_DEVTOOLS === '1') {
             try { mainWindow.webContents.openDevTools({ mode: 'detach' }); } catch { /* ignore */ }
         }
@@ -1625,6 +1798,32 @@ function handleWindowOpen(details) {
     if (isTikTokUrl) {
         shell.openExternal(url);
         return { action: 'deny' };
+    }
+
+    // Widget preview popups — the bundle's overlay configurator opens
+    // `http://localhost:5285/widget/<name>?cid=1&preview=1` in a new window
+    // when the user clicks the box-with-arrow "open externally" icon.
+    // Without explicit handling, Electron falls through to `shell.openExternal`
+    // (which can pop a Save dialog because the OS file-handler for localhost
+    // HTML is undefined on some Windows configs). Keep these in-app so the
+    // user sees the rendered widget instead of a Save dialog.
+    if (url.startsWith(BACKEND_URL + '/widget/') || url.startsWith('http://localhost:' + BACKEND_PORT + '/widget/')) {
+        return {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+                show: true,
+                width: 800,
+                height: 600,
+                autoHideMenuBar: true,
+                title: 'TikFinity Widget',
+                backgroundColor: '#000000',
+                parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+                webPreferences: {
+                    contextIsolation: false,
+                    nodeIntegration: false,
+                },
+            },
+        };
     }
 
     // In-app popups (Spotify auth, settings panes, widget previews, future

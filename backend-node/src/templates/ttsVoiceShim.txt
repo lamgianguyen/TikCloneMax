@@ -1,0 +1,113 @@
+<script>
+(function() {
+  // ── 1. Redirect Tikfinity TTS API → our local proxy ──────────────
+  var TIKFINITY_TTS_HOST = 'tikfinity-tts-api.zerody.one';
+  function rewriteTtsUrl(url) {
+    try {
+      if (typeof url !== 'string') return url;
+      if (url.indexOf(TIKFINITY_TTS_HOST) === -1) return url;
+      var u = new URL(url, location.origin);
+      var voice = u.searchParams.get('voice') || 'en_us_002';
+      var text = u.searchParams.get('text') || '';
+      return location.origin + '/api/tts/generate?voice=' + encodeURIComponent(voice) + '&text=' + encodeURIComponent(text);
+    } catch (e) { return url; }
+  }
+
+  // Intercept fetch (most modern clients)
+  var origFetch = window.fetch;
+  if (origFetch) {
+    window.fetch = function(input, init) {
+      if (typeof input === 'string') {
+        input = rewriteTtsUrl(input);
+      } else if (input && input.url && input.url.indexOf(TIKFINITY_TTS_HOST) !== -1) {
+        input = new Request(rewriteTtsUrl(input.url), input);
+      }
+      return origFetch(input, init);
+    };
+  }
+
+  // Intercept XHR (legacy clients)
+  var OrigXhrOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    arguments[1] = rewriteTtsUrl(url);
+    return OrigXhrOpen.apply(this, arguments);
+  };
+
+  // Intercept Audio.src = X (some TTS code does `new Audio(url)`)
+  var OrigAudio = window.Audio;
+  window.Audio = function(src) {
+    if (typeof src === 'string') src = rewriteTtsUrl(src);
+    return new OrigAudio(src);
+  };
+  window.Audio.prototype = OrigAudio.prototype;
+
+  var audioSrcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+  if (audioSrcDesc && audioSrcDesc.set) {
+    var origSrcSetter = audioSrcDesc.set;
+    Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+      get: audioSrcDesc.get,
+      set: function(v) { origSrcSetter.call(this, rewriteTtsUrl(v)); },
+      configurable: true
+    });
+  }
+
+  // ── 2. Web Speech voice fallback (for bundle's local TTS path) ───
+  if (!window.speechSynthesis) return;
+
+  // Eager voice load — Chromium's Web Speech API needs a kick to
+  // populate getVoices() synchronously. Without this, the bundle's
+  // first call returns [] and it caches an empty list.
+  function loadVoices() {
+    var vs = speechSynthesis.getVoices();
+    if (vs && vs.length > 0) return vs;
+    return [];
+  }
+  loadVoices();
+  speechSynthesis.addEventListener('voiceschanged', function() {
+    window.__tfVoicesReady = true;
+    console.log('[TTS shim] voices loaded:', speechSynthesis.getVoices().length);
+  });
+
+  // Patch SpeechSynthesisUtterance so .voice = X falls back gracefully
+  // when X isn't in the current voices list. Also auto-pick a voice
+  // for the requested lang if none is set.
+  var OrigUtt = window.SpeechSynthesisUtterance;
+  var voiceDesc = Object.getOwnPropertyDescriptor(OrigUtt.prototype, 'voice');
+  if (voiceDesc && voiceDesc.set) {
+    var origSetter = voiceDesc.set;
+    Object.defineProperty(OrigUtt.prototype, 'voice', {
+      get: voiceDesc.get,
+      set: function(v) {
+        try {
+          var all = speechSynthesis.getVoices();
+          if (v && all.length && !all.includes(v)) {
+            // Requested voice not in current list — find by name
+            var byName = v.name ? all.find(function(x){ return x.name === v.name; }) : null;
+            v = byName || all.find(function(x){ return (this.lang || '').slice(0,2) === (x.lang || '').slice(0,2); }, this) || all[0];
+          }
+          origSetter.call(this, v);
+        } catch (e) {
+          try { origSetter.call(this, null); } catch (e2) {}
+        }
+      },
+      configurable: true
+    });
+  }
+
+  // Intercept speak() to ensure a voice is set when bundle forgets to
+  var origSpeak = speechSynthesis.speak.bind(speechSynthesis);
+  speechSynthesis.speak = function(utt) {
+    try {
+      if (utt && !utt.voice) {
+        var all = speechSynthesis.getVoices();
+        if (all && all.length) {
+          var lang = (utt.lang || 'en-US').toLowerCase().slice(0, 2);
+          utt.voice = all.find(function(x){ return (x.lang || '').toLowerCase().slice(0,2) === lang; }) || all[0];
+          if (!utt.lang && utt.voice) utt.lang = utt.voice.lang;
+        }
+      }
+    } catch (e) { console.warn('[TTS shim] speak prep failed', e); }
+    return origSpeak(utt);
+  };
+})();
+</script>

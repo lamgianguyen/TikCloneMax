@@ -1,15 +1,16 @@
 {
-  "name": "clone",
+  "name": "tikfinity-clone",
   "version": "1.0.0",
-  "description": "TikFinity local clone",
-  "main": "index.js",
+  "description": "TikFinity desktop clone. Node backend + Electron shell + bundled frontend.",
+  "private": true,
   "scripts": {
-    "web": "dotnet run --project backend/TikFinityBackend.csproj --no-launch-profile",
+    "web": "npm --prefix backend-node start",
+    "web:dev": "npm --prefix backend-node run dev",
     "desktop": "npm --prefix electron start",
     "desktop:build": "npm --prefix electron run build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "install:all": "npm --prefix backend-node install && npm --prefix electron install",
+    "build:installer": "npm --prefix electron run build:installer"
   },
-  "keywords": [],
   "author": "",
   "license": "ISC"
 }

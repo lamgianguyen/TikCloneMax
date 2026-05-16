@@ -1,0 +1,42 @@
+<script src="/twemoji/twemoji.min.js"></script>
+<script>
+(function() {
+  // Local Twemoji set served from /twemoji/svg/ — works offline, no CDN/WARP issues.
+  var BASE = '/twemoji/';
+  function applyTwemoji() {
+    if (!window.twemoji) return false;
+    try {
+      window.twemoji.parse(document.body, {
+        folder: 'svg', ext: '.svg', base: BASE,
+        className: 'twemoji'
+      });
+    } catch (e) { console.warn('[twemoji] parse failed:', e); }
+    return true;
+  }
+  // Style the inline twemoji <img> so it sits inline with text and has a
+  // sensible default size matching the surrounding font.
+  var style = document.createElement('style');
+  style.textContent =
+    'img.twemoji { height: 1em; width: 1em; margin: 0 0.05em 0 0.1em; vertical-align: -0.1em; display: inline-block; }';
+  document.head.appendChild(style);
+
+  // Initial parse + re-parse on every Vue mutation so dynamically rendered
+  // emojis (language dropdown items, gift names, chat messages) get converted.
+  function start() {
+    applyTwemoji();
+    var pending = false;
+    new MutationObserver(function() {
+      if (pending) return;
+      pending = true;
+      setTimeout(function() { pending = false; applyTwemoji(); }, 200);
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+  // twemoji loads async — wait until ready
+  var tries = 0;
+  var iv = setInterval(function() {
+    tries++;
+    if (window.twemoji) { clearInterval(iv); start(); }
+    else if (tries > 50) clearInterval(iv);
+  }, 100);
+})();
+</script>
