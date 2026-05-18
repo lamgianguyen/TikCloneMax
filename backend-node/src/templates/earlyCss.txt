@@ -2,8 +2,19 @@
   /* Paint a dark canvas from the very first frame so the multiple
      bootstrap reloads (and switchProfile-triggered location.reload())
      don't flash white between renders. Matches Electron's
-     backgroundColor #212121 used in main.js. */
-  html { background: #1c1d22 !important; }
+     backgroundColor #1c1d22 used in main.js. */
+  html {
+    background: #1c1d22 !important;
+    /* Reserve vertical scrollbar space ALWAYS so viewport-width stays
+       constant regardless of page content height. Without this, switching
+       between profiles with different overlay counts causes the scrollbar
+       to appear/disappear, shifting viewport-width by ~15px and crossing
+       @media (max-width: 1913px) breakpoints — same window size renders
+       at different zoom levels per profile. `stable` reserves the gutter
+       even when no scrollbar is needed; `both-edges` keeps centered
+       layouts honest. Falls back to standard rendering on old browsers. */
+    scrollbar-gutter: stable !important;
+  }
   body { background: #1c1d22 !important; color: #e5e7eb; }
 
   /* Switch-profile loading overlay — covers viewport during the bundle's
@@ -59,29 +70,32 @@
      + sub-sidebar) is narrower than the bundle's design assumes; the
      page-level `overflow-x: auto` we set above lets the user scroll. */
 
-  /* === Wide-display scale fix ============================================
-     Bundle ships `.obsOverlayContainer { zoom: 0.9 }` at min-width: 1914px
-     and `zoom: 1` at min-width: 2100px (downloads/combo/modules.css). The
-     band BETWEEN ~1500px and 1914px gets no responsive treatment — content
-     area is wider than the bundle's CSS expects (max-width content cards
-     ~1500px), so the Overlay Gallery's 2-card grid overflows past the
-     right edge and the user's maximize button hides the rightmost Test /
-     Customize / "open external" controls behind the scrollbar.
-
-     Trigger the bundle's own zoom-out earlier so users with 1600+ px
-     panels (or anyone who maximizes the window) get a usable layout
-     without us forcing an unmaximize on every reload. */
-  @media (min-width: 1500px) and (max-width: 1913px) {
-    .obsOverlayContainer { zoom: 0.85 !important; }
+  /* === Overlay Gallery layout (replace `zoom` with grid auto-fit) ========
+     Bundle ships `.obsOverlayContainer { display:flex; flex-wrap:wrap; gap:20px }`
+     plus `zoom: 0.9` @1914px and `zoom: 1` @2100px. Problem: CSS `zoom` is
+     non-standard, doesn't reliably trigger reflow on window resize in
+     Chromium — going from small window (1300px, zoom:1) to maximized
+     (1920px, zoom:0.9) leaves the layout stuck mid-state until Ctrl+R.
+     Replace with CSS Grid `repeat(auto-fit, minmax())` — standard, native
+     responsive, reflows correctly on every resize event. Override bundle's
+     `zoom` curves entirely so they don't fight our grid. */
+  .obsOverlayContainer {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(720px, 1fr)) !important;
+    gap: 20px !important;
+    zoom: 1 !important;             /* neutralize bundle's responsive zoom */
+    max-width: 100% !important;
+    overflow-x: hidden !important;  /* grid handles wrapping, no scroll needed */
   }
-  @media (min-width: 1914px) and (max-width: 2099px) {
-    .obsOverlayContainer { zoom: 0.9 !important; }
+  /* Cards inside the gallery grid: bundle sets `width: 780px` on
+     `.graphicSection` which would force overflow at narrow viewports —
+     let the grid cell drive width instead. Only target direct children
+     of the gallery container so non-gallery `.graphicSection` usages
+     (e.g. inside topbar widgets) keep their bundle-native sizing. */
+  .obsOverlayContainer > .graphicSection {
+    max-width: 100% !important;
+    width: auto !important;
   }
-  /* Belt-and-braces: anywhere a card row would overflow horizontally,
-     allow the row to scroll within the page rather than pushing the
-     viewport. Bundle's `.graphicSection` is the overlay-row wrapper. */
-  .graphicSection { max-width: 100% !important; }
-  .obsOverlayContainer { max-width: 100% !important; overflow-x: auto !important; }
 
   /* === GUEST STATE (tf-logged-out) === */
   /* Hide dropdowns/popups in profile area */
@@ -106,6 +120,16 @@
     background: #1c1d22 !important;
     z-index: 2147483646 !important;
     color: #cbd5e0;
+    /* Force full viewport — bundle's own width sometimes shrinks during
+       the reload chain, exposing the Electron window background on the
+       right. Pin to 100vw/100vh so the dark canvas always reaches the
+       edges, matching the smooth final loading state. */
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
   #splashScreen .loadingSpinner { filter: brightness(1.2); }
   #splashScreen .loadingStaticText {
@@ -131,6 +155,45 @@
   body.tf-splash-active #sidebar,
   body.tf-splash-active #tf-guest-topbar,
   body.tf-splash-active #tf-topbar-mount {
+    visibility: hidden !important;
+  }
+  /* While the splash is up, kill the body scrollbar entirely. Without this
+     the bundle's bootstrap chain causes the page height to jitter (sidebar
+     mounts → 100vh, splash overlays → no inner content, etc.) and the
+     scrollbar flashes on/off every few hundred ms — visible as a jiggling
+     bar on the right edge. `overflow:hidden` while splash is active is
+     safe because nothing is interactable anyway. */
+  body.tf-splash-active { overflow: hidden !important; }
+  html.tf-splash-active { overflow: hidden !important; }
+  /* Kill body scrollbar whenever our `#tf-switch-overlay` is present — it
+     covers the full viewport so any scroll position underneath is invisible
+     anyway, and Vue's bootstrap chain that triggered the overlay also
+     swaps the page's scroll height a few times per second, causing the
+     bar to flicker. `:has()` is supported in modern Chromium (Electron). */
+  html:has(#tf-switch-overlay),
+  body:has(#tf-switch-overlay) {
+    overflow: hidden !important;
+  }
+
+  /* The bundle's profile chip has a sibling preview card — a large `<img>`
+     of the connected TikTok account's avatar, anchored `top: 100%` so it
+     sits BELOW the chip. The card was meant as a hover preview but renders
+     unconditionally in our build (no parent group:hover hook fires), so a
+     ~150px square avatar dangles down across the page when the chip is
+     present. Hide the misplaced preview — the chip's own SVG (or our
+     overlay <img id=tf-chip-avatar>) shows the avatar in-line where it
+     belongs. Match the `absolute + top-full` combo (Tailwind utility
+     classes) — this combination only exists on dangling-preview <img>s
+     in the topbar, not on legitimate UI elements. */
+  /* Dynamic match: any <img> sourced from TikTok's CDN AND positioned via
+     Tailwind `absolute` utility class. The chip's legitimate inline-styled
+     overlay (created by paintTopbarAvatar with `style="position:absolute"`)
+     is unaffected because it has no `absolute` CSS class — only an inline
+     style. Works for any TikTok username, not hardcoded to one account. */
+  img[src*="tiktokcdn"][class*="top-full"],
+  img[src*="tiktokcdn"][class*="absolute"][class*="right-0"],
+  img[src*="tiktokcdn.com/tos-"][class*="absolute"] {
+    display: none !important;
     visibility: hidden !important;
   }
 </style>

@@ -47,7 +47,17 @@ const _state = {
   lastErrorAt: 0,
   roomId: null,
   roomInfo: null,
+  // Watchdog: timestamp of the last inbound event (chat/like/gift/roomUser/etc).
+  // The connector library doesn't always emit `streamEnd` reliably when a
+  // host stops streaming or the network drops — we fall back on event quiet
+  // to detect a dead connection.
+  lastEventAt: 0,
 };
+
+// How long we tolerate event silence before assuming the stream ended.
+// 4 min — low-activity rooms can be quiet, but TikTok itself sends roomUser
+// heartbeats every ~30-60s while live so 4 min of total silence is decisive.
+const EVENT_SILENCE_TIMEOUT_MS = 4 * 60 * 1000;
 
 // Extract avatar URL from a webcast `Image` proto. v2 uses `url: string[]`
 // (singular, despite holding multiple resolutions). Legacy converter sometimes
@@ -265,10 +275,11 @@ async function tryConnectOnce(clean, channelId, attempt) {
   }
 }
 
-async function connect(username, channelId) {
+async function connect(username, channelId, opts) {
   if (!username || typeof username !== 'string') {
     throw new Error('username required');
   }
+  const userClick = !!(opts && opts.userClick);
   const clean = username.trim().replace(/^@+/, '');
   // Idempotent: if we're already connected to the same username, just return
   // success. Bundle re-POSTs /api/tiktok/connect frequently (focus events,
@@ -313,8 +324,13 @@ async function connect(username, channelId) {
 
   _state.connecting = false;
   _state.connected = false;
+  // Only bump lastErrorAt for user-initiated clicks. Auto-connect calls
+  // (bundle bootstrap, browserbridge hook, periodic re-hook) update
+  // _state.lastError silently so the bundle can read the latest reason
+  // via /api/tiktok/status, but tfConnectErrorPopup's "lastErrorAt
+  // advanced" check stays put — no popup pops up.
   _state.lastError = lastErr?.message || String(lastErr);
-  _state.lastErrorAt = Date.now();
+  if (userClick) _state.lastErrorAt = Date.now();
   throw lastErr || new Error('Connection failed after retries');
 }
 
@@ -327,8 +343,18 @@ function wireEvents(conn, channelId, username) {
   // the primary defense; this is a belt-and-braces backup.
   const isStale = () => _state.connection && _state.connection !== conn;
 
+  // Universal event-clock bump. Any real inbound event proves the room is
+  // still alive — feed the watchdog so it doesn't kill the connection.
+  conn.on('*', () => { if (!isStale()) _state.lastEventAt = Date.now(); });
+  // Some versions of the connector don't support '*' — wire a few specific
+  // high-traffic events as fallback. Harmless when '*' already fired.
+  ['chat', 'like', 'gift', 'roomUser', 'member', 'follow', 'share'].forEach((ev) => {
+    conn.on(ev, () => { if (!isStale()) _state.lastEventAt = Date.now(); });
+  });
+
   conn.on('connected', (state) => {
     if (isStale()) return;
+    _state.lastEventAt = Date.now();  // arm watchdog on connect
     broadcast(channelId, 'connected', {
       username, roomId: state.roomId, roomInfo: state.roomInfo || {},
     });
@@ -351,12 +377,17 @@ function wireEvents(conn, channelId, username) {
     _state.connected = false;
   });
 
+  // Don't broadcast `connectFailed` from per-error event — the connector
+  // emits `error` multiple times during a single attempt (signing fail,
+  // websocket teardown, retry intermediate) which would stack popups.
+  // The route handler (routes/tiktok.js) emits ONE `connectFailed` on the
+  // final user-initiated attempt failure. Internal retries + watchdog
+  // disconnects stay silent.
   conn.on('error', (err) => {
     if (isStale()) return;
     const msg = err?.info || err?.message || String(err);
     logger.warn(`[TikTokBridge] error: ${msg}`);
     broadcast(channelId, 'error', { message: msg, username });
-    sockets.broadcast('connectFailed', { username, error: msg });
   });
 
   conn.on('streamEnd', (actionId) => {
@@ -553,19 +584,31 @@ function wireEvents(conn, channelId, username) {
 }
 
 // Derive the connected TikTok account's owner / room snapshot from the raw
-// tiktok-live-connector roomInfo blob. The bundle's connection / profile UI
-// reads any of `avatarUrl` / `profilePictureUrl` / `owner.avatar_thumb.url_list`
-// — flatten the common variants here so the same payload satisfies every
-// caller (status pollers, profile chip, OBS dock).
+// tiktok-live-connector roomInfo blob. `fetchRoomInfo()` returns the TikTok
+// webcast `room/info/` API response which can be shaped as either:
+//   - { data: { owner, title, stats, ... }, extra: {...} }   (typical)
+//   - { owner, title, stats, ... }                            (legacy / direct)
+//   - { liveRoomUserInfo: { user, stats, ... } }              (HTML SIGI fallback)
+// Walk all three shapes so the chip avatar shows up regardless of which
+// route the connector took. The bundle's connection / profile UI reads
+// `avatarUrl` / `profilePictureUrl` / `owner.avatar_thumb.url_list` — flatten
+// the common variants here so the same payload satisfies every caller.
 function accountSnapshot() {
-  const ri = _state.roomInfo || {};
-  const owner = ri.owner || ri.host || {};
+  const raw = _state.roomInfo || {};
+  // Unwrap common envelopes: TikTok wraps in `data`, HTML fallback in `liveRoomUserInfo`.
+  const ri = raw.data || raw.liveRoomUserInfo || raw;
+  // SIGI HTML fallback puts the streamer under `user`, not `owner`.
+  const owner = ri.owner || ri.host || ri.user || raw.user || {};
   const avatarList = owner.avatar_thumb?.url_list
     || owner.avatar_medium?.url_list
     || owner.avatar_large?.url_list
+    || owner.avatarThumb?.urlList
+    || owner.avatarMedium?.urlList
+    || owner.avatarLarger?.urlList
     || [];
   const avatarUrl = (Array.isArray(avatarList) && avatarList[0])
     || owner.avatar_url
+    || owner.avatarUrl
     || owner.profilePictureUrl
     || '';
   const followerCount = owner.follow_info?.follower_count
@@ -626,6 +669,47 @@ function status() {
     stats: aggregates.snapshot(),
   };
 }
+
+// Liveness watchdog. Some streams die without TikTok ever sending a
+// `streamEnd` / `disconnected` packet — network drops, host-side glitches,
+// or the connector library missing the control message. Every 30s we
+// inspect `lastEventAt`; if a "connected" room hasn't produced any event
+// in EVENT_SILENCE_TIMEOUT_MS, we treat it as ended: tear down the conn,
+// broadcast disconnect to widgets, and clear `_state.connected` so the
+// topbar/profile chip stops lying that the stream is LIVE.
+setInterval(() => {
+  if (!_state.connected) return;
+  if (!_state.lastEventAt) return;          // not armed yet (just connected)
+  const silence = Date.now() - _state.lastEventAt;
+  if (silence < EVENT_SILENCE_TIMEOUT_MS) return;
+
+  const channelId = _state.channelId;
+  const username = _state.username;
+  logger.warn(`[TikTokBridge] watchdog: no events for ${Math.round(silence / 1000)}s @${username} — marking disconnected`);
+  _state.connected = false;
+  _state.connecting = false;
+  // Reset event clock so the next connection round starts fresh.
+  _state.lastEventAt = 0;
+  // Tear down the (likely-dead) connection. removeAllListeners first so the
+  // late-firing `disconnected` event doesn't clobber a fresh state.
+  if (_state.connection) {
+    try { _state.connection.removeAllListeners?.(); } catch { /* ignore */ }
+    try { _state.connection.disconnect(); } catch { /* ignore */ }
+    _state.connection = null;
+  }
+  // Tell widgets + topbar.
+  try {
+    sockets.broadcast('status', { connected: false, tiktok: false, connecting: false });
+    sockets.broadcast('channelStatus', {
+      channelId, connected: false, connecting: false, tiktok: username,
+      isConnectedToTikTok: false, isConnecting: false,
+      reason: 'watchdog-silence',
+    });
+    if (channelId > 0) {
+      sockets.broadcastToChannel('streamEnd', { username, reason: 'watchdog-silence' }, channelId, 'widget');
+    }
+  } catch { /* socket may not be bound during shutdown */ }
+}, 30 * 1000).unref?.();
 
 module.exports = {
   connect,

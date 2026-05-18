@@ -19,11 +19,14 @@
     try {
       var el = document.getElementById('splashScreen');
       var body = document.body;
-      if (!body) return;
+      var html = document.documentElement;
+      if (!body || !html) return;
       if (tfIsSplashVisible(el)) {
         body.classList.add('tf-splash-active');
+        html.classList.add('tf-splash-active');
       } else {
         body.classList.remove('tf-splash-active');
+        html.classList.remove('tf-splash-active');
       }
     } catch (_) {}
   }
@@ -120,6 +123,35 @@
   // which duplicates our centered popup (the one with "Login TikTok" button).
   // Watch for the bundle's modal and hide it. Match by signature text so we
   // don't accidentally hide legit modals.
+  // Dev-only auto-reload: backend's `fs.watch` on templates/ broadcasts
+  // `tf-dev-reload` over Socket.IO whenever a .txt template is saved. We
+  // poll for `window.io` (bundle's socket client) and attach a listener
+  // that calls location.reload(). Keeps the iterate-on-CSS loop tight —
+  // no manual Ctrl+R needed.
+  (function tfDevAutoReload(){
+    var attached = false;
+    var poll = setInterval(function() {
+      if (attached) { clearInterval(poll); return; }
+      var io = window.io;
+      if (!io || typeof io.on !== 'function') return;
+      try {
+        io.on('tf-dev-reload', function() {
+          console.log('[TF-DEV] template changed — auto-reload');
+          try { localStorage.setItem('__tf_dev_reload_ts', String(Date.now())); } catch (_) {}
+          // Use window.__tfOrigReload if available (bypasses reloadGuard),
+          // otherwise fall back to plain reload.
+          if (typeof window.__tfOrigReload === 'function') window.__tfOrigReload();
+          else location.reload();
+        });
+        attached = true;
+        clearInterval(poll);
+        console.log('[TF-DEV] auto-reload listener attached');
+      } catch (e) {}
+    }, 500);
+    // Stop polling after 30s if io never appears.
+    setTimeout(function() { if (!attached) clearInterval(poll); }, 30000);
+  })();
+
   (function suppressBundleConnFailedModal(){
     var SIGNATURE = /Failed to access your LIVE stream/i;
     function hideIfBundleModal(node) {

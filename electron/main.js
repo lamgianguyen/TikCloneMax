@@ -1094,28 +1094,48 @@ function configureSession() {
     // the URL in a real BrowserWindow so the user sees the widget render.
     sess.on('will-download', (event, item, _wc) => {
         const url = item.getURL();
-        if (url.startsWith(BACKEND_URL + '/widget/') ||
-            url.startsWith('http://localhost:' + BACKEND_PORT + '/widget/') ||
-            url.startsWith('http://127.0.0.1:' + BACKEND_PORT + '/widget/')) {
-            event.preventDefault();
-            try { item.cancel(); } catch { /* may already be torn down */ }
-            const popup = new BrowserWindow({
-                show: false,
-                width: 800,
-                height: 600,
-                autoHideMenuBar: true,
-                title: 'TikFinity Widget',
-                backgroundColor: '#000000',
-                parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
-                webPreferences: { contextIsolation: false, nodeIntegration: false },
-            });
-            popup.setMenuBarVisibility(false);
-            popup.once('ready-to-show', () => { if (!popup.isDestroyed()) popup.show(); });
-            popup.loadURL(url).catch((err) => {
-                console.warn('[Widget Preview] loadURL failed:', err.message);
-                if (!popup.isDestroyed()) popup.close();
-            });
-        }
+        // Backend serves extensionless HTML landing pages under multiple
+        // paths — /widget/<name>, /tiktok/<page>, /streamerbot-integration,
+        // /chatbot-troubleshooting, /get-tiktok-username, /studiofix etc.
+        // Any of these can trigger Chromium's download path if the response
+        // Content-Type slips back to octet-stream OR the bundle uses
+        // `<a download>`. Catch all local-backend URLs without a file
+        // extension and open them in a popup window instead of downloading.
+        const isLocalBackend =
+            url.startsWith(BACKEND_URL + '/') ||
+            url.startsWith('http://localhost:' + BACKEND_PORT + '/') ||
+            url.startsWith('http://127.0.0.1:' + BACKEND_PORT + '/');
+        if (!isLocalBackend) return;
+        // Extract path, drop trailing slash + query, check for extension.
+        let pathPart = '';
+        try { pathPart = new URL(url).pathname; } catch { return; }
+        const hasExt = /\.[a-z0-9]{1,5}$/i.test(pathPart);
+        // Don't intercept asset extensions (.zip, .png, .json...) — those
+        // SHOULD download if the user explicitly requested them. Only
+        // intercept extensionless paths that look like HTML pages.
+        if (hasExt) return;
+        // Skip /api/* — backend handles those itself; downloads of API
+        // responses are not part of the bundle's UI flow.
+        if (pathPart.startsWith('/api/')) return;
+
+        event.preventDefault();
+        try { item.cancel(); } catch { /* may already be torn down */ }
+        const popup = new BrowserWindow({
+            show: false,
+            width: 800,
+            height: 600,
+            autoHideMenuBar: true,
+            title: 'TikFinity',
+            backgroundColor: '#1c1d22',
+            parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+            webPreferences: { contextIsolation: false, nodeIntegration: false },
+        });
+        popup.setMenuBarVisibility(false);
+        popup.once('ready-to-show', () => { if (!popup.isDestroyed()) popup.show(); });
+        popup.loadURL(url).catch((err) => {
+            console.warn('[Preview Popup] loadURL failed:', err.message);
+            if (!popup.isDestroyed()) popup.close();
+        });
     });
 
 
@@ -1389,7 +1409,10 @@ function createMainWindow() {
         minHeight: 700,
         show: false,
         title: 'TikFinity',
-        backgroundColor: '#212121',
+        // Match earlyCss.txt #1c1d22 so the BrowserWindow background doesn't
+        // bleed a lighter strip on the right/bottom when the bundle is mid-
+        // reload (e.g. during the "Connecting websocket..." splash chain).
+        backgroundColor: '#1c1d22',
         icon: getIconPath(),
         autoHideMenuBar: true,
         webPreferences: {

@@ -96,6 +96,44 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', version: '1.0.0', backend: 'node', ts: Date.now() });
 });
 
+// Dev helper: blow away the per-(channelId,channelName) HTML cache so the
+// next page request re-reads templates from disk. Useful while iterating on
+// earlyCss / blockScript / authScript without restarting the whole backend.
+// Also pushes a `tf-dev-reload` Socket.IO event to every connected client so
+// the renderer auto-refreshes instead of needing a manual Ctrl+R.
+app.post('/api/_dev/reload-html', (_req, res) => {
+  const { invalidateCache } = require('./middleware/index-html');
+  invalidateCache();
+  try {
+    sockets.broadcast('tf-dev-reload', { ts: Date.now() });
+  } catch { /* socket may not be bound yet */ }
+  res.json({ status: 'ok', reloaded: true, broadcast: true, ts: Date.now() });
+});
+
+// Watch the template directory for edits — when any .txt template changes,
+// auto-invalidate the cache + broadcast reload. Dev-only quality of life
+// so the workflow becomes "edit file → save → page auto-refreshes" with
+// no curl or Ctrl+R step.
+try {
+  const fs = require('fs');
+  const path = require('path');
+  const tplDir = path.resolve(__dirname, 'templates');
+  let _watchDebounce = null;
+  fs.watch(tplDir, { persistent: false }, (eventType, filename) => {
+    if (!filename || !filename.endsWith('.txt')) return;
+    if (_watchDebounce) clearTimeout(_watchDebounce);
+    _watchDebounce = setTimeout(() => {
+      const { invalidateCache } = require('./middleware/index-html');
+      invalidateCache();
+      try { sockets.broadcast('tf-dev-reload', { ts: Date.now(), trigger: filename }); }
+      catch { /* ignore */ }
+      logger.info(`[DEV] template change → reload broadcast (${filename})`);
+    }, 200);  // Debounce: editors often emit multiple fs events per save.
+  });
+} catch (err) {
+  logger.warn({ err: err?.message || err }, '[DEV] template fs.watch failed');
+}
+
 // Real /api/* handlers. Order matters: mount BEFORE express.static so the
 // pre-recorded `downloads/api/*` JSON fixtures only fire as fallback for
 // endpoints we haven't ported yet.
@@ -247,13 +285,19 @@ app.use(
     setHeaders(res, filePath, _stat) {
       const ext = path.extname(filePath).toLowerCase();
       if (!ext) {
-        // Heuristic: anything under widget/ is HTML; anything under api/ is JSON.
+        // Heuristic for extensionless files (TikFinity ships many — widgets,
+        // api fixtures, deep-link landing pages under /tiktok/). Default
+        // Content-Type is octet-stream → Electron triggers download. Pin
+        // based on parent dir.
         // `path.sep` is `\` on Windows, `/` on POSIX — normalize.
         const norm = filePath.replace(/\\/g, '/');
-        if (norm.includes('/widget/')) {
-          res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        } else if (norm.includes('/api/')) {
+        if (norm.includes('/api/')) {
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        } else {
+          // Everything else extensionless under downloads/ is HTML — widgets,
+          // /tiktok/<page>, /streamerbot-integration, /get-tiktok-username,
+          // /chatbot-troubleshooting, etc.
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
         }
       } else if (ext === '.js' || ext === '.css' || ext === '.png' || ext === '.svg') {
         // Bundle assets are content-hashed-ish (well, names are stable enough)
@@ -300,6 +344,20 @@ app.locals.io = io;
     logger.info(`[BOOT] widget settings cache warmed for channel ${bootChannel.ChannelId}`);
   } catch (err) {
     logger.warn({ err }, '[BOOT] widget settings warm failed (continuing)');
+  }
+
+  // Pre-build the assembled index.html so the FIRST request from Electron
+  // hits a hot cache — no cold rebuild during the renderer's initial
+  // bootstrap chain. Without this, the first navigation waits a few hundred
+  // ms while templates load + interpolate, during which the bundle's auto-
+  // reload chain races against partially-applied CSS → first frame looks
+  // "broken" until the user Ctrl+R'd.
+  try {
+    const { buildIndexHtml } = require('./middleware/index-html');
+    buildIndexHtml({ channelId: bootChannel.ChannelId, channelName: bootChannel.ChannelName });
+    logger.info(`[BOOT] index.html pre-warmed for channel "${bootChannel.ChannelName}"`);
+  } catch (err) {
+    logger.warn({ err }, '[BOOT] index.html pre-warm failed (continuing)');
   }
 
   server.listen(config.PORT, config.HOST, () => {

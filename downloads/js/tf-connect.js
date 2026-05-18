@@ -223,20 +223,20 @@
     }, 1000);
   }
 
-  function doConnect(username) {
+  function doConnect(username, userClick) {
     var user = normalize(username);
     if (!user) {
       updateUI('', 'failed', 'Please enter a TikTok username');
       return Promise.resolve(false);
     }
 
-    console.log('[TF] Connecting to @' + user + '...');
+    console.log('[TF] Connecting to @' + user + '... userClick=' + !!userClick);
     updateUI(user, 'connecting');
 
     return fetch('/api/tiktok/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user })
+      body: JSON.stringify({ username: user, userClick: !!userClick })
     }).then(function(r) { return r.json(); }).then(function(data) {
       console.log('[TF] API:', data.status, data.message || '');
       if (data.status === 'ok') {
@@ -299,7 +299,7 @@
         var sameUser = normalize(username) === normalize(_currentUsername);
         doDisconnect();
         if (!sameUser && username) {
-          setTimeout(function() { doConnect(username); }, 500);
+          setTimeout(function() { doConnect(username, true); }, 500);
         }
         return;
       }
@@ -311,7 +311,7 @@
         return;
       }
 
-      doConnect(username);
+      doConnect(username, true);  // userClick: true → fire popup on failure
     }, 100);
   }, true);
 
@@ -383,41 +383,117 @@
   // Account" path; we don't have that, but we DO have the live-room owner's
   // avatar from the bridge, which is good enough for the chip.
 
+  // The bundle's topbar chip renders a default Material "AccountCircle"
+  // <svg> when no avatar is set, NOT an <img>. We can't easily swap the
+  // SVG without breaking event handlers, so we OVERLAY a positioned <img>
+  // (id=tf-chip-avatar) inside the same wrapper. The img sits on top of
+  // the SVG and covers it. Re-runs idempotently — the next poll only
+  // updates `src` if the avatar URL changes.
   var _lastAvatarUrl = '';
+
+  function findChipContainer(nickname) {
+    // The chip text "LIVE" + "<nickname>" is unique to the topright corner.
+    // Walk DOM for an element whose direct text contains the nickname AND
+    // whose siblings/parent has a small "LIVE" badge or button-ish ancestor.
+    try {
+      var all = document.querySelectorAll('button, div, span, a');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        var rect = el.getBoundingClientRect();
+        if (rect.top > 100) continue;
+        if (rect.right < window.innerWidth - 400) continue;
+        var txt = (el.textContent || '');
+        if (txt.indexOf(nickname) < 0) continue;
+        if (txt.length > 80) continue;  // skip huge wrappers
+        // Walk up until we hit a button or a flex container that holds
+        // both the avatar and the text.
+        var cur = el;
+        for (var k = 0; k < 6 && cur; k++) {
+          var w = cur.getBoundingClientRect().width;
+          if (w >= 80 && w <= 320) return cur;  // chip-ish width
+          cur = cur.parentElement;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   function paintTopbarAvatar(avatarUrl, nickname) {
-    if (!avatarUrl || avatarUrl === _lastAvatarUrl) return;
+    if (!avatarUrl) return;
+    var prev = document.getElementById('tf-chip-avatar');
+    if (prev && prev.src === avatarUrl) { _lastAvatarUrl = avatarUrl; return; }
+
     var done = false;
-    // Strategy A: find any <img> inside the topright user chip area whose
-    // src currently looks like a default avatar / data URI / empty, and
-    // swap it. Heuristic: <img> within the last 30vw of the topbar, height
-    // ≤ 48px (chip avatar).
+
+    // Strategy A: existing <img> swap (covers OAuth-populated chips).
     try {
       var imgs = document.querySelectorAll('header img, [class*="topbar"] img, [class*="TopBar"] img, [class*="navbar"] img, nav img');
       for (var i = 0; i < imgs.length; i++) {
         var img = imgs[i];
-        var rect = img.getBoundingClientRect();
-        if (rect.top > 80) continue;             // only topbar row
-        if (rect.right < window.innerWidth - 350) continue; // only top-right area
-        if (rect.width > 60 || rect.height > 60) continue;  // chip-sized only
+        var r1 = img.getBoundingClientRect();
+        if (r1.top > 80) continue;
+        if (r1.right < window.innerWidth - 350) continue;
+        if (r1.width > 60 || r1.height > 60) continue;
         img.src = avatarUrl;
         if (nickname) img.alt = nickname;
         done = true;
       }
     } catch (_) {}
-    // Strategy B: locate the chip by searching for the channelName text
-    // and walking up to find a sibling/ancestor avatar container with a
-    // background-image style, swap that. Vue components often render the
-    // avatar as a CSS background instead of an <img>.
+
+    // Strategy B: <svg> overlay. Find the chip container via nickname text,
+    // locate the first <svg> inside it (the AccountCircle icon), wrap with
+    // a position:relative parent if needed, drop an absolutely-positioned
+    // <img id=tf-chip-avatar> at the same size on top.
     try {
-      if (nickname) {
+      if (!done && nickname) {
+        var container = findChipContainer(nickname);
+        if (container) {
+          var svg = container.querySelector('svg');
+          if (svg) {
+            var svgRect = svg.getBoundingClientRect();
+            var size = Math.min(svgRect.width, svgRect.height) || 32;
+            // Make sure SVG parent can host an absolutely-positioned overlay.
+            var host = svg.parentElement;
+            var hostCs = window.getComputedStyle(host);
+            if (hostCs.position === 'static') host.style.position = 'relative';
+            var overlay = prev;
+            if (!overlay) {
+              overlay = document.createElement('img');
+              overlay.id = 'tf-chip-avatar';
+              overlay.style.position = 'absolute';
+              overlay.style.borderRadius = '50%';
+              overlay.style.pointerEvents = 'none';
+              overlay.style.objectFit = 'cover';
+              overlay.style.zIndex = '1';
+              host.appendChild(overlay);
+            } else if (overlay.parentElement !== host) {
+              host.appendChild(overlay);
+            }
+            // Re-measure each paint — SVG position may shift after layout.
+            var hostRect = host.getBoundingClientRect();
+            overlay.style.left = (svgRect.left - hostRect.left) + 'px';
+            overlay.style.top  = (svgRect.top  - hostRect.top)  + 'px';
+            overlay.style.width = size + 'px';
+            overlay.style.height = size + 'px';
+            overlay.src = avatarUrl;
+            if (nickname) overlay.alt = nickname;
+            done = true;
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Strategy C: background-image fallback.
+    try {
+      if (!done && nickname) {
         var nodes = document.querySelectorAll('header *, nav *, [class*="topbar"] *');
         for (var j = 0; j < nodes.length; j++) {
           var el = nodes[j];
           if (el.children.length) continue;
-          var txt = (el.textContent || '').trim();
-          if (txt !== nickname && txt !== '@' + nickname) continue;
+          var txt2 = (el.textContent || '').trim();
+          if (txt2 !== nickname && txt2 !== '@' + nickname) continue;
           var anc = el.parentElement;
-          for (var k = 0; k < 5 && anc; k++) {
+          for (var k2 = 0; k2 < 5 && anc; k2++) {
             var bg = anc.querySelector('[style*="background-image"], [class*="avatar"], [class*="Avatar"]');
             if (bg) {
               bg.style.backgroundImage = 'url("' + avatarUrl + '")';
@@ -430,6 +506,7 @@
         }
       }
     } catch (_) {}
+
     if (done) {
       _lastAvatarUrl = avatarUrl;
       console.log('[TF] topbar chip avatar updated → ' + avatarUrl.slice(0, 80));

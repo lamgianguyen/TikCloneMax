@@ -35,6 +35,11 @@ router.post('/connect', (req, res) => {
   const username = (req.body?.username || req.body?.Username || '').toString().trim();
   if (!username) return res.status(400).json({ error: 'username required' });
   const channelId = resolveChannelId(req);
+  // `userClick: true` means the user explicitly hit Connect — show the
+  // error popup on failure. Auto-connect calls (bundle bootstrap, browser
+  // bridge hook, periodic re-hook) pass false / omit the flag → silent
+  // fail (state updates internally but the popup stays closed).
+  const userClick = !!req.body?.userClick;
 
   // FIRE-AND-FORGET: respond 200 immediately, run the connect async.
   // The C# bridge service did the same — `connect()` returned right after
@@ -57,7 +62,7 @@ router.post('/connect', (req, res) => {
     });
   } catch { /* socket may not be bound */ }
 
-  bridge.connect(username, channelId).then((result) => {
+  bridge.connect(username, channelId, { userClick }).then((result) => {
     // Echo the outcome so the bundle's tf-connect.js + topbar refresh from
     // a single event rather than waiting on the next status poll.
     try {
@@ -73,7 +78,8 @@ router.post('/connect', (req, res) => {
       });
     } catch { /* ignore */ }
   }).catch((err) => {
-    logger.warn({ err: err?.message || err, username }, '[TikTok] background connect failed');
+    const errMsg = err?.message || String(err);
+    logger.warn({ err: errMsg, username, userClick }, '[TikTok] background connect failed');
     try {
       sockets.broadcast('channelStatus', {
         channelId,
@@ -82,8 +88,18 @@ router.post('/connect', (req, res) => {
         tiktok: username,
         isConnectedToTikTok: false,
         isConnecting: false,
-        error: err?.message || String(err),
+        error: errMsg,
       });
+      // ONLY fire the popup-triggering events when user explicitly clicked.
+      // Auto-connect calls (bundle bootstrap, browser-bridge hook) stay
+      // silent — the user only sees the popup when THEY initiated the
+      // action, not on every background re-attempt during boot.
+      if (userClick) {
+        sockets.broadcast('connectFailed', { username, error: errMsg });
+        // Bump bridge.lastErrorAt so tfConnectErrorPopup poll fires.
+        // (bridge.connect already sets it on retry-exhaustion; this is
+        // a no-op safety touch for the userClick path.)
+      }
     } catch { /* ignore */ }
   });
   // Bundle's tf-connect.js (downloads/js/tf-connect.js:242) checks
