@@ -15,6 +15,15 @@ function createIOConnection(channelId) {
     ioChannelConnections[channelId] = new io({
         transports: ["websocket"],
         upgrade: false,
+        // Backoff strategy: 2s → 30s with ±50% jitter. SharedIO worker
+        // is shared across every widget tab on the same channel, so a
+        // poorly-throttled reconnect storm here amplifies by N tabs.
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 2000,
+        reconnectionDelayMax: 30000,
+        randomizationFactor: 0.5,
+        timeout: 10000,
         query: {
             appType: "widget",
             shared: true

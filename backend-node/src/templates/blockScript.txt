@@ -123,6 +123,168 @@
   // which duplicates our centered popup (the one with "Login TikTok" button).
   // Watch for the bundle's modal and hide it. Match by signature text so we
   // don't accidentally hide legit modals.
+  // Bundle's main app Socket.IO client uses default reconnect config
+  // (1s initial, 5s max) which hammers the backend after a restart.
+  // Patch `window.io` once available so any `new io(...)` from the bundle
+  // inherits our jittered exponential backoff. Idempotent — bundle's
+  // own connect config wins if it sets the same keys explicitly. We only
+  // wrap when the value is the CALLABLE io factory (typeof === 'function');
+  // socketioclient.js later reassigns `window.io` to a socket INSTANCE,
+  // which we leave untouched.
+  (function tfPatchIODefaults(){
+    var DEFAULTS = {
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 30000,
+      randomizationFactor: 0.5,
+      timeout: 10000,
+    };
+    function wrap(originalIo) {
+      if (typeof originalIo !== 'function' || originalIo.__tfPatched) return originalIo;
+      var wrapped = function() {
+        var args = Array.prototype.slice.call(arguments);
+        var lastIdx = args.length - 1;
+        if (args.length === 0) {
+          args.push(Object.assign({}, DEFAULTS));
+        } else if (typeof args[lastIdx] === 'object' && args[lastIdx] !== null && !Array.isArray(args[lastIdx])) {
+          args[lastIdx] = Object.assign({}, DEFAULTS, args[lastIdx]);
+        } else {
+          args.push(Object.assign({}, DEFAULTS));
+        }
+        // Allow both `io(...)` and `new io(...)` call styles.
+        if (this instanceof wrapped) {
+          return new (Function.prototype.bind.apply(originalIo, [null].concat(args)))();
+        }
+        return originalIo.apply(this, args);
+      };
+      Object.keys(originalIo).forEach(function(k) {
+        try { wrapped[k] = originalIo[k]; } catch (_) {}
+      });
+      wrapped.prototype = originalIo.prototype;
+      wrapped.__tfPatched = true;
+      wrapped.__tfOriginal = originalIo;
+      return wrapped;
+    }
+    var current = null;
+    Object.defineProperty(window, 'io', {
+      configurable: true,
+      get: function() { return current; },
+      set: function(v) {
+        // Only wrap the FACTORY function (set once by socket.io.min.js).
+        // Subsequent assignments (socket instances from new io(...)) pass
+        // through untouched.
+        current = typeof v === 'function' ? wrap(v) : v;
+      }
+    });
+  })();
+
+  // (SSR sub-sidebar rescue removed — was lifting the wrong <nav> element.
+  // The actual Setup sub-sidebar isn't a <nav>; it's a Vue-rendered DX
+  // menu component. Investigating proper fix in a follow-up.)
+  // Remove any stale rescued sidebar from prior page loads.
+  (function tfSSRCleanup(){
+    var stale = document.getElementById('tf-rescued-subsidebar');
+    if (stale) stale.remove();
+  })();
+
+  // Diagnostic: log every speechSynthesis.speak() invocation so we see if
+  // bundle's TTS module fires (even if it doesn't log to its own UI panel).
+  (function tfTTSSpeakLogger(){
+    if (!window.speechSynthesis) return;
+    var orig = speechSynthesis.speak.bind(speechSynthesis);
+    var count = 0;
+    speechSynthesis.speak = function(utt) {
+      count++;
+      var text = utt && utt.text ? utt.text.slice(0, 100) : '<no text>';
+      console.log('[TF-TTS-Speak #' + count + '] ' + text);
+      window.__tfTTSCount = function() { return count; };
+      return orig(utt);
+    };
+    console.log('[TF-TTS-Speak] speak() interceptor installed');
+  })();
+
+  // Diagnostic socket .on() subscription logger — wraps Socket.prototype.on
+  // so we see every event the BUNDLE subscribes to. Lets us discover the
+  // exact event name bundle's TTS handler listens for (instead of guessing
+  // 'chat' vs 'newChatMessage' vs 'tiktokChat'). Records the call stack
+  // line so we know which Vue component subscribed.
+  (function tfSocketOnLogger(){
+    var attached = false;
+    var subs = Object.create(null);
+    var poll = setInterval(function() {
+      if (attached) { clearInterval(poll); return; }
+      var io = window.io;
+      if (!io || !io.on || !io.constructor || !io.constructor.prototype) return;
+      try {
+        var proto = Object.getPrototypeOf(io);
+        var origOn = proto.on;
+        if (typeof origOn !== 'function' || origOn.__tfPatched) return;
+        proto.on = function(ev, fn) {
+          if (typeof ev === 'string') {
+            subs[ev] = (subs[ev] || 0) + 1;
+            console.log('[TF-SocketSub] io.on("' + ev + '") subscribed (total subscribers for this event: ' + subs[ev] + ')');
+          }
+          return origOn.apply(this, arguments);
+        };
+        proto.on.__tfPatched = true;
+        attached = true;
+        clearInterval(poll);
+        console.log('[TF-SocketSub] subscription logger attached — watching io.on() calls');
+        window.__tfSocketSubs = function() { console.table(subs); return subs; };
+      } catch (e) {}
+    }, 200);
+    setTimeout(function() { if (!attached) clearInterval(poll); }, 30000);
+  })();
+
+  // Diagnostic socket event logger — patches Socket.IO Manager so we see
+  // EVERY incoming event with payload. Lets user verify which events reach
+  // the bundle's main page socket. Counts per event name exposed via
+  // window.__tfSocketStats().
+  (function tfSocketEventLogger(){
+    var attached = false;
+    var stats = Object.create(null);
+    var poll = setInterval(function() {
+      if (attached) { clearInterval(poll); return; }
+      var io = window.io;
+      if (!io || typeof io.on !== 'function') return;
+      try {
+        // Hook EVERY incoming event via onAny() — Socket.IO v4 feature.
+        if (typeof io.onAny === 'function') {
+          io.onAny(function(event, payload) {
+            stats[event] = (stats[event] || 0) + 1;
+            // Compact preview of payload
+            var preview = '';
+            try {
+              if (payload === null || payload === undefined) preview = '';
+              else if (typeof payload === 'string') preview = payload.slice(0, 80);
+              else if (typeof payload === 'object') {
+                var keys = Object.keys(payload).slice(0, 5);
+                var pairs = keys.map(function(k) {
+                  var v = payload[k];
+                  if (typeof v === 'string') return k + '="' + v.slice(0, 40) + '"';
+                  if (typeof v === 'number' || typeof v === 'boolean') return k + '=' + v;
+                  if (Array.isArray(v)) return k + '[' + v.length + ']';
+                  return k + ':obj';
+                });
+                preview = '{' + pairs.join(', ') + '}';
+              } else { preview = String(payload).slice(0, 80); }
+            } catch (e) {}
+            console.log('[TF-SocketEvt #' + stats[event] + '] ' + event + ' → ' + preview);
+          });
+          attached = true;
+          clearInterval(poll);
+          console.log('[TF-SocketEvt] onAny listener attached — logging EVERY incoming event');
+          window.__tfSocketStats = function() {
+            console.table(stats);
+            return stats;
+          };
+        }
+      } catch (e) {}
+    }, 500);
+    setTimeout(function() { if (!attached) clearInterval(poll); }, 30000);
+  })();
+
   // Dev-only auto-reload: backend's `fs.watch` on templates/ broadcasts
   // `tf-dev-reload` over Socket.IO whenever a .txt template is saved. We
   // poll for `window.io` (bundle's socket client) and attach a listener
@@ -467,70 +629,51 @@
       (document.body || document.documentElement).appendChild(overlay);
     }
 
+    // Poll ONLY updates the corner status pill — no popup logic here.
+    // The popup is driven exclusively by the Socket.IO `connectFailed`
+    // event from routes/tiktok.js (which is itself gated by userClick).
+    // This is the single source of truth: 1 user click → 1 popup, period.
+    // No watchdog timers, no lastErrorAt-poll debounce, no rising-edge
+    // detectors that can mis-fire during the bundle's bootstrap reload chain.
     async function poll() {
       try {
         var r = await fetch('/api/tiktok/status', { cache: 'no-store' });
         if (!r.ok) return;
         var s = await r.json();
-        var at = Number(s && s.lastErrorAt) || 0;
         var connecting = Boolean(s && s.connecting);
         var connected = Boolean(s && s.connected);
         var username = (s && (s.failedUsername || s.username)) || '';
         window.__tfPopup.polls++;
-        window.__tfPopup.lastState = { at, connecting, connected, username, lastShownAt, firstPollDone };
-
-        // First poll: adopt error baseline so a stale error from before
-        // page load doesn't trigger an immediate popup. Mark firstPollDone
-        // so subsequent errors (even the first real one) trigger the popup.
-        if (!firstPollDone) {
-          firstPollDone = true;
-          lastShownAt = at;
-          prevConnecting = connecting;
-          prevConnected = connected;
-          return;
-        }
-
-        // Rising edge: connect just kicked off → start watchdog timer.
-        if (connecting && !prevConnecting) {
-          connectStartedAt = Date.now();
-        }
-
-        // Persistent corner status pill: live / connecting / disconnected.
+        window.__tfPopup.lastState = { connecting, connected, username };
+        removeToast();
         if (connected) setStatusPill('live', username);
         else if (connecting) setStatusPill('connecting', username);
         else setStatusPill('disconnected', username);
-
-        removeToast();
-
-        // SUPPRESS popups during startup grace period (first 10s)
-        var isInGracePeriod = (Date.now() - pageLoadTime) < STARTUP_GRACE_MS;
-
-        // New error from the bridge → centre modal (with debounce + grace period).
-        if (at > 0 && at !== lastShownAt && !isInGracePeriod) {
-          var timeSinceLastPopup = Date.now() - lastPopupShownTime;
-          
-          // Only show popup if enough time has passed since last one (debounce)
-          if (timeSinceLastPopup >= POPUP_DEBOUNCE_MS) {
-            console.log('[tf-popup] firing error popup, lastError=', s.lastError);
-            lastShownAt = at;
-            lastPopupShownTime = Date.now();
-            removeToast();
-            showPopup(s.lastError, username);
-          }
-        }
-
-        // Watchdog: connect hung for >25s with no error/success.
-        if (connecting && connectStartedAt > 0 && (Date.now() - connectStartedAt) > WATCHDOG_MS) {
-          connectStartedAt = 0;
-          removeToast();
-          showPopup('Connection timed out. The TikTok bridge did not respond. Please check your network and try again.', username);
-        }
-
-        prevConnecting = connecting;
-        prevConnected = connected;
-        if (!connecting) connectStartedAt = 0;
       } catch (e) {}
     }
+
+    // Single popup trigger: socket `connectFailed` event from backend.
+    // Backend only emits this when userClick: true (i.e. the user pressed
+    // the Connect button), so each user-initiated failure → exactly one
+    // popup. Auto-reconnect / bootstrap retries stay silent.
+    function attachPopupListener() {
+      var io = window.io;
+      if (!io || typeof io.on !== 'function') {
+        setTimeout(attachPopupListener, 500);
+        return;
+      }
+      try {
+        io.on('connectFailed', function(payload) {
+          var msg = (payload && payload.error) || 'Unable to connect to TikTok LIVE.';
+          var user = (payload && payload.username) || '';
+          console.log('[tf-popup] connectFailed event:', msg);
+          removeToast();
+          showPopup(msg, user);
+        });
+        console.log('[tf-popup] connectFailed listener attached');
+      } catch (e) { setTimeout(attachPopupListener, 500); }
+    }
+    attachPopupListener();
 
     // Poll every 1s for snappy feedback during connect.
     function start() {

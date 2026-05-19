@@ -204,6 +204,8 @@ function broadcastArgs(eventName, ...args) {
  */
 function broadcastToChannel(eventName, data, channelId, appType = '') {
   ensureBound();
+  let delivered = 0;
+  const deliveredTo = [];
   for (const [, sock] of io.of('/').sockets) {
     const sockApp = (sock.data.appType || '').toLowerCase();
     // `relay` clients (the Electron→DAPI bridge) subscribe to every channel
@@ -213,11 +215,20 @@ function broadcastToChannel(eventName, data, channelId, appType = '') {
     // never receive a single TikTok event.
     if (sockApp === 'relay') {
       sock.emit(eventName, data);
+      delivered++;
+      deliveredTo.push('relay');
       continue;
     }
     if (sock.data.channelId !== channelId) continue;
     if (appType && sockApp !== appType.toLowerCase()) continue;
     sock.emit(eventName, data);
+    delivered++;
+    deliveredTo.push(sockApp || '(empty)');
+  }
+  // Diagnostic log — only for events we care about during TTS debugging.
+  // Comment out the `if` to log EVERYTHING (warning: chat-heavy rooms spam).
+  if (eventName === 'chat' || eventName === 'connected' || eventName === 'disconnected' || eventName === 'channelStatus') {
+    logger.info(`[Broadcast] ${eventName} channelId=${channelId} appType="${appType}" delivered=${delivered} to=[${deliveredTo.join(',')}]`);
   }
 }
 

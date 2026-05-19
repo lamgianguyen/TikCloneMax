@@ -513,6 +513,20 @@
     }
   }
 
+  // Re-measure + re-position the overlay <img> WITHOUT re-fetching the
+  // account from backend. Used on window resize / Vue re-render so the
+  // overlay stays glued to the SVG even after layout reflow.
+  function reflowTopbarAvatar() {
+    if (!_lastAvatarUrl) return;
+    var overlay = document.getElementById('tf-chip-avatar');
+    if (!overlay) return;
+    // Forget `_lastAvatarUrl` skip-check by temporarily clearing the
+    // src-equality guard inside paintTopbarAvatar — re-measure fresh.
+    var prevUrl = _lastAvatarUrl;
+    _lastAvatarUrl = '';
+    paintTopbarAvatar(prevUrl, overlay.alt);
+  }
+
   function syncTopbarAvatar() {
     fetch('/api/tiktok/account').then(function(r) { return r.json(); }).then(function(d) {
       var acc = (d && d.account) || {};
@@ -524,6 +538,41 @@
   // ensures the avatar lands even if the DOM wasn't ready on first paint.
   setInterval(syncTopbarAvatar, 5000);
   setTimeout(syncTopbarAvatar, 2500);
+
+  // Window resize → SVG position may have shifted (responsive topbar,
+  // sidebar collapse, etc.). Re-measure the overlay so it stays anchored
+  // to the icon. Debounced 150ms to avoid 60Hz reflows during drag-resize.
+  var _resizeT = null;
+  window.addEventListener('resize', function() {
+    if (_resizeT) clearTimeout(_resizeT);
+    _resizeT = setTimeout(reflowTopbarAvatar, 150);
+  }, { passive: true });
+
+  // Profile switch reload chain may move the chip's SVG slightly between
+  // intermediate states. Observer fires on any topbar mutation so the
+  // overlay tracks the new SVG position. Throttled via requestAnimationFrame.
+  try {
+    var _rafScheduled = false;
+    var topbarMo = new MutationObserver(function() {
+      if (_rafScheduled) return;
+      _rafScheduled = true;
+      requestAnimationFrame(function() {
+        _rafScheduled = false;
+        reflowTopbarAvatar();
+      });
+    });
+    // Defer observer attach until the topbar exists.
+    var attachObs = function() {
+      var topbar = document.querySelector('header, nav, [class*="topbar"], [class*="TopBar"]');
+      if (topbar) topbarMo.observe(topbar, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+      else setTimeout(attachObs, 1000);
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', attachObs, { once: true });
+    } else {
+      attachObs();
+    }
+  } catch (_) {}
 
   console.log('[TF] TikTok connect module loaded');
 })();

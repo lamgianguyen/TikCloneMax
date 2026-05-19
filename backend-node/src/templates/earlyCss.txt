@@ -70,31 +70,37 @@
      + sub-sidebar) is narrower than the bundle's design assumes; the
      page-level `overflow-x: auto` we set above lets the user scroll. */
 
-  /* === Overlay Gallery layout (replace `zoom` with grid auto-fit) ========
-     Bundle ships `.obsOverlayContainer { display:flex; flex-wrap:wrap; gap:20px }`
-     plus `zoom: 0.9` @1914px and `zoom: 1` @2100px. Problem: CSS `zoom` is
-     non-standard, doesn't reliably trigger reflow on window resize in
-     Chromium — going from small window (1300px, zoom:1) to maximized
-     (1920px, zoom:0.9) leaves the layout stuck mid-state until Ctrl+R.
-     Replace with CSS Grid `repeat(auto-fit, minmax())` — standard, native
-     responsive, reflows correctly on every resize event. Override bundle's
-     `zoom` curves entirely so they don't fight our grid. */
+  /* === Overlay Gallery layout =============================================
+     Bundle ships cards with `width: 780px` + `zoom: 0.9` curve so at HD
+     viewport, 2 zoomed cards (702px each) fit the content area after
+     sidebar + sub-sidebar. Without zoom (which breaks on resize), the raw
+     780px cards × 2 + gap = 1580px overflow the ~1420px content area at
+     maximized 1920px window → right card gets clipped, buttons unreachable.
+     Fix: use `flex: 1 1 <basis>` so cards STRETCH to fill container at
+     wide widths AND wrap cleanly to 1 column when basis can't fit twice.
+     `width: auto !important` overrides bundle's 780px so flex sizing
+     drives card width instead. */
   .obsOverlayContainer {
-    display: grid !important;
-    grid-template-columns: repeat(auto-fit, minmax(720px, 1fr)) !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
     gap: 20px !important;
-    zoom: 1 !important;             /* neutralize bundle's responsive zoom */
+    zoom: 1 !important;                   /* nuke bundle's broken zoom curve */
     max-width: 100% !important;
-    overflow-x: hidden !important;  /* grid handles wrapping, no scroll needed */
+    justify-content: flex-start !important;
+    align-items: flex-start !important;
+    align-content: flex-start !important;
   }
-  /* Cards inside the gallery grid: bundle sets `width: 780px` on
-     `.graphicSection` which would force overflow at narrow viewports —
-     let the grid cell drive width instead. Only target direct children
-     of the gallery container so non-gallery `.graphicSection` usages
-     (e.g. inside topbar widgets) keep their bundle-native sizing. */
+  /* `flex: 1 1 720px` = grow to fill row + shrink to fit + min basis 720px.
+     Wrap kicks in when remaining row space < 720px, giving:
+       - container <  1460px → 1 column (cards full width up to container)
+       - container >= 1460px → 2 columns (cards ~equal width)
+       - container >= 2200px → 3 columns (large monitors)
+     No content overflow at any width, buttons always inside viewport. */
   .obsOverlayContainer > .graphicSection {
-    max-width: 100% !important;
+    flex: 1 1 720px !important;
     width: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
   }
 
   /* === GUEST STATE (tf-logged-out) === */

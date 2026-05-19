@@ -92,9 +92,25 @@ function getUser(data) {
   };
 }
 
+// Broadcast scoped to widget-appType sockets only (used for widget-specific
+// events like gift effects, lastX, ranking — those don't belong on the
+// main bundle page).
 function broadcast(channelId, eventName, data) {
   if (channelId > 0) {
     sockets.broadcastToChannel(eventName, data, channelId, 'widget');
+  } else {
+    sockets.broadcast(eventName, data);
+  }
+}
+
+// Broadcast to EVERY socket on the channel regardless of appType. Used for
+// events the bundle's main page consumes (chat for TTS, connected/
+// disconnected for status pill, channelStatus for topbar pivot, etc) AND
+// widgets need. Without this, widget-scoped broadcasts skip the main page
+// → TTS doesn't get chat events → no audio readout.
+function broadcastAll(channelId, eventName, data) {
+  if (channelId > 0) {
+    sockets.broadcastToChannel(eventName, data, channelId);  // no appType filter
   } else {
     sockets.broadcast(eventName, data);
   }
@@ -192,8 +208,12 @@ async function disconnect() {
 // pattern below mirrors the old tiktok-bridge/index.js and the C# bridge's
 // reconnect loop — TikTok almost always succeeds on attempt 2-3 when the
 // first one trips anti-bot.
-const MAX_CONNECT_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 2000;
+// Eulerstream's free signing service (used by tiktok-live-connector when no
+// SIGN_API_KEY is set) is flaky — it returns `missingExtension` randomly
+// even for live rooms. 5 attempts × 3s backoff = ~15s before giving up,
+// almost always lands on a working signer within that budget.
+const MAX_CONNECT_ATTEMPTS = 5;
+const RETRY_DELAY_MS = 3000;
 
 async function tryConnectOnce(clean, channelId, attempt) {
   loadConnector();
@@ -275,22 +295,53 @@ async function tryConnectOnce(clean, channelId, attempt) {
   }
 }
 
+// In-flight connect promise — singleton mutex. All callers see the SAME
+// promise until it resolves. Profile-switch race (user spam-clicking
+// connect, bundle re-POSTing on focus, etc.) routes through this lock so
+// we never have two TikTokLiveConnection instances racing.
+let _connectInFlight = null;
+let _connectAbortRequested = false;
+
 async function connect(username, channelId, opts) {
   if (!username || typeof username !== 'string') {
     throw new Error('username required');
   }
   const userClick = !!(opts && opts.userClick);
   const clean = username.trim().replace(/^@+/, '');
-  // Idempotent: if we're already connected to the same username, just return
-  // success. Bundle re-POSTs /api/tiktok/connect frequently (focus events,
-  // status polls) — without this, every poll triggers a disconnect+reconnect
-  // cycle that flickers the topbar between "Connected" and "Disconnected".
+
+  // Already connected to the SAME username — short-circuit. Bundle re-POSTs
+  // frequently (focus events, status polls); answering "already done"
+  // prevents disconnect+reconnect flicker.
   if (_state.connected && _state.username === clean) {
     return { success: true, roomId: _state.roomId, roomInfo: _state.roomInfo, alreadyConnected: true };
   }
-  if (_state.connecting) {
-    throw new Error('already connecting');
+
+  // Connect already in-flight:
+  //   - same target username → piggyback on the existing promise
+  //   - different username (profile switch race) → request abort, await it,
+  //     then start a fresh connect to the new target
+  if (_connectInFlight) {
+    if (_state.username === clean) {
+      return _connectInFlight;
+    }
+    logger.info(`[TikTokBridge] connect-in-flight @${_state.username} pre-empted by @${clean}`);
+    _connectAbortRequested = true;
+    // Force the in-flight attempt to tear down NOW.
+    if (_state.connection) {
+      try { _state.connection.removeAllListeners?.(); } catch { /* ignore */ }
+      try { _state.connection.disconnect(); } catch { /* ignore */ }
+      _state.connection = null;
+    }
+    try { await _connectInFlight; } catch { /* expected: aborted */ }
   }
+
+  _connectAbortRequested = false;
+  _connectInFlight = _connectImpl(clean, channelId, userClick)
+    .finally(() => { _connectInFlight = null; });
+  return _connectInFlight;
+}
+
+async function _connectImpl(clean, channelId, userClick) {
   await disconnect();
 
   // Keep `connecting: true` across all attempts so the bundle's status
@@ -301,6 +352,12 @@ async function connect(username, channelId, opts) {
 
   let lastErr;
   for (let attempt = 1; attempt <= MAX_CONNECT_ATTEMPTS; attempt++) {
+    // Pre-attempt abort check — a newer connect() request may have
+    // pre-empted us while we were waiting for backoff.
+    if (_connectAbortRequested) {
+      logger.info(`[TikTokBridge] connect @${clean} aborted before attempt ${attempt}`);
+      throw new Error('connect aborted (superseded by newer request)');
+    }
     try {
       return await tryConnectOnce(clean, _state.channelId, attempt);
     } catch (err) {
@@ -315,6 +372,10 @@ async function connect(username, channelId, opts) {
         try { _state.connection.removeAllListeners?.(); } catch { /* ignore */ }
         try { _state.connection.disconnect(); } catch { /* ignore */ }
         _state.connection = null;
+      }
+      // Bail out immediately on abort — don't sleep RETRY_DELAY_MS more.
+      if (_connectAbortRequested) {
+        throw new Error('connect aborted (superseded by newer request)');
       }
       if (attempt < MAX_CONNECT_ATTEMPTS) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
@@ -408,7 +469,9 @@ function wireEvents(conn, channelId, username) {
       followRole: data.followRole || 0,
       userBadges: data.userBadges || [],
     };
-    broadcast(channelId, 'chat', payload);
+    // Chat reaches BOTH widgets AND main page (TTS, chat panel, transaction
+    // viewer all live on main bundle). Widget-only would starve TTS module.
+    broadcastAll(channelId, 'chat', payload);
     aggregates.recordChat(channelId, { userId: u.userId, username: u.uniqueId, nickname: u.nickname, profilePictureUrl: u.profilePictureUrl });
     points.setBalance(
       channelId, u.uniqueId,

@@ -96,6 +96,33 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', version: '1.0.0', backend: 'node', ts: Date.now() });
 });
 
+// Dev helper: fire a synthetic chat event with the same shape the TikTok
+// bridge produces. Hits every socket on channel 1 (controlpage + widgets),
+// matching the real `chat` broadcast path. Useful for testing TTS / chat
+// panel without an active live stream. Example:
+//   curl -X POST http://localhost:5285/api/_dev/fake-chat?text=hello
+app.post('/api/_dev/fake-chat', (req, res) => {
+  const text = (req.query.text || req.body?.text || 'hello world').toString();
+  const uniqueId = (req.query.user || req.body?.user || 'testuser').toString();
+  const payload = {
+    uniqueId,
+    nickname: uniqueId,
+    userId: '0',
+    profilePictureUrl: '',
+    comment: text,
+    isModerator: false,
+    isSubscriber: false,
+    followRole: 0,
+    userBadges: [],
+  };
+  try {
+    sockets.broadcastToChannel('chat', payload, 1);  // no appType → all sockets
+    res.json({ status: 'ok', emitted: 'chat', payload });
+  } catch (err) {
+    res.status(500).json({ error: err?.message || String(err) });
+  }
+});
+
 // Dev helper: blow away the per-(channelId,channelName) HTML cache so the
 // next page request re-reads templates from disk. Useful while iterating on
 // earlyCss / blockScript / authScript without restarting the whole backend.
@@ -110,28 +137,35 @@ app.post('/api/_dev/reload-html', (_req, res) => {
   res.json({ status: 'ok', reloaded: true, broadcast: true, ts: Date.now() });
 });
 
-// Watch the template directory for edits — when any .txt template changes,
-// auto-invalidate the cache + broadcast reload. Dev-only quality of life
-// so the workflow becomes "edit file → save → page auto-refreshes" with
-// no curl or Ctrl+R step.
+// Watch template + injected-static-asset directories for edits — when
+// anything we control changes, auto-invalidate the HTML cache + broadcast
+// reload. The HTML carries an auto-bumping `?v={{tfConnectVersion}}`
+// cache buster derived from tf-connect.js mtime, so clearing the cache
+// here is what propagates the new version string to the next request.
 try {
   const fs = require('fs');
   const path = require('path');
   const tplDir = path.resolve(__dirname, 'templates');
+  const jsDir = path.resolve(__dirname, '..', '..', 'downloads', 'js');
   let _watchDebounce = null;
-  fs.watch(tplDir, { persistent: false }, (eventType, filename) => {
-    if (!filename || !filename.endsWith('.txt')) return;
+  function scheduleReload(filename) {
     if (_watchDebounce) clearTimeout(_watchDebounce);
     _watchDebounce = setTimeout(() => {
       const { invalidateCache } = require('./middleware/index-html');
       invalidateCache();
       try { sockets.broadcast('tf-dev-reload', { ts: Date.now(), trigger: filename }); }
       catch { /* ignore */ }
-      logger.info(`[DEV] template change → reload broadcast (${filename})`);
+      logger.info(`[DEV] file change → reload broadcast (${filename})`);
     }, 200);  // Debounce: editors often emit multiple fs events per save.
+  }
+  fs.watch(tplDir, { persistent: false }, (eventType, filename) => {
+    if (filename && filename.endsWith('.txt')) scheduleReload(filename);
+  });
+  fs.watch(jsDir, { persistent: false }, (eventType, filename) => {
+    if (filename && filename.endsWith('.js')) scheduleReload(filename);
   });
 } catch (err) {
-  logger.warn({ err: err?.message || err }, '[DEV] template fs.watch failed');
+  logger.warn({ err: err?.message || err }, '[DEV] file watcher init failed');
 }
 
 // Real /api/* handlers. Order matters: mount BEFORE express.static so the
@@ -225,6 +259,32 @@ app.use((req, res, next) => {
   next();
 });
 
+// Trailing-slash redirect for extensionless widget files. When browser
+// loads `/widget/streambuddies` (no slash), it treats `/widget/` as the
+// current directory — any relative `<script src="../foo.js">` in the
+// served HTML then resolves to root `/foo.js` instead of the widget dir,
+// 404s, and the spa-fallback returns text/html → "Refused to execute
+// script" MIME errors. Redirecting to `/widget/<name>/` (with slash)
+// forces the browser to treat the widget URL as a directory so relative
+// resolution works correctly.
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const m = /^\/widget\/([^/.?]+)$/.exec(req.path);
+  if (!m) return next();
+  const name = m[1];
+  const fs = require('fs');
+  const candidate = path.join(config.FRONTEND_PATH, 'widget', name);
+  // Only redirect if it's a real extensionless FILE under widget/ (otherwise
+  // it'd be a 404 anyway). Stat must succeed and isFile() must be true.
+  try {
+    if (fs.statSync(candidate).isFile()) {
+      const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      return res.redirect(302, `/widget/${name}/${qs}`);
+    }
+  } catch { /* not a file → fall through */ }
+  next();
+});
+
 app.use((req, res, next) => {
   const m = /^\/widget\/([^/]+)\/$/.exec(req.path);
   if (!m) return next();
@@ -249,6 +309,27 @@ app.use((req, res, next) => {
 // instrumented with cdn-cgi/rum tracking that we don't proxy — silence the
 // 404 storm with a no-op 204 instead of letting Sentry/PostHog report it.
 app.all('/cdn-cgi/rum', (_req, res) => res.status(204).end());
+
+// DevExtreme icon fonts ship as 188-byte HTML placeholders in downloads/
+// (the real binaries weren't included). Browser parses them, fails
+// `invalid sfntVersion: 171731045` (= "\\n<a!" prefix) and spams the log.
+// Respond with a minimal valid empty-font response so the parser silently
+// falls back to the next font in the stack.
+app.get(/^\/dx\/css\/icons\/dxicons\.(woff2|woff|ttf)$/, (_req, res) => {
+  res.status(204).end();  // Browser treats 204 as no-resource → silent fallback.
+});
+
+// Tikfinity's Google Tag Manager analytics proxy lived at `/2l68/`. Their
+// inline IIFE dynamically injects `<script src="/2l68/">` which expects a
+// JS response — without it, our spa-fallback returns index.html, browser
+// tries to execute as JS, throws `SyntaxError: Unexpected token '<'` at
+// `/2l68/:1`. This propagates up to the bundle's fatal error boundary
+// ("Oh no! :(" crash page) and degrades to the legacy navigation layout.
+// Stub the whole subtree with an empty JS so the inject succeeds silently.
+app.get(/^\/2l68(\/.*)?$/, (_req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.status(200).end('/* tf: GTM proxy stub */');
+});
 
 // Avatar proxy. Bundle's widgets (tops, userinfo, viewercount, …) point
 // `<img>` tags at `/img/user/<channelId>/<userId>`. The original C# bridge

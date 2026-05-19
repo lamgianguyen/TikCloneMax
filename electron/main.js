@@ -442,12 +442,18 @@ function startBridgeToDapiRelay() {
         }
         if (_bridgeRelaySocket && _bridgeRelaySocket.connected) return;
 
+        // Reconnect strategy: start at 2s, double up to 30s, jitter ±50%
+        // to avoid thundering herd against a restarting backend. Without
+        // jitter, every reconnect timer fires at the exact same instant
+        // across sessions → all clients hammer the server simultaneously.
         const sock = io(BACKEND_URL, {
             transports: ['websocket', 'polling'],
             reconnection: true,
+            reconnectionAttempts: Infinity,
             reconnectionDelay: 2000,
-            reconnectionDelayMax: 10000,
-            timeout: 5000,
+            reconnectionDelayMax: 30000,
+            randomizationFactor: 0.5,
+            timeout: 10000,
             autoConnect: true,
         });
         _bridgeRelaySocket = sock;
@@ -1087,6 +1093,28 @@ function configureSession() {
         }
     });
 
+    // Network-level block of third-party telemetry / SDK calls the bundle
+    // makes despite our inline XHR/fetch monkey-patches in blockScript.txt.
+    // Some SDKs (Featurebase, Sentry) bypass our patches by using sendBeacon,
+    // <script> injection, or capturing fresh XHR refs before our patch loads.
+    // Blocking at the session.webRequest layer is unconditional — any request
+    // matching the deny list gets a 400 response without leaving Electron.
+    const BLOCK_URLS = [
+        '*://*.featurebase.app/*',
+        '*://*.sentry.io/*',
+        '*://*.contentsquare.net/*',
+        '*://pagead2.googlesyndication.com/*',
+        '*://*.googletagmanager.com/*',
+        '*://*.google-analytics.com/*',
+        '*://ph.tikfinity.com/*',
+    ];
+    sess.webRequest.onBeforeRequest({ urls: BLOCK_URLS }, (details, callback) => {
+        if (process.env.TIKMAX_NETBLOCK_DEBUG === '1') {
+            console.log('[NetBlock]', details.method, details.url);
+        }
+        callback({ cancel: true });
+    });
+
     // Bundle's overlay-gallery UI links to `/widget/<name>?cid=1&preview=1`
     // using an `<a download>` element. Chromium honours `download` attribute
     // for same-origin URLs and shows a Save dialog INSTEAD of navigating —
@@ -1466,8 +1494,12 @@ function createMainWindow() {
     // which the user would otherwise see as jittery flicker. We keep the
     // splash up and only swap to the main window once did-finish-load has
     // been quiet for SETTLE_MS. A hard timeout guarantees we never hang.
-    const SETTLE_MS = 3000;
-    const MAX_WAIT_MS = 5000;
+    // Bumped SETTLE 3s→4s and MAX_WAIT 5s→7s — cold boot on a fresh
+    // localStorage occasionally chains 5-6 reloads which previously raced
+    // past the 3s settle window, surfacing a mid-bootstrap "broken UI"
+    // frame before the final reload landed.
+    const SETTLE_MS = 4000;
+    const MAX_WAIT_MS = 7000;
     const MAX_BOOT_NAVS = 6;
     let _settleTimer = null;
     let _hasShown = false;
@@ -1524,12 +1556,46 @@ function createMainWindow() {
     // Forward renderer warnings and errors to main log (kept for ongoing
     // diagnosis). TF-TRACE uses console.warn (level 2) so we must include
     // level >= 2. Cap at 2000 chars to keep stacks readable.
-    mainWindow.webContents.on('console-message', (_evt, level, message) => {
+    //
+    // ALSO append every renderer error to a dedicated file at
+    // `<userData>/renderer-errors.log` so users can share it for analysis
+    // without having to copy/paste from F12. Rotates when >2MB.
+    const rendererErrorLog = path.join(app.getPath('userData'), 'renderer-errors.log');
+    function appendRendererLog(line) {
+        try {
+            const stat = fs.existsSync(rendererErrorLog) ? fs.statSync(rendererErrorLog) : null;
+            if (stat && stat.size > 2 * 1024 * 1024) {
+                try { fs.renameSync(rendererErrorLog, rendererErrorLog + '.old'); } catch { /* ignore */ }
+            }
+            fs.appendFileSync(rendererErrorLog, line + '\n', 'utf8');
+        } catch { /* don't crash the main process on log write failure */ }
+    }
+    // Header so each session is identifiable in the rolling log.
+    appendRendererLog(`\n=== Session start ${new Date().toISOString()} app=${app.getVersion()} ===`);
+
+    mainWindow.webContents.on('console-message', (_evt, level, message, line, sourceId) => {
         if (typeof message !== 'string') return;
         if (level < 2) return;
         const trimmed = message.length > 2000 ? message.slice(0, 1997) + '...' : message;
         const prefix = level >= 3 ? '[Renderer ERR]' : '[Renderer WARN]';
         console.log(`${prefix} ${trimmed}`);
+        // File log: include source + line so we can pinpoint the script tag.
+        const loc = sourceId ? ` @ ${sourceId}:${line}` : '';
+        appendRendererLog(`${new Date().toISOString()} ${prefix}${loc}\n  ${trimmed}`);
+    });
+
+    // Surface unhandled promise rejections + uncaught errors from the renderer
+    // process — these don't go through console-message reliably on every
+    // Electron version. The `render-process-gone` event covers crashes.
+    mainWindow.webContents.on('render-process-gone', (_e, details) => {
+        const line = `${new Date().toISOString()} [Renderer CRASH] reason=${details.reason} exitCode=${details.exitCode}`;
+        console.error(line);
+        appendRendererLog(line);
+    });
+    mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
+        if (code === -3) return; // ABORTED (normal during redirects)
+        const line = `${new Date().toISOString()} [Renderer LOAD-FAIL] code=${code} desc=${desc} url=${url}`;
+        appendRendererLog(line);
     });
 
     // Also count fetches per second by URL — exposed on a loop in the renderer.

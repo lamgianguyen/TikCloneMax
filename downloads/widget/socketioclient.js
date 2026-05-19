@@ -75,9 +75,19 @@ if (typeof SharedIO === "function" && typeof SharedWorker === "function" && urlP
 
     logError({ component: "WidgetIO", message: "SharedIO not supported", sharedWorkerSupported: typeof SharedWorker === "function" });
 
+    // Reconnect: start at 2s, jittered exponential up to 30s. Default
+    // Socket.IO maxes at 5s which hammers the backend after restart —
+    // widgets running in OBS Browser Source can survive long server
+    // downtime if we back off properly.
     let ioConfig = {
         transports: ["websocket"],
         upgrade: false,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 2000,
+        reconnectionDelayMax: 30000,
+        randomizationFactor: 0.5,
+        timeout: 10000,
         query: {
             appType: "widget",
             shared: false
@@ -89,6 +99,16 @@ if (typeof SharedIO === "function" && typeof SharedWorker === "function" && urlP
     } else {
         window.io = new io(ioConfig);
     }
+
+    // Throttle connect_error logs — without this, a server restart
+    // dumps an error every reconnect attempt for as long as it stays down.
+    let _lastConnErrAt = 0;
+    window.io.on("connect_error", function(err) {
+        const now = Date.now();
+        if (now - _lastConnErrAt < 30000) return; // 1 log / 30s max
+        _lastConnErrAt = now;
+        console.warn("[WidgetIO] connect_error:", err && err.message);
+    });
 
     function login() {
         io.emit("login", {

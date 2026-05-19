@@ -29,6 +29,21 @@ function readTemplate(name) {
   return fs.readFileSync(path.join(TEMPLATES_DIR, `${name}.txt`), 'utf8');
 }
 
+/**
+ * Return the mtime (epoch ms, integer) of a static asset under
+ * `downloads/<relative>`. Used as an auto-bumping cache buster — see
+ * `tfConnectVersion` in the ctx below. Returns '0' on miss so the page
+ * still loads (browser may serve stale, user can hard-refresh).
+ */
+function assetMtime(relativePath) {
+  try {
+    const stat = fs.statSync(path.join(FRONTEND_PATH, relativePath));
+    return String(Math.trunc(stat.mtimeMs));
+  } catch {
+    return '0';
+  }
+}
+
 /** Replace bundle-flavoured `{{var}}` placeholders with runtime values. */
 function interpolate(text, ctx) {
   return text.replace(/\{\{(\w+)\}\}/g, (_, key) =>
@@ -71,14 +86,20 @@ function buildIndexHtml({ channelId, channelName }) {
   const ctx = {
     defaultChannelId: String(channelId || DEFAULT_CHANNEL_ID),
     defaultChannelName: channelName || DEFAULT_CHANNEL_NAME,
+    // Auto-bumping cache buster for static JS we control. Reads file mtime
+    // so any edit to /downloads/js/<name> updates the version string in
+    // the served HTML — browsers fetch the new file without a manual bump.
+    // Falls back to '0' if the file is missing so the page still loads.
+    tfConnectVersion: assetMtime('js/tf-connect.js'),
   };
 
   // Read every injection block once. The static blocks never change between
-  // requests; only authScript has `{{defaultChannelId}}` / `{{defaultChannelName}}`.
+  // requests; only authScript / tiktokConnectScript have `{{var}}` placeholders.
   const blockScript = readTemplate('blockScript');
   const authScript = interpolate(readTemplate('authScript'), ctx);
   const loginPopupScript = readTemplate('loginPopupScript');
-  const tiktokConnectScript = readTemplate('tiktokConnectScript');
+  // tiktokConnectScript carries `{{tfConnectVersion}}` cache buster.
+  const tiktokConnectScript = interpolate(readTemplate('tiktokConnectScript'), ctx);
   const earlyCss = readTemplate('earlyCss');
   const guestTopbar = readTemplate('guestTopbar');
   const ttsVoiceShim = readTemplate('ttsVoiceShim');
