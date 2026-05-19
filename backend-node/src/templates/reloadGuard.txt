@@ -1,21 +1,30 @@
 <script>
 (function() {
-  var KEY_PREFIX = 'tf-reload-lock:';
-  var TIME_SUFFIX = ':time';
-  var LOCK_TTL_MS = 60000;
-  var MAX_VISIBLE = 1;
-  // Profile-switch grace window. Bundle's switchProfile flow needs 3-5
-  // reloads in quick succession to apply the new profile's settings,
-  // refresh widgets, and re-bootstrap the dashboard. While `__tf_post_switch_ts`
-  // is fresh, raise the cap so those reloads aren't blocked.
+  // SLIDING-WINDOW reload guard. Instead of "max N total reloads per path
+  // ever" (which traps the bundle once it hits the cap and never recovers),
+  // we keep a list of reload TIMESTAMPS per path and only block when too
+  // many fall inside a rolling time window. Old entries age out naturally,
+  // so the user can always recover by waiting a few seconds.
+  //
+  // Tunings:
+  //   WINDOW_MS      — sliding window length
+  //   MAX_IN_WINDOW  — max reloads allowed in that window before blocking
+  //
+  // Defaults (8/10s) accommodate the bundle's normal boot (3 reloads in 2s)
+  // AND profile switch (5-8 reloads in 5s) while still catching pathological
+  // tight loops (which fire 50+ reloads per second).
+  var KEY_PREFIX = 'tf-reload-times:';
+  var WINDOW_MS = 10000;
+  var MAX_IN_WINDOW = 8;
   var SWITCH_GRACE_MS = 8000;
-  var SWITCH_GRACE_MAX = 6;
-  function effectiveMaxVisible() {
+  var SWITCH_GRACE_MAX = 15;
+
+  function effectiveMax() {
     try {
       var ts = parseInt(localStorage.getItem('__tf_post_switch_ts') || '0', 10) || 0;
       if (ts > 0 && (Date.now() - ts) < SWITCH_GRACE_MS) return SWITCH_GRACE_MAX;
     } catch (_) {}
-    return MAX_VISIBLE;
+    return MAX_IN_WINDOW;
   }
 
   function readStableScopeValue(key) {
@@ -52,26 +61,29 @@
     return KEY_PREFIX + getProfileScope() + ':' + path;
   }
 
-  function readCount(targetUrl) {
+  function readTimes(targetUrl) {
     var key = getScopeKey(targetUrl);
-    var timeKey = key + TIME_SUFFIX;
-    var t = parseInt(sessionStorage.getItem(timeKey) || '0', 10);
-    if (!t || Date.now() - t > LOCK_TTL_MS) {
-      sessionStorage.removeItem(key);
-      sessionStorage.removeItem(timeKey);
-      return 0;
+    try {
+      var raw = sessionStorage.getItem(key) || '[]';
+      var arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+      var now = Date.now();
+      // Drop entries older than the window.
+      return arr.filter(function(t) { return typeof t === 'number' && (now - t) < WINDOW_MS; });
+    } catch (_) {
+      return [];
     }
-    return parseInt(sessionStorage.getItem(key) || '0', 10);
   }
 
   function bumpCount(targetUrl) {
     var key = getScopeKey(targetUrl);
-    var timeKey = key + TIME_SUFFIX;
-    var c = readCount(targetUrl) + 1;
-    sessionStorage.setItem(key, String(c));
-    sessionStorage.setItem(timeKey, String(Date.now()));
-    return c;
+    var arr = readTimes(targetUrl);
+    arr.push(Date.now());
+    try { sessionStorage.setItem(key, JSON.stringify(arr)); } catch (_) {}
+    return arr.length;
   }
+
+  function readCount(targetUrl) { return readTimes(targetUrl).length; }
 
   // Bundle uses location.reload(), location.href = X, location.assign(),
   // and location.replace() interchangeably for "refresh state" actions.
@@ -80,7 +92,7 @@
     var current = readCount(targetUrl);
     var trace = '';
     try { trace = new Error('nav-trace').stack || ''; } catch(_) {}
-    var cap = effectiveMaxVisible();
+    var cap = effectiveMax();
     if (current >= cap) {
       console.warn('[reload-guard] BLOCKED nav #' + (current + 1) + ' cap=' + cap + ' scope=' + getScopeKey(targetUrl) + ' target=' + targetUrl + '\n' + trace);
       return false;
@@ -93,11 +105,32 @@
   // Catch-all: log every page unload with stack trace. This catches reloads
   // that bypass location.reload/assign/replace/href setters (e.g. setting
   // location.search, location.pathname, history.go(0), form.submit, anchor click).
+  //
+  // BEFORE-UNLOAD KILL SWITCH: if the sliding window is already at cap, the
+  // bundle is reloading via a path we did NOT hook (settings.restore in
+  // app.js has historically used mechanisms outside reload/assign/replace/
+  // href/search/pathname/host/go/submit). preventDefault() here, combined
+  // with the `will-prevent-unload` handler in electron/main.js, freezes the
+  // page so the loop terminates and the user can inspect via DevTools.
   try {
-    window.addEventListener('beforeunload', function() {
+    window.addEventListener('beforeunload', function(e) {
       var trace = '';
       try { trace = new Error('unload-trace').stack || ''; } catch(_) {}
-      console.warn('[reload-guard] BEFOREUNLOAD fired href=' + location.href + '\n' + trace);
+      // Bump the sliding window FIRST so we count unloads that bypass
+      // our location.* hooks (e.g. bundle's settings.restore uses an
+      // unhooked reload mechanism). This is the authoritative counter
+      // for loop detection — shouldAllowNavigation's bump is best-effort.
+      var cap = effectiveMax();
+      var after;
+      try { after = bumpCount(); } catch (_) { after = 0; }
+      console.warn('[reload-guard] BEFOREUNLOAD fired window=' + after + '/' + cap + ' href=' + location.href + '\n' + trace);
+      if (after >= cap) {
+        try {
+          e.preventDefault();
+          e.returnValue = 'TikFinity blocked a reload loop — see console';
+          console.error('[reload-guard] KILL SWITCH — preventDefault() on beforeunload (window=' + after + '/' + cap + ')');
+        } catch (_) {}
+      }
     });
   } catch (e) {}
   console.warn('[reload-guard] INSTALLED at ' + Date.now() + ' href=' + location.href);

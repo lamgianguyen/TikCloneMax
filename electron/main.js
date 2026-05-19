@@ -1722,6 +1722,18 @@ function createMainWindow() {
         console.log('[Main-Diag] webContents responsive');
     });
 
+    // When renderer's beforeunload listener calls preventDefault(), Electron
+    // emits this event in the main process. Electron's DEFAULT behavior is
+    // to cancel the unload (page stays). Calling event.preventDefault() here
+    // would OVERRIDE that and allow the unload — exactly what we DON'T want.
+    //
+    // So this handler intentionally does NOT call preventDefault — we just
+    // observe the kill-switch firing and rely on Electron's default to keep
+    // the page frozen. The user can then open DevTools and diagnose.
+    mainWindow.webContents.on('will-prevent-unload', (_event) => {
+        console.warn('[Main-Guard] will-prevent-unload — page frozen by reloadGuard kill-switch (renderer beforeunload preventDefault honored by Electron default)');
+    });
+
     mainWindow.webContents.setWindowOpenHandler(handleWindowOpen);
 
     // When a popup is allowed by handleWindowOpen, ensure it only becomes

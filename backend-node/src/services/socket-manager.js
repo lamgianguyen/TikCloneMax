@@ -148,8 +148,19 @@ function handleLogin(socket, payload, ack) {
   // Push initial widgetSettings + channelStatus + current aggregate state
   // so widget tabs render with real data without waiting for the next
   // event. Mirrors C# bridge's `EmitInitialAggregateStateAsync`.
+  //
+  // IMPORTANT: only emit `widgetSettings` to widget-type sockets. The main
+  // app (appType='controlpage') already has the settings via /api/me's
+  // dynamicSettings, and receiving a fresh `widgetSettings` event there
+  // re-triggers the bundle's settings.restore() — which detects a diff
+  // (even when content matches, the bundle's hash check is fragile) and
+  // initiates a full page reload. Boot path then loops because each reload
+  // re-runs login → re-emits widgetSettings → re-restore → reload.
   try {
-    socket.emit('widgetSettings', out.widgetSettings);
+    const isWidget = String(socket.data.appType || '').toLowerCase() === 'widget';
+    if (isWidget) {
+      socket.emit('widgetSettings', out.widgetSettings);
+    }
     socket.emit('channelStatus', buildChannelStatus(channelId));
     // Aggregates: fire updateTopGifter/Liker/Ranking, topGiftData, stats,
     // updateViewerCount, setLastX directly to this socket so a freshly-

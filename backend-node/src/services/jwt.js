@@ -128,10 +128,26 @@ function validateToken(token) {
   }
 }
 
+// Decode `exp` claim without verifying signature. Used by token caches that
+// reload from disk and need a cheap expiry check — full validateToken is
+// overkill when we just want to know if the cached token is still good.
+function peekExp(token) {
+  if (typeof token !== 'string') return 0;
+  const parts = token.split('.');
+  if (parts.length !== 3) return 0;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return typeof payload.exp === 'number' ? payload.exp : 0;
+  } catch {
+    return 0;
+  }
+}
+
 module.exports = {
   generateAccessToken,
   generateFeaturebaseToken,
   validateToken,
+  peekExp,
   ACCESS_TOKEN_LIFETIME_SECONDS,
   FEATUREBASE_LIFETIME_SECONDS,
 };

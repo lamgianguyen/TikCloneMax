@@ -344,6 +344,41 @@ app.get('/img/user/:channelId/:userId', (req, res) => {
   return res.redirect(302, '/img/nothumb.webp');
 });
 
+// Pin SPA deep-link HTML paths to the processed-HTML middleware BEFORE
+// express.static gets a chance to serve the raw `downloads/` source files.
+//
+// Background: the bundle uses URL patterns like `/tiktok/obsoverlays`,
+// `/tiktok/setup`, `/streamerbot-integration` etc. for client-side routing.
+// `downloads/` ships matching static HTML files for each of those routes
+// (legacy SSR pages for direct-load + SEO). With express.static mounted
+// upstream, a Ctrl+R while on any of those routes was served the RAW static
+// file directly — which has no reloadGuard, no PostHog stub, no
+// data-new-navigation-design body attribute. Bundle's app.js then read an
+// uninitialised posthog (empty Array queue) and fell back to the legacy
+// text-sidebar layout.
+//
+// Forcing these paths through indexHtmlMiddleware guarantees every HTML
+// document load gets the full injection. The bundle's own client-side
+// router then reads location.pathname and renders the correct page.
+//
+// Regex matches:
+//   /                        → already handled by app.get('/', ...) below
+//   /index            /index.html
+//   /tiktok/<anything>
+//   /streamerbot-integration  /chatbot-troubleshooting
+//   /get-tiktok-username      /studiofix
+//   /de  /es  /en             (language root variants in downloads/)
+//   /de/<anything>            /es/<anything>            /en/<anything>
+const SPA_HTML_ROUTES = /^\/(index(\.html?)?|tiktok\/[^.]*|streamerbot-integration|chatbot-troubleshooting|get-tiktok-username|studiofix|(de|es|en)(\/[^.]*)?)$/;
+app.get(SPA_HTML_ROUTES, (req, res, next) => {
+  // Only intercept genuine document loads — never asset fetches that happen
+  // to land on a path-without-extension. If Accept doesn't request HTML
+  // (e.g. an XHR or fetch for a JSON fixture), fall through to express.static.
+  const accept = String(req.headers.accept || '');
+  if (!accept.includes('text/html')) return next();
+  return indexHtmlMiddleware()(req, res, next);
+});
+
 // Static bundle assets + the `downloads/api/*` JSON fixtures TikFinity ships.
 // Mounted AFTER our real /api handlers so the fixtures only fire for endpoints
 // we haven't ported yet (Phase 2 progressively shrinks that surface).

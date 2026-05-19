@@ -18,6 +18,8 @@
 //     ~1 GET+POST /api/me per second.
 
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const jwt = require('../services/jwt');
 const sockets = require('../services/socket-manager');
 const widgetSettings = require('../services/widget-settings-cache');
@@ -27,14 +29,72 @@ const channels = require('../db/models/channels');
 const subscriptions = require('../db/models/subscriptions');
 const profiles = require('../db/models/profiles');
 const dynamicSettings = require('../db/models/dynamic-settings');
+const { DATA_DIR } = require('../config');
+const logger = require('../logger');
 
 const router = express.Router();
 
-// Per-channel JWT cache. See header note above.
+// Per-channel JWT cache, persisted to disk so backend restart does NOT mint
+// fresh tokens with new `iat`. The bundle's settings.restore compares iat
+// across calls; any mismatch triggers a full reload, which becomes a tight
+// reload loop on cold boot (cache empty → mint T1 → bundle sees mismatch with
+// stored Tx → reload → mint T1 from cache → bundle still sees mismatch with
+// Tx that never got persisted → reload → ...).
+//
+// Persisting the cache keeps `iat` stable across backend restarts so the
+// bundle only sees a fresh token once per real session change.
+const TOKEN_CACHE_PATH = path.join(DATA_DIR, 'token-cache.json');
+
 /** @type {Map<number, string>} */
 const _wsAuthTokenCache = new Map();
 /** @type {Map<string, string>} key = `${channelId}|${frontendChannelName}` */
 const _featureBaseTokenCache = new Map();
+
+function loadTokenCacheFromDisk() {
+  try {
+    if (!fs.existsSync(TOKEN_CACHE_PATH)) return;
+    const raw = fs.readFileSync(TOKEN_CACHE_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    const now = Math.floor(Date.now() / 1000);
+    let loaded = 0;
+    let dropped = 0;
+    for (const [k, v] of Object.entries(parsed.wsAuth || {})) {
+      if (typeof v !== 'string' || !v) continue;
+      const exp = jwt.peekExp(v);
+      if (exp && exp > now + 60) { _wsAuthTokenCache.set(Number(k), v); loaded++; }
+      else dropped++;
+    }
+    for (const [k, v] of Object.entries(parsed.featureBase || {})) {
+      if (typeof v !== 'string' || !v) continue;
+      const exp = jwt.peekExp(v);
+      if (exp && exp > now + 60) { _featureBaseTokenCache.set(String(k), v); loaded++; }
+      else dropped++;
+    }
+    logger.info(`[me] token cache loaded from disk (loaded=${loaded}, dropped_expired=${dropped})`);
+  } catch (err) {
+    logger.warn({ err: err.message }, '[me] token cache load failed — starting fresh');
+  }
+}
+
+let _persistTimer = null;
+function persistTokenCacheDebounced() {
+  if (_persistTimer) return;
+  _persistTimer = setTimeout(() => {
+    _persistTimer = null;
+    try {
+      const obj = {
+        wsAuth: Object.fromEntries(_wsAuthTokenCache),
+        featureBase: Object.fromEntries(_featureBaseTokenCache),
+        savedAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(TOKEN_CACHE_PATH, JSON.stringify(obj, null, 2), 'utf8');
+    } catch (err) {
+      logger.warn({ err: err.message }, '[me] token cache persist failed');
+    }
+  }, 500);
+}
+
+loadTokenCacheFromDisk();
 
 function resolveChannelId(req) {
   if (req.auth && req.auth.channelId > 0) return req.auth.channelId;
@@ -129,7 +189,11 @@ function buildDynamicSettings(source, frontendChannelName, featureBaseToken, own
 
 function getOrMintWsToken(channel, isPro) {
   let token = _wsAuthTokenCache.get(channel.ChannelId);
-  if (token) return token;
+  if (token) {
+    const exp = jwt.peekExp(token);
+    if (exp && exp > Math.floor(Date.now() / 1000) + 60) return token;
+    _wsAuthTokenCache.delete(channel.ChannelId);
+  }
   const minted = jwt.generateAccessToken(
     channel.ChannelId,
     channel.ChannelName,
@@ -138,19 +202,25 @@ function getOrMintWsToken(channel, isPro) {
   );
   token = minted.token;
   _wsAuthTokenCache.set(channel.ChannelId, token);
+  persistTokenCacheDebounced();
   return token;
 }
 
 function getOrMintFeatureBaseToken(channel, frontendChannelName) {
   const key = `${channel.ChannelId}|${frontendChannelName || ''}`;
   let token = _featureBaseTokenCache.get(key);
-  if (token) return token;
+  if (token) {
+    const exp = jwt.peekExp(token);
+    if (exp && exp > Math.floor(Date.now() / 1000) + 60) return token;
+    _featureBaseTokenCache.delete(key);
+  }
   token = jwt.generateFeaturebaseToken(
     frontendChannelName,
     channel.Email,
     String(channel.ChannelId)
   );
   _featureBaseTokenCache.set(key, token);
+  persistTokenCacheDebounced();
   return token;
 }
 

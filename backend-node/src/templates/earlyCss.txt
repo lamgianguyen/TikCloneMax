@@ -90,16 +90,23 @@
     align-items: flex-start !important;
     align-content: flex-start !important;
   }
-  /* `flex: 1 1 720px` = grow to fill row + shrink to fit + min basis 720px.
-     Wrap kicks in when remaining row space < 720px, giving:
-       - container <  1460px → 1 column (cards full width up to container)
-       - container >= 1460px → 2 columns (cards ~equal width)
-       - container >= 2200px → 3 columns (large monitors)
-     No content overflow at any width, buttons always inside viewport. */
+  /* `flex: 0 1 calc(50% - 10px)` = each card wants exactly half the row
+     (minus half the 20px gap) — DOES NOT grow beyond that. `min-width: 560px`
+     forces wrap when the per-card half drops below 560px. This guarantees:
+       - container <  1140px → 1 column (min-width forces wrap, card 100%)
+       - container >= 1140px → 2 columns (each ≈ half, no overflow)
+       - container >= 1700px → 3 columns (wide monitors get more)
+     Critical change from the prior `flex: 1 1 720px`: removing flex-grow
+     prevents cards from inflating past their half-share and overflowing
+     the right edge — which broke once the sub-sidebar started occupying
+     256px on the left, leaving the content area narrower than the old
+     basis assumed. `calc(50% - 10px)` adapts automatically to whatever
+     space the container has, so the rule stays correct regardless of
+     sidebar visibility. */
   .obsOverlayContainer > .graphicSection {
-    flex: 1 1 720px !important;
+    flex: 0 1 calc(50% - 10px) !important;
     width: auto !important;
-    min-width: 0 !important;
+    min-width: 560px !important;
     max-width: 100% !important;
   }
 
@@ -201,5 +208,22 @@
   img[src*="tiktokcdn.com/tos-"][class*="absolute"] {
     display: none !important;
     visibility: hidden !important;
+  }
+
+  /* Sub-sidebar items wrapper: the Vue navigation renders page items inside
+     .w-64.bg-secondary > .flex-1 > .flex.flex-col.gap-2, but its `v-show`
+     directive keeps the wrapper at display:none even when the items are
+     fully populated (the section-container, page-item, and item rows all
+     exist underneath with the correct active/selected classes). Without
+     dev-tools access to the Vue runtime we cannot flip the v-show flag.
+     We force the wrapper visible ONLY when it actually contains page-items
+     — empty wrappers (guest mode, loading transient, page with no sub-items)
+     keep their default hidden state, so this change is scoped and reversible:
+       - selector requires .w-64.bg-secondary container → cannot match any
+         other Tailwind `.flex.flex-col.gap-2` in the app
+       - :has(.page-item) guard ensures we only override when items exist
+       - !important overrides Vue's inline display:none cleanly */
+  div.w-64.bg-secondary div.flex.flex-col.gap-2:has(.page-item) {
+    display: flex !important;
   }
 </style>

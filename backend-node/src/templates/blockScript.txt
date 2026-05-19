@@ -1,4 +1,74 @@
 <script>
+/* ─────────────────────────────────────────────────────────────────────
+   STANDALONE PostHog stub + new-navigation flag installer.
+   Runs in its OWN IIFE before the main blockScript IIFE so that an error
+   anywhere in the main IIFE (1500+ lines, many DOM observers, network
+   patches, auth flows) cannot prevent the feature-flag stub from being
+   installed. Without this, the bundle's posthog.isFeatureEnabled(
+   'new-navigation') returns undefined → falsy → bundle renders the
+   legacy text-sidebar layout. Symptom: pressing Ctrl+R sometimes drops
+   back to the legacy layout because some error path in the main IIFE
+   short-circuited before reaching the posthog block at line ~1132.
+   Keeping this stub minimal and self-contained eliminates that race.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfEarlyPosthogStub(){
+  try {
+    var noop = function(){};
+    var stub = window.posthog || {};
+    if (stub.__loaded) return;
+    var flags = { 'new-navigation': true, 'new-navigation-design': true };
+    stub.__loaded = true;
+    stub._i = Array.isArray(stub._i) ? stub._i : [];
+    stub.people = stub.people || {};
+    stub.isFeatureEnabled = function(f){ return !!flags[f]; };
+    stub.getFeatureFlag = function(f){ return flags.hasOwnProperty(f) ? flags[f] : null; };
+    stub.getFeatureFlagPayload = function(){ return null; };
+    stub.onFeatureFlags = function(cb){
+      try { if (typeof cb === 'function') setTimeout(function(){ cb(Object.keys(flags), flags); }, 0); } catch(e){}
+      return noop;
+    };
+    // Methods bundle calls during boot — all no-ops, just must not throw.
+    ['init','capture','identify','reset','alias','opt_in_capturing','opt_out_capturing',
+     'register','register_once','unregister','setPersonProperties','setPersonPropertiesForFlags',
+     'group','setGroupPropertiesForFlags','reloadFeatureFlags','startSessionRecording',
+     'stopSessionRecording','startSurveys','stopSurveys','debug','setConfig','set_config']
+      .forEach(function(m){ if (typeof stub[m] !== 'function') stub[m] = noop; });
+    stub.on = function(){ return noop; };
+    stub.canRenderSurvey = function(){ return false; };
+    stub.canRenderSurveyAsync = function(){ return Promise.resolve(false); };
+    stub.getEarlyAccessFeatures = function(){ return []; };
+    stub.getSurveys = function(){ return []; };
+    stub.getActiveMatchingSurveys = function(){ return []; };
+    stub.get_distinct_id = function(){ return ''; };
+    stub.get_session_id = function(){ return ''; };
+    stub.has_opted_in_capturing = function(){ return false; };
+    stub.has_opted_out_capturing = function(){ return false; };
+    stub.is_capturing = function(){ return false; };
+    window.posthog = stub;
+  } catch (e) { try { console.warn('[tfEarlyPosthogStub] failed:', e && e.message); } catch(_){} }
+
+  // Set body[data-new-navigation-design] as soon as body exists so the
+  // bundle's boot-time check sees the new-design opt-in even if Vue
+  // navigation mounting is delayed or fails.
+  function tfSetNavAttr() {
+    try {
+      if (document.body && !document.body.hasAttribute('data-new-navigation-design')) {
+        document.body.setAttribute('data-new-navigation-design', 'true');
+      }
+    } catch (e) {}
+  }
+  tfSetNavAttr();
+  if (!document.body) {
+    try {
+      var bodyObs = new MutationObserver(function(){
+        if (document.body) { tfSetNavAttr(); try { bodyObs.disconnect(); } catch(_){} }
+      });
+      bodyObs.observe(document.documentElement, { childList: true });
+    } catch (e) {}
+    try { document.addEventListener('DOMContentLoaded', tfSetNavAttr, { once: true }); } catch(_){}
+  }
+})();
+
 (function(){
   // While the bundle's #splashScreen ("Getting things ready for you...")
   // is visible, set body.tf-splash-active so CSS hides the partially
