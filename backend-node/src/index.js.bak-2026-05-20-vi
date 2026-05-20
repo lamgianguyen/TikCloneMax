@@ -369,7 +369,7 @@ app.get('/img/user/:channelId/:userId', (req, res) => {
 //   /get-tiktok-username      /studiofix
 //   /de  /es  /en             (language root variants in downloads/)
 //   /de/<anything>            /es/<anything>            /en/<anything>
-const SPA_HTML_ROUTES = /^\/(index(\.html?)?|tiktok\/[^.]*|streamerbot-integration|chatbot-troubleshooting|get-tiktok-username|studiofix|(de|es|en|vi)(\/[^.]*)?)$/;
+const SPA_HTML_ROUTES = /^\/(index(\.html?)?|tiktok\/[^.]*|streamerbot-integration|chatbot-troubleshooting|get-tiktok-username|studiofix|(de|es|en)(\/[^.]*)?)$/;
 app.get(SPA_HTML_ROUTES, (req, res, next) => {
   // Only intercept genuine document loads — never asset fetches that happen
   // to land on a path-without-extension. If Accept doesn't request HTML

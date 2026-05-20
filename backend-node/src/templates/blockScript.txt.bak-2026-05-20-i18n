@@ -69,64 +69,6 @@
   }
 })();
 
-/* ─────────────────────────────────────────────────────────────────────
-   STANDALONE i18n patch installer.
-   The new bundle (≥3.9MB combo/app.js) introduced 57 translation keys
-   (`tts.voice_picker.*`, `tts.credits_topup.*`, `tts.daily_limit.*`, ...)
-   that are baked into `downloads/vi` only. When user lands on the
-   default English `downloads/index.html` the bundle's t() lookups
-   return undefined → modals render the raw key (e.g. the voice-picker
-   tabs show `tts.voice_picker.ai_tab` instead of "AI"). We can't easily
-   patch the English HTML because the bundle reads its locale via
-   `window.tfPageloadData.appConfig.localization[lang]` — that object is
-   assembled inline in HTML before our injection runs.
-   Strategy: poll briefly for `window.tfPageloadData` and merge the missing
-   keys into every locale we know about. This keeps the modal labels
-   readable regardless of which HTML variant was served. Run early
-   so the merge wins the race against the bundle's first t() call.
-   Patch JSON comes from `templates/i18n-patch.json`, interpolated by
-   `index-html.js` via the {{i18nPatchJson}} placeholder.
-   ───────────────────────────────────────────────────────────────────── */
-(function tfI18nPatch(){
-  var patch = {{i18nPatchJson}};
-  if (!patch || typeof patch !== 'object' || !Object.keys(patch).length) return;
-  function apply(){
-    try {
-      var pld = window.tfPageloadData;
-      var loc = pld && pld.appConfig && pld.appConfig.localization;
-      if (!loc) return false;
-      ['en','vi','de','es'].forEach(function(lang){
-        if (!loc[lang]) loc[lang] = {};
-        var bucket = loc[lang];
-        for (var k in patch) {
-          if (Object.prototype.hasOwnProperty.call(patch, k) && !(k in bucket)) {
-            bucket[k] = patch[k];
-          }
-        }
-      });
-      try { console.log('[TF-i18n-patch] merged', Object.keys(patch).length, 'keys into en/vi/de/es'); } catch(_){}
-      return true;
-    } catch(e){
-      try { console.warn('[TF-i18n-patch] apply failed:', e && e.message); } catch(_){}
-      return false;
-    }
-  }
-  if (apply()) return;
-  // tfPageloadData is set inline in the document b-o-d-y AFTER our head
-  // injection runs. Note: never write the literal lower-case b o d y opening
-  // tag here because the surrounding HTML build does a /body-tag/i replace and
-  // would otherwise inject the entire b o d y template INSIDE this comment,
-  // breaking the script tag.
-  // Poll up to 5s with a tight 30ms interval so the merge lands before any
-  // Vue component reads its t() bindings on first render.
-  var t0 = Date.now();
-  var iv = setInterval(function(){
-    if (apply() || Date.now() - t0 > 5000) {
-      try { clearInterval(iv); } catch(_){}
-    }
-  }, 30);
-})();
-
 (function(){
   // While the bundle's #splashScreen ("Getting things ready for you...")
   // is visible, set body.tf-splash-active so CSS hides the partially

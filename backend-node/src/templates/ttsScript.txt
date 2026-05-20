@@ -1,80 +1,414 @@
 <script>
 (function() {
-  if (!window.speechSynthesis) return;
-  var SETTINGS_KEY = 'tf_tts_settings';
+  // TikFinity TTS uses the SERVER endpoint /api/tts/generate?voice=...&text=...
+  // (TikTok's voice synthesis API, proxied by our backend) — NOT the browser's
+  // speechSynthesis. The server returns MP3 audio bytes that we play via the
+  // Audio element. Each chat → one fetch → one playback queued in order.
+  //
+  // SETTINGS — all driven by the bundle's own UI checkboxes / selectors,
+  // read fresh from localStorage on every chat so toggling the UI takes
+  // effect immediately. NO private override: bundle's checkbox is the
+  // single source of truth, so unchecking "Enabled" really stops reading.
+  //
+  //   ON/OFF + VOICE:
+  //   setting_checkboxttsenabled        → master on/off
+  //   setting_checkboxttsrandomvoicev2  → pick a random voice per chat
+  //   setting_selectboxttsvoice         → fixed voice id when random is off
+  //   setting_slidettsvolume            → 0..100 → mapped to Audio.volume
+  //
+  //   COMMENT TYPE FILTER (radio, mutually exclusive):
+  //   setting_radiogroupttscommenttypes → "0"=any, "1"=starts-with-dot,
+  //                                       "2"=starts-with-slash, "3"=command
+  //   setting_textboxttscommand         → custom command prefix when radio=3
+  //
+  //   USER CATEGORY FILTER (OR semantics — chat passes if ANY checked group
+  //   matches the speaker):
+  //   setting_checkboxttsusersnormal       → all regular users
+  //   setting_checkboxttsusersfollowers    → followRole >= 1
+  //   setting_checkboxttsuserssubscribers  → isSubscriber
+  //   setting_checkboxttsusersmoderators   → isModerator
+  //   setting_checkboxttsusersteammembers  → team member badge
+  //   setting_checkboxttsuserstopgifters   → top gifter badge
+  //   setting_checkboxttsusersspecific     → user is on Special Users list
+  //
+  //   TEXT FILTER (applied to comment text BEFORE TTS):
+  //   setting_checkboxttsfiltercommands    → drop messages starting with !
+  //   setting_checkboxttsfiltermentions    → strip @mentions from text
+  //   setting_checkboxttsfilterletterspam  → collapse 4+ repeated letters
+  //
+  //   THROTTLE / LENGTH:
+  //   setting_numberboxttscommentlength → max chars (clip rest)
+  //   setting_numberboxttsqueuelength   → max audios queued
+  //   setting_numberboxttsusercooldown  → seconds between same-user TTS
+  var DEFAULT_VOICE = 'en_us_002';
+  var DEFAULT_MAX_LEN = 200;
+  var DEFAULT_QUEUE_LEN = 20;
+  var DEFAULT_COOLDOWN_S = 0;
+  var FETCH_TIMEOUT_MS = 8000;
+
+  // Voice pool used when "Random Voice" is enabled. Pulled from bundle's
+  // standard English voice list — extend if user wants more variety.
+  var RANDOM_VOICE_POOL = [
+    'en_us_001', 'en_us_002', 'en_us_006', 'en_us_007', 'en_us_009', 'en_us_010',
+    'en_male_narration', 'en_male_funny', 'en_female_emotional'
+  ];
+
+  function readBool(key) {
+    try {
+      var v = localStorage.getItem(key);
+      return v === 'true' || v === '1';
+    } catch (e) { return false; }
+  }
+  function readString(key, fallback) {
+    try {
+      var v = localStorage.getItem(key);
+      return (v === null || v === undefined || v === '') ? (fallback || '') : String(v).trim();
+    } catch (e) { return fallback || ''; }
+  }
+  function readNumber(key, fallback) {
+    try {
+      var v = localStorage.getItem(key);
+      if (v === null || v === undefined || v === '') return fallback;
+      var n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    } catch (e) { return fallback; }
+  }
+
+  function pickRandomVoice() {
+    return RANDOM_VOICE_POOL[Math.floor(Math.random() * RANDOM_VOICE_POOL.length)];
+  }
 
   function getSettings() {
+    var enabled = readBool('setting_checkboxttsenabled');
+    var random = readBool('setting_checkboxttsrandomvoicev2');
+    var fixedVoice = readString('setting_selectboxttsvoice', DEFAULT_VOICE);
+    // Bundle UI sliders 0..100 — only `slidettsvolume` maps to a real
+    // playback control (Audio.volume 0..1). Speed/Pitch sliders are
+    // cosmetic in the original bundle (no playbackRate references anywhere
+    // in downloads/), so we leave audio at natural TTS speed.
+    var volRaw = readNumber('setting_slidettsvolume', 100);
+    var volume = Math.max(0, Math.min(1, volRaw / 100));
+    var maxLen = readNumber('setting_numberboxttscommentlength', DEFAULT_MAX_LEN);
+    var queueLen = readNumber('setting_numberboxttsqueuelength', DEFAULT_QUEUE_LEN);
+    var cooldown = readNumber('setting_numberboxttsusercooldown', DEFAULT_COOLDOWN_S);
+    // "Default Voice" in the bundle dropdown writes id="default" which the
+    // TikTok TTS proxy doesn't recognise. Fall back to a real voice id.
+    var effectiveFixed = (fixedVoice && fixedVoice !== 'default') ? fixedVoice : DEFAULT_VOICE;
+    return {
+      enabled: enabled,
+      random: random,
+      voice: random ? pickRandomVoice() : effectiveFixed,
+      volume: volume,
+      maxLen: Math.max(10, Math.min(300, maxLen)),
+      queueLen: Math.max(1, Math.min(100, queueLen)),
+      cooldown: Math.max(0, Math.min(600, cooldown)),
+      // Filters — null/undefined = "not configured" → permissive by default.
+      commentTypeMode: readString('setting_radiogroupttscommenttypes', '0'),
+      customCommand: readString('setting_textboxttscommand', '!tts'),
+      filterCommands: readBool('setting_checkboxttsfiltercommands'),
+      filterMentions: readBool('setting_checkboxttsfiltermentions'),
+      filterLetterSpam: readBool('setting_checkboxttsfilterletterspam'),
+      userAll:    readBool('setting_checkboxttsusersnormal'),
+      userFol:    readBool('setting_checkboxttsusersfollowers'),
+      userSub:    readBool('setting_checkboxttsuserssubscribers'),
+      userMod:    readBool('setting_checkboxttsusersmoderators'),
+      userTeam:   readBool('setting_checkboxttsusersteammembers'),
+      userTopGft: readBool('setting_checkboxttsuserstopgifters'),
+      userSpec:   readBool('setting_checkboxttsusersspecific'),
+    };
+  }
+
+  // Comment-type radio: bundle stores "0"|"1"|"2"|"3" string. "0" = any.
+  // Returns true if the comment matches the configured type, plus the
+  // text that should be SPOKEN (some modes strip the prefix).
+  function applyCommentTypeFilter(text, s) {
+    var mode = String(s.commentTypeMode || '0');
+    if (mode === '0') return { ok: true, text: text };
+    if (mode === '1') {
+      // starts with dot
+      if (text.charAt(0) !== '.') return { ok: false };
+      return { ok: true, text: text.slice(1).trim() };
+    }
+    if (mode === '2') {
+      // starts with slash
+      if (text.charAt(0) !== '/') return { ok: false };
+      return { ok: true, text: text.slice(1).trim() };
+    }
+    if (mode === '3') {
+      // custom command prefix
+      var cmd = (s.customCommand || '!tts').trim();
+      if (!cmd) return { ok: true, text: text };
+      if (text.indexOf(cmd) !== 0) return { ok: false };
+      return { ok: true, text: text.slice(cmd.length).trim() };
+    }
+    return { ok: true, text: text };
+  }
+
+  // User-category gate: PERMISSIVE BY DEFAULT.
+  //
+  // Bundle's "All Users" checkbox writes to `setting_checkboxttsusersnormal`
+  // — but only when the user actually saves the settings page (otherwise
+  // the key may be missing even though the UI checkbox is checked, because
+  // bundle persists settings server-side via /api/updateSettings, not via
+  // direct localStorage writes on click). To avoid over-restricting, we
+  // treat the filter as ENGAGED only when the user has EXCLUSIVE intent:
+  // explicitly checked one of the restricting boxes (Subscribers only,
+  // Moderators only, etc.) AND explicitly unchecked Normal/All.
+  //
+  // Until we have evidence of the persisted localStorage shape for every
+  // checkbox, default to "let everything through" so TTS keeps reading
+  // chat. The user can opt into stricter filtering later by clearing
+  // `setting_checkboxttsusersnormal` and checking a specific category.
+  function applyUserFilter(d, s) {
+    // If "All / Normal" is explicitly true → permissive.
+    if (s.userAll) return true;
+    // If "All / Normal" is explicitly false AND another exclusive category
+    // is checked, restrict to that category.
+    var anyExclusive = s.userFol || s.userSub || s.userMod || s.userTeam || s.userTopGft || s.userSpec;
+    if (s.userAll === false && anyExclusive) {
+      if (s.userMod && d.isModerator) return true;
+      if (s.userSub && d.isSubscriber) return true;
+      if (s.userFol && Number(d.followRole) >= 1) return true;
+      if ((s.userTeam || s.userTopGft) && Array.isArray(d.userBadges) && d.userBadges.length) return true;
+      return false;
+    }
+    // Default: permissive (treat as "read everyone").
+    return true;
+  }
+
+  // Strip @mentions, drop commands, collapse letter spam.
+  function applyTextFilters(text, s) {
+    if (!text) return text;
+    if (s.filterCommands && /^[!\/]/.test(text)) return null; // drop entirely
+    var out = text;
+    if (s.filterMentions) out = out.replace(/@\S+/g, '').replace(/\s+/g, ' ').trim();
+    if (s.filterLetterSpam) out = out.replace(/(.)\1{3,}/g, '$1$1$1'); // 4+ → 3
+    return out || null;
+  }
+
+  // Strip text we don't want spoken: URLs, repeated bracketed emote tags
+  // like "[wow][wow]", and emoji-only messages. Return null when nothing
+  // speakable remains.
+  function cleanText(raw, maxLen) {
+    if (!raw) return null;
+    var s = String(raw);
+    s = s.replace(/https?:\/\/\S+/g, '');                  // URLs
+    s = s.replace(/\[[^\]]{1,20}\]/g, ' ');                // [emote] tags
+    s = s.replace(/[\s​‌‍﻿]+/g, ' ').trim();
+    if (!s) return null;
+    if (!/[\p{L}\p{N}]/u.test(s)) return null;             // emoji-only
+    if (s.length > maxLen) s = s.slice(0, maxLen);
+    return s;
+  }
+
+  // Audio playback queue — serialise so chats are read one after another
+  // instead of overlapping. Drop excess to avoid runaway backlog on fast
+  // chat streams.
+  var _queue = [];
+  var _busy = false;
+  function enqueueAndPlay(url, volume, label, queueLen) {
+    var cap = queueLen || DEFAULT_QUEUE_LEN;
+    if (_queue.length >= cap) {
+      console.warn('[TF-TTS] queue full (' + cap + '), dropping', label);
+      return;
+    }
+    _queue.push({ url: url, volume: volume, label: label });
+    drain();
+  }
+  function drain() {
+    if (_busy) return;
+    var next = _queue.shift();
+    if (!next) return;
+    _busy = true;
     try {
-      var raw = localStorage.getItem(SETTINGS_KEY);
-      if (raw) return JSON.parse(raw);
+      var audio = new Audio(next.url);
+      audio.volume = Math.max(0, Math.min(1, next.volume));
+      audio.onended = function(){ _busy = false; drain(); };
+      audio.onerror = function(e){
+        console.warn('[TF-TTS] playback error for', next.label, e && e.message);
+        _busy = false; drain();
+      };
+      var p = audio.play();
+      if (p && typeof p.catch === 'function') {
+        p.catch(function(err){
+          console.warn('[TF-TTS] play() rejected:', err && err.message);
+          _busy = false; drain();
+        });
+      }
+    } catch (e) {
+      console.warn('[TF-TTS] enqueue failed:', e && e.message);
+      _busy = false; drain();
+    }
+  }
+
+  // Fire one TTS request → enqueue resulting audio. Uses ObjectURL so
+  // playback works even if Content-Disposition is set. Falls back to the
+  // direct streaming URL when fetch fails (e.g. backend offline).
+  function fetchAndSpeak(text, voice, volume, label, queueLen) {
+    var ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+    var timeout = setTimeout(function(){ if (ctrl) try { ctrl.abort(); } catch(_){} }, FETCH_TIMEOUT_MS);
+    var url = '/api/tts/generate?voice=' + encodeURIComponent(voice)
+            + '&text=' + encodeURIComponent(text);
+
+    fetch(url, ctrl ? { signal: ctrl.signal } : {})
+      .then(function(r){
+        clearTimeout(timeout);
+        if (!r.ok) throw new Error('tts http ' + r.status);
+        return r.blob();
+      })
+      .then(function(blob){
+        if (!blob || !blob.size) throw new Error('empty tts blob');
+        var objUrl = URL.createObjectURL(blob);
+        enqueueAndPlay(objUrl, volume, label, queueLen);
+      })
+      .catch(function(err){
+        clearTimeout(timeout);
+        console.warn('[TF-TTS] fetch failed:', err && err.message);
+      });
+  }
+
+  // Append an entry to the bundle's `<pre id="ttsLogs">` panel so the user
+  // sees what's being read in the TTS Chat page. Bundle ships the element
+  // with default text "No Entries" — we replace that on first entry and
+  // prepend subsequent ones (most-recent-first). Cap at MAX_LOG_LINES so
+  // the pre doesn't grow unbounded during a long stream.
+  var MAX_LOG_LINES = 50;
+  var _logBuf = [];
+  function logTtsEntry(line) {
+    try {
+      _logBuf.unshift(line);
+      if (_logBuf.length > MAX_LOG_LINES) _logBuf.length = MAX_LOG_LINES;
+      var el = document.getElementById('ttsLogs');
+      if (el) el.textContent = _logBuf.join('\n');
     } catch (e) {}
-    return { enabled: false, voice: '', rate: 1, pitch: 1, volume: 1, lang: 'vi-VN', readChat: true, readBot: true, maxLen: 200 };
-  }
-  function saveSettings(s) {
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
   }
 
-  function speak(text) {
+  function speak(text, opts) {
     var s = getSettings();
-    if (!s.enabled || !text) return;
-    text = String(text).slice(0, s.maxLen || 200);
-    // Strip emoji-only and trivial messages
-    if (!/[\p{L}\p{N}]/u.test(text)) return;
-
-    var utt = new SpeechSynthesisUtterance(text);
-    utt.lang = s.lang || 'vi-VN';
-    utt.rate = Math.max(0.1, Math.min(10, s.rate || 1));
-    utt.pitch = Math.max(0, Math.min(2, s.pitch || 1));
-    utt.volume = Math.max(0, Math.min(1, s.volume || 1));
-
-    if (s.voice) {
-      var voices = speechSynthesis.getVoices();
-      var match = voices.find(function(v) { return v.name === s.voice; });
-      if (match) utt.voice = match;
-    }
-    try { window.speechSynthesis.speak(utt); } catch (e) {}
+    if (!s.enabled) return;
+    var clean = cleanText(text, s.maxLen);
+    if (!clean) return;
+    var voice = (opts && opts.voice) || s.voice || DEFAULT_VOICE;
+    var label = (opts && opts.label) || clean.slice(0, 40);
+    console.log('[TF-TTS-Speak]', voice, (s.random ? '(random)' : '(fixed)'), '→', label);
+    // Format: "HH:MM:SS  voice  text"
+    var ts = new Date();
+    var hh = String(ts.getHours()).padStart(2, '0');
+    var mm = String(ts.getMinutes()).padStart(2, '0');
+    var ss = String(ts.getSeconds()).padStart(2, '0');
+    logTtsEntry(hh + ':' + mm + ':' + ss + '  [' + voice + ']  ' + label);
+    fetchAndSpeak(clean, voice, s.volume, label, s.queueLen);
   }
 
-  // Hook the bundle's socket so we don't need a separate connection.
-  function attach(io) {
-    if (!io || io.__tfTtsAttached) return;
-    io.__tfTtsAttached = true;
-    if (typeof io.on === 'function') {
-      io.on('chat', function(d) {
-        var s = getSettings();
-        if (!s.readChat) return;
-        var msg = d && (d.comment || d.message);
-        if (msg) speak(msg);
-      });
-      io.on('bot:say', function(d) {
-        var s = getSettings();
-        if (!s.readBot) return;
-        var resp = d && d.response;
-        if (resp) speak(resp);
-      });
-    }
+  // Dedupe — bundle may broadcast same chat to multiple sockets we're
+  // attached to; speak each unique chat once per 2-second bucket.
+  var _spoken = new Set();
+  var _spokenOrder = [];
+  function shouldSpeak(d) {
+    if (!d) return false;
+    var key = (d.uniqueId || '') + '|' + (d.comment || '') + '|' + Math.floor(Date.now() / 2000);
+    if (_spoken.has(key)) return false;
+    _spoken.add(key);
+    _spokenOrder.push(key);
+    if (_spokenOrder.length > 200) _spoken.delete(_spokenOrder.shift());
+    return true;
   }
 
-  // Wait for the bundle's socket instance.
-  var attempts = 0;
-  var poll = setInterval(function() {
-    attempts++;
-    if (window.__tfSocket || (window.io && window.io.connect)) {
-      attach(window.__tfSocket);
-    }
-    if (attempts > 100) clearInterval(poll);
-  }, 200);
+  // Per-user cooldown — prevents one viewer spamming. Stores last-spoken
+  // timestamp keyed by uniqueId.
+  var _userLastSpoke = Object.create(null);
+  function passesCooldown(uniqueId, cooldownSec) {
+    if (!cooldownSec || !uniqueId) return true;
+    var now = Date.now();
+    var last = _userLastSpoke[uniqueId] || 0;
+    if ((now - last) < cooldownSec * 1000) return false;
+    _userLastSpoke[uniqueId] = now;
+    return true;
+  }
 
-  // Also expose on window so a settings panel can poke it.
+  function attach(sock, label) {
+    if (!sock || sock.__tfTtsAttached) return;
+    if (typeof sock.on !== 'function') return;
+    sock.__tfTtsAttached = true;
+    console.log('[TF-TTS] attached to socket', label, sock.id || '');
+    sock.on('chat', function(d) {
+      var s = getSettings();
+      if (!s.enabled) return;
+      var msg = d && (d.comment || d.message);
+      if (!msg) return;
+      if (!shouldSpeak(d)) return;
+
+      // Filter 1: user category
+      if (!applyUserFilter(d, s)) return;
+
+      // Filter 2: comment type (radio). Some modes strip a prefix and
+      // give us the speakable text back.
+      var typeRes = applyCommentTypeFilter(msg, s);
+      if (!typeRes.ok) return;
+      msg = typeRes.text || '';
+      if (!msg) return;
+
+      // Filter 3: text-level (mentions, commands, letter spam)
+      msg = applyTextFilters(msg, s);
+      if (!msg) return;
+
+      // Cooldown
+      if (!passesCooldown(d.uniqueId, s.cooldown)) return;
+
+      var prefix = d.nickname || d.uniqueId || '';
+      speak(msg, { label: (prefix ? prefix + ': ' : '') + msg.slice(0, 30) });
+    });
+    sock.on('bot:say', function(d) {
+      var s = getSettings();
+      if (!s.enabled) return;
+      var resp = d && d.response;
+      if (resp) speak(resp, { label: '[bot] ' + resp.slice(0, 30) });
+    });
+  }
+
+  // Scan window for socket instances at multiple boot phases.
+  function rescan() {
+    try {
+      Object.keys(window).forEach(function(k){
+        try {
+          var v = window[k];
+          if (v && typeof v === 'object' && typeof v.on === 'function'
+              && typeof v.emit === 'function' && 'connected' in v && v.nsp) {
+            attach(v, 'window.' + k);
+          }
+        } catch(_){}
+      });
+    } catch(_){}
+  }
+  rescan();
+  setTimeout(rescan, 500);
+  setTimeout(rescan, 1500);
+  setTimeout(rescan, 4000);
+  setTimeout(rescan, 10000);
+
+  // Wrap io() factory so future sockets get the listener too.
+  if (typeof window.io === 'function' && !window.io.__tfTtsFactoryHooked) {
+    var origIo = window.io;
+    var wrapped = function() {
+      var sock = origIo.apply(this, arguments);
+      try { attach(sock, 'io() factory'); } catch(_) {}
+      return sock;
+    };
+    Object.keys(origIo).forEach(function(k){ try { wrapped[k] = origIo[k]; } catch(_){} });
+    wrapped.__tfTtsFactoryHooked = true;
+    try { window.io = wrapped; } catch(_){}
+  }
+
+  // Diagnostic surface. `get()` returns the live computed settings (bundle UI
+  // is the source of truth), `speak(text, opts?)` lets the user test a phrase,
+  // `rescan()` re-attaches if a new socket appeared after boot.
   window.tfTts = {
     get: getSettings,
-    set: function(patch) { saveSettings(Object.assign(getSettings(), patch)); },
     speak: speak,
-    voices: function() {
-      return (speechSynthesis.getVoices() || []).map(function(v) {
-        return { name: v.name, lang: v.lang, default: v.default };
-      });
-    }
+    rescan: rescan,
+    queueSize: function(){ return _queue.length; },
+    busy: function(){ return _busy; },
+    voicePool: function(){ return RANDOM_VOICE_POOL.slice(); },
   };
 })();
 </script>

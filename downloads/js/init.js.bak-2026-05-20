@@ -73,7 +73,7 @@
     window.appInitStage = 3;
 
     const parallelScripts = [
-        '/js/guard/obf/trc.js',
+        // '/js/guard/obf/trc.js', // disabled — anti-piracy guard not needed for local app
         '/js/lib-bundle.min.js',
     ];
 
@@ -203,7 +203,6 @@
     const parallelStyles = [
         'https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100..900;1,100..900&display=swap',
         'https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css',
-        '/flag-icons/css/flag-icons.min.css',
         '/combo/modules.css',
         '/combo/ui.css',
         '/dx/css/dxdark.css',

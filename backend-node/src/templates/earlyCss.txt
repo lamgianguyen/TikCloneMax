@@ -226,4 +226,19 @@
   div.w-64.bg-secondary div.flex.flex-col.gap-2:has(.page-item) {
     display: flex !important;
   }
+
+  /* TTS Logs panel — bundle ships <pre id="ttsLogs"> with inline
+     `position: absolute; max-width: 400px;`. With many log entries the
+     pre grows unbounded vertically and overflows the bounding card.
+     Cap height + add internal scroll so entries stay inside the panel.
+     Also break long single lines so they don't push max-width out. */
+  #ttsLogs {
+    max-height: 320px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+  }
 </style>

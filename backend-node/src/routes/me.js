@@ -325,6 +325,14 @@ function handleMe(req, res) {
       monthlyEarningsMax: 0,
       streamGifter: 0,
       streamGifterMax: 0,
+      // UI-only quota fields read by bundle's TTSFreeDropdown component
+      // (the "X / Y free messages" chip in topbar). 0/25 = full quota
+      // available; bundle renders chip when Max > 0.
+      ttsFreeMessages: 0,
+      ttsFreeMessagesMax: 25,
+      ttsProCredits: 0,
+      ttsProCreditsMax: 0,
+      trialBannerDismissed: false,
       lastSeenIp: remoteIp,
       lastActiveProDate: null,
       firstActiveProDate: null,

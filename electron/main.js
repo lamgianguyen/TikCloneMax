@@ -1513,6 +1513,81 @@ function createMainWindow() {
         try { mainWindow.show(); } catch { /* destroyed */ }
         closeSplash();
         console.log('[Main-Boot] main window shown (renderer settled)');
+        // Start UI health watchdog once the renderer is up.
+        startUiHealthWatchdog();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // UI HEALTH WATCHDOG
+    // Every WATCHDOG_INTERVAL_MS the main process runs a small JS snippet
+    // in the renderer to check whether key UI elements are present
+    // (Vue topbar mounted, icon rail visible, pages root non-empty).
+    // If the renderer reports "broken" twice in a row, we auto-recover by
+    // calling webContents.reload() — goes through the renderer's
+    // reloadGuard so a real reload loop still gets capped by the kill
+    // switch. Off by default in packaged builds.
+    // ─────────────────────────────────────────────────────────────────────
+    const WATCHDOG_INTERVAL_MS = 15000;
+    const WATCHDOG_FAILS_BEFORE_RELOAD = 2;
+    const WATCHDOG_RELOAD_COOLDOWN_MS = 60000;
+    let _watchdogTimer = null;
+    let _watchdogFailCount = 0;
+    let _lastWatchdogReloadAt = 0;
+    function startUiHealthWatchdog() {
+        if (_watchdogTimer) return;
+        if (app.isPackaged) return; // dev only — avoid noisy production behavior
+        const probe = `(function(){
+            try {
+                var navApp = document.getElementById('navigation-app');
+                var pagesRoot = document.getElementById('pages');
+                var iconRail = document.querySelector('div.w-16.bg-\\\\[\\\\#2E1F22\\\\]');
+                var activePage = document.querySelector('.page.pageenabled');
+                var topbar = document.querySelector('#navigation-app .topbar');
+                return JSON.stringify({
+                    bundleLoaded: !!(window.posthog && window.posthog.__loaded),
+                    navAppHasContent: !!(navApp && navApp.children.length > 0),
+                    pagesHasContent: !!(pagesRoot && pagesRoot.children.length > 0),
+                    iconRail: !!iconRail,
+                    topbar: !!topbar,
+                    activePageHasContent: !!(activePage && activePage.children.length > 1),
+                    bodyClass: document.body && document.body.className,
+                    href: location.href,
+                });
+            } catch (e) { return JSON.stringify({ probeError: e && e.message }); }
+        })()`;
+        _watchdogTimer = setInterval(async () => {
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+            try {
+                const raw = await mainWindow.webContents.executeJavaScript(probe, true);
+                const r = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                const healthy = r.bundleLoaded && r.navAppHasContent && r.iconRail && r.topbar && r.activePageHasContent;
+                if (healthy) {
+                    if (_watchdogFailCount > 0) console.log('[UI-Health] recovered:', r);
+                    _watchdogFailCount = 0;
+                    return;
+                }
+                _watchdogFailCount += 1;
+                console.warn(`[UI-Health] FAIL #${_watchdogFailCount}/${WATCHDOG_FAILS_BEFORE_RELOAD}:`, r);
+                if (_watchdogFailCount >= WATCHDOG_FAILS_BEFORE_RELOAD) {
+                    const since = Date.now() - _lastWatchdogReloadAt;
+                    if (since < WATCHDOG_RELOAD_COOLDOWN_MS) {
+                        console.warn(`[UI-Health] auto-reload suppressed (last was ${Math.round(since/1000)}s ago)`);
+                        _watchdogFailCount = 0;
+                        return;
+                    }
+                    _lastWatchdogReloadAt = Date.now();
+                    _watchdogFailCount = 0;
+                    console.warn('[UI-Health] AUTO-RECOVER — webContents.reload()');
+                    try { mainWindow.webContents.reload(); } catch (e) { console.warn('[UI-Health] reload threw:', e.message); }
+                }
+            } catch (err) {
+                // Renderer might be navigating — skip this tick.
+                if (err && err.message && err.message.indexOf('Render frame was disposed') === -1) {
+                    console.warn('[UI-Health] probe failed:', err.message);
+                }
+            }
+        }, WATCHDOG_INTERVAL_MS);
+        console.log(`[UI-Health] watchdog active (every ${WATCHDOG_INTERVAL_MS}ms, dev only)`);
     }
 
     const _maxWaitTimer = setTimeout(() => {

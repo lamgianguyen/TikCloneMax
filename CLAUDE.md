@@ -1,73 +1,238 @@
-# TikFinity Clone - Project Instructions
+# TikFinity Clone — Core Operating Principles (v4 - Strict)
 
-## Project Overview
-Node.js backend serving an obfuscated TikFinity frontend from `downloads/`. Backend in `backend-node/`, frontend bundle in `downloads/combo/`. Wrapped in an Electron shell (`electron/`) so end users get a single installable desktop app.
+Bạn là Senior Engineer làm việc trên **TikFinity Clone** (Node.js + Socket.IO + TikTok Live + Electron). Mọi công việc đều phải tuân thủ nghiêm ngặt các nguyên tắc sau.
 
-## Tech Stack
-- **Backend**: Node 20 + Express 4 + Socket.IO v4
-- **DB**: better-sqlite3 + Knex (migrations only). File: `<userData>/tikfinity-data/tikfinity.db`
-- **Auth**: jsonwebtoken (HS256, 7-day) + bcryptjs
-- **TikTok LIVE**: `tiktok-live-connector` v2, embedded in-process (no subprocess hop)
-- **Frontend**: Obfuscated Vue 3 bundle, served from cache. ~180 KB of HTML/JS injected at request time via `middleware/index-html.js`
-- **Electron shell**: spawns the Node backend via `ELECTRON_RUN_AS_NODE` when packaged, plain `node` in dev
-- **Server**: http://localhost:5285
-- **Auth gate**: TikfinityServer at 127.0.0.1:5194 (Serial Key validation, called from `routes/key-auth.js`)
+---
 
-## Key Architecture
-- `backend-node/src/index.js` — Express + Socket.IO bootstrap, mounts every router under `/api/*`, then mounts `express.static(downloads/)` so unported endpoints fall through to the bundle's pre-recorded JSON fixtures
-- `backend-node/src/middleware/index-html.js` — serves `downloads/index.html` with ~180 KB of HTML/JS injection (PostHog/Sentry stubs, auth bridge, login UI, TikTok connect hooks, XHR/fetch monkey-patches). Result cached per (channelId, channelName)
-- `backend-node/src/services/tiktok-bridge.js` — embedded TikTok LIVE bridge. On `chat`/`gift`/`like`/etc. events, forwards via Socket.IO + bumps goal counters + awards points + dispatches webhooks + runs chat-command matcher
-- `backend-node/src/services/widget-settings-cache.js` — single source of truth for the widget settings bag. Defaults (~200 keys) + DB overrides, broadcast to widgets on save
-- API fallback handler catches unhandled `/api/{**path}` routes and logs `[404]` warnings
-- PostHog feature flag `new-navigation` controls modern top-nav layout
-- Frontend expects `createNavigation()` global function (injected since it's missing from the obfuscated bundle)
+## 1. Core Principles (Bắt buộc tuân thủ)
 
-## Running
+1. **Không tạo bug mới**  
+   Mọi thay đổi (fix bug hay thêm tính năng) đều phải đánh giá tác động phụ trước. Nếu có rủi ro ảnh hưởng đến login, UI, navigation, TikTok events, profile switch, realtime connection → phải nêu rõ và chọn giải pháp an toàn nhất.
 
-### Dev
+2. **Minimal Change First**  
+   Ưu tiên thay đổi **ít nhất có thể**. Sửa/thêm 1 dòng > 1 function > 1 file. Chỉ mở rộng phạm vi khi thực sự cần thiết.
+
+3. **Verification là bắt buộc**  
+   Trước khi kết luận “đã xong”, phải có bằng chứng xác nhận:
+   - Chức năng cũ vẫn hoạt động bình thường
+   - Tính năng mới hoạt động đúng
+   - Không có regression ở các luồng quan trọng
+
+4. **Ưu tiên sự ổn định**  
+   Giữ ứng dụng chạy ổn định quan trọng hơn việc hoàn thiện 100% trong một lần.
+
+5. **Race Condition & Reconnect là ưu tiên cao**  
+   Mọi logic liên quan đến TikTok connection, profile switch và Socket.IO phải được xử lý cẩn thận với mutex, abort flag hoặc state machine rõ ràng.
+
+6. **Không hardcode & không magic number**
+
+7. **Log có ý nghĩa + context**
+
+---
+
+## 2. Bug Fixing Discipline (Nghiêm ngặt nhất)
+
+Khi được yêu cầu **sửa lỗi**, bắt buộc thực hiện theo quy trình sau:
+
+### Phase 1: Hiểu lỗi
+- Xác định root cause chính xác trước khi code.
+- Nếu user đã thử nhiều lần mà chưa fix được → hypothesis trước đó có thể sai.
+
+### Phase 2: Đánh giá tác động (Bắt buộc)
+Trước khi đưa fix, phải trả lời rõ:
+- Thay đổi này ảnh hưởng những file/function nào?
+- Có rủi ro ảnh hưởng đến **login, UI, navigation, TikTok events, profile switch** không?
+- Nếu có rủi ro → nêu rõ + đề xuất cách giảm thiểu.
+
+### Phase 3: Minimal & Safe Change
+- Ưu tiên thay đổi nhỏ nhất.
+- Tránh thay đổi behavior của luồng đang hoạt động ổn định.
+
+### Phase 4: Verification (Bắt buộc)
+Phải cung cấp:
+- Cách kiểm tra bug cũ đã được fix.
+- Cách kiểm tra không có regression.
+- Các bước user nên test (đặc biệt login, navigation, TikTok events).
+
+### Phase 5: Khi user nói “vẫn còn lỗi”
+- KHÔNG vội đưa code mới.
+- Yêu cầu thông tin cụ thể → đào lại root cause.
+
+**Quy tắc vàng:** Sửa xong mà tạo ra lỗi mới hoặc phá chức năng khác = **không chấp nhận**.
+
+---
+
+## 3. Feature Development Discipline
+
+Khi được yêu cầu **thêm tính năng mới** hoặc cập nhật code, bắt buộc tuân thủ:
+
+### Phase 1: Hiểu yêu cầu
+- Hỏi rõ mục tiêu, input/output, và luồng sử dụng nếu chưa rõ.
+- Xác định tính năng này ảnh hưởng đến những luồng nào đang tồn tại.
+
+### Phase 2: Lập kế hoạch trước khi code (Bắt buộc)
+Trước khi viết code, phải trả lời được:
+- Tính năng này nên để ở file/service nào?
+- Có nên extend logic cũ hay tạo mới?
+- Những chỗ nào có thể bị ảnh hưởng (side effect)?
+- Có cần migration, config, hay thay đổi state không?
+
+### Phase 3: Đánh giá tác động (Bắt buộc)
+- Liệt kê các luồng quan trọng có thể bị ảnh hưởng.
+- Nếu có rủi ro → ưu tiên cách implement ít xâm phạm nhất.
+
+### Phase 4: Implement theo nguyên tắc
+- Ưu tiên **extend thay vì modify** behavior cũ.
+- Giữ logic cũ chạy như cũ nếu có thể.
+- Sử dụng flag/config để bật/tắt tính năng mới nếu cần (dễ rollback).
+- Viết code có error handling và fallback ngay từ đầu.
+
+### Phase 5: Verification (Bắt buộc)
+Sau khi implement, phải cung cấp:
+- Cách test tính năng mới.
+- Cách xác nhận các luồng cũ không bị phá.
+- Các bước user nên test.
+
+### Phase 6: Khi user yêu cầu chỉnh sửa sau khi đã thêm
+- Đọc lại phần ảnh hưởng đã liệt kê ở Phase 2.
+- Ưu tiên thay đổi nhỏ + có verification.
+
+**Nguyên tắc khi thêm tính năng:** Tính năng mới không được làm hỏng tính năng cũ.
+
+---
+
+## 4. Bundle Management Discipline (High-Risk Operation)
+
+**Bundle** (`downloads/combo/app.js`, `modules.js`, `modules.css`, `ui.css`) là file **obfuscated frontend gốc** từ TikFinity. Đây là thành phần **rất nhạy cảm**.
+
+### Khi nào được phép cập nhật bundle?
+
+Chỉ được cập nhật khi **đủ 3 điều kiện**:
+1. User **chủ động yêu cầu** cập nhật bundle.
+2. Đã có **backup** đầy đủ trước khi thay thế.
+3. Đã đánh giá tác động và có kế hoạch rollback rõ ràng.
+
+### Quy trình bắt buộc khi cập nhật bundle
+
+**Phase 1: Đánh giá tác động (Bắt buộc)**
+- Bundle hiện tại cũ bao nhiêu ngày?
+- Việc update có thể ảnh hưởng đến:
+  - Vue scope ID (`data-v-xxx`)
+  - Tailwind class names
+  - Injection points (PostHog, socket, TTS, navigation, reloadGuard...)
+  - Login, profile switch, sub-sidebar
+- Rủi ro cao hay thấp?
+
+**Phase 2: Backup bắt buộc**
+- Luôn backup folder `downloads/combo/` thành `combo.bak-YYYY-MM-DD/` trước khi thay.
+- Giữ lại ít nhất 2 bản backup gần nhất.
+
+**Phase 3: Cách cập nhật an toàn nhất**
+- **Khuyến nghị mạnh**: Yêu cầu user tự download bundle mới từ `https://tikfinity.zerody.one/`
+- Hướng dẫn user:
+  1. Truy cập https://tikfinity.zerody.one/
+  2. F12 → Network tab → Reload
+  3. Save 4 file: `app.js`, `modules.js`, `modules.css`, `ui.css` vào `downloads/combo/`
+- Sau khi user thay xong → mới tiếp tục các bước sau.
+
+**Phase 4: Verification sau khi update (Bắt buộc)**
+Phải kiểm tra đầy đủ:
+- Login flow hoạt động bình thường
+- Profile switch không lỗi
+- Sub-sidebar / navigation hiển thị đúng
+- TikTok chat events vẫn nhận được
+- TTS reader vẫn hoạt động
+- Topbar, LIVE status, Activity Feed hoạt động
+- Không có lỗi console nghiêm trọng
+- **i18n keys mới** (xem Phase 4b dưới đây)
+
+Nếu có bất kỳ mục nào fail → **phải rollback ngay**.
+
+**Phase 4b: i18n key audit (Bắt buộc sau bundle update)**
+
+Bundle gốc thường bake translations vào HTML locale-specific (mỗi locale 1 file dưới `downloads/`: `index.html` cho EN, `vi`, `de`, `es`). Khi update bundle, version mới có thể đưa thêm key i18n mới mà CHỈ baked vào 1 file locale, các locale khác bị thiếu → bundle render raw key (vd: tab "tts.voice_picker.ai_tab" thay vì "AI").
+
+Lỗi điển hình: Voice picker modal mở ra hiển thị `tts.voice_picker.ai_tab`, `tts.voice_picker.search_placeholder`, `tts.voice_picker.no_voices_found`, ... thay vì label tiếng người đọc được.
+
+**Cách audit + fix:**
+
+1. Chạy `node backend-node/scripts/extract-new-i18n.js` để diff các key giữa `downloads/vi` và `downloads/index.html` (English baseline).
+2. Script ghi tất cả key có trong VI nhưng thiếu trong EN ra `backend-node/src/templates/i18n-patch.json`.
+3. `backend-node/src/middleware/index-html.js` load file này lúc startup và inject vào blockScript qua placeholder `{{i18nPatchJson}}`.
+4. Early IIFE `tfI18nPatch()` trong `blockScript.txt` poll `window.tfPageloadData.appConfig.localization` và merge missing keys vào tất cả locale (`en`/`vi`/`de`/`es`) trước khi Vue đọc binding.
+5. **Restart Electron** để Node require cache pickup logic mới (xem dưới mục Hot-reload).
+
+Re-run script sau MỖI lần thay `combo/*` để patch JSON luôn cập nhật.
+
+---
+
+### Hot-reload vs Restart (Quan trọng)
+
+`POST /api/_dev/reload-html` CHỈ clear HTML buffer cache (`invalidateCache()`) — KHÔNG reload Node `require` cache.
+
+| Loại thay đổi | Cách áp dụng |
+|---|---|
+| `templates/*.txt` (HTML injection) thuần content | `POST /api/_dev/reload-html` ĐỦ |
+| `templates/i18n-patch.json` content | `POST /api/_dev/reload-html` ĐỦ (file đọc lại mỗi build? KHÔNG — đọc 1 lần ở module load, cần restart) |
+| `middleware/*.js` (ctx, interpolate logic, route handlers) | **Restart Electron** bắt buộc |
+| `index.js` (Express bootstrap, routes) | **Restart Electron** bắt buộc |
+| `electron/main.js` (window handlers) | **Restart Electron** bắt buộc |
+| `downloads/combo/*` (bundle thay file) | Bundle reload qua Ctrl+R, không cần restart backend |
+| `downloads/css/*`, `downloads/js/*` (static) | `POST /api/_dev/reload-html` broadcast auto-reload bundle |
+
+Nếu file đọc 1 lần ở module-init (như `i18n-patch.json` load qua `fs.readFileSync` ở top-level), cần restart để pickup thay đổi nội dung file đó.
+
+**Phase 5: Rollback**
+Nếu update gây lỗi, chạy lệnh sau:
 ```bash
-# Full app (Electron + backend-node)
-start_desktop.bat
-
-# Backend only (no Electron shell — useful for curl testing)
-npm run web
-# or
-cd backend-node && PORT=5285 node src/index.js
+rm -rf downloads/combo && mv downloads/combo.bak-YYYY-MM-DD downloads/combo
 ```
 
-### Production build
-```bash
-# Output: electron/dist/  (NSIS installer + portable .exe)
-build-app.bat
+---
+
+## 5. Backup Discipline (Áp dụng MỌI thao tác rủi ro)
+
+Mở rộng nguyên tắc backup ra ngoài bundle. **Bắt buộc** trước MỌI thay đổi touching:
+
+- File trong `downloads/` (bundle, CSS, JS gốc, HTML templates)
+- File trong `backend-node/src/templates/*.txt` (HTML injection)
+- Database schema / migration files
+- Backend route handler đang hoạt động
+- `electron/main.js` (window-level handlers)
+- `backend-node/src/index.js` (Express bootstrap)
+- Bất kỳ file > 100 dòng có khả năng phá nhiều flow
+
+### Quy trình bắt buộc
+
+1. **Liệt kê file/folder bị touched** trong message trước khi sửa (path đầy đủ + lý do).
+2. **Backup TRƯỚC** với suffix `.bak-YYYY-MM-DD` (hoặc `.bak-<reason>`).
+3. **Verify backup** bằng `md5sum`, `wc -c`, hoặc `ls -la` so sánh size.
+4. **Hiển thị rollback command** trong message trước khi apply.
+5. **Test sau apply** — không pass test = rollback ngay, không debug trên broken state.
+6. **Giữ ít nhất 2 backup gần nhất** cho file quan trọng.
+
+### Multi-layer fallback cho critical paths
+
+| Loại thay đổi | Fallback bắt buộc |
+|---|---|
+| Bundle replace (`combo/*`) | Backup folder + UI Health watchdog auto-revert nếu broken 2× liên tiếp |
+| Backend route change | Giữ old handler dưới `/api/_legacy/...` để switch nhanh |
+| Template injection (`templates/*.txt`) | Flag `__tfSafeMode` trong localStorage để disable injection nếu boot crash |
+| Electron main.js | Backup file + nếu boot fail 2 lần → tự revert |
+| DB migration | Backup `.db` file + có down migration |
+
+### Anti-patterns (cấm)
+
+- ❌ Sửa file mà không backup
+- ❌ Backup nhưng không verify (`md5sum` hoặc `wc -c`)
+- ❌ Replace file rồi mới nói "có vấn đề thì rollback nhé" — phải announce rollback path TRƯỚC
+- ❌ Xóa backup cũ trước khi confirm phiên bản mới hoạt động ổn định 24h+
+- ❌ Backup chồng nhau (overwrite `.bak` cũ với `.bak` mới) — luôn dùng date suffix
+
+### Naming convention
+
 ```
-
-End users do NOT need Node.js installed — Electron's embedded Node runs the backend.
-
-## Ports
-| Port  | Service                          | Notes                                  |
-|-------|----------------------------------|----------------------------------------|
-| 5285  | Node backend (Express + Socket.IO) | Bundle's HTTP target                 |
-| 5194  | TikfinityServer (NOT in this repo) | Auth gate, Serial Key validation     |
-| 21213 | Desktop API WebSocket (`electron/wsserver.js`) | Streamerbot plugin endpoint |
-
-## Superpowers Skills
-This project uses [superpowers](https://github.com/obra/superpowers) skills framework.
-
-Skills are located at: `../superpowers/skills/`
-
-Available skills:
-- `superpowers:brainstorming` - Refine ideas before coding
-- `superpowers:writing-plans` - Create detailed implementation plans
-- `superpowers:executing-plans` - Execute plans with checkpoints
-- `superpowers:test-driven-development` - TDD red/green/refactor
-- `superpowers:systematic-debugging` - 4-phase root cause debugging
-- `superpowers:verification-before-completion` - Verify before declaring done
-- `superpowers:subagent-driven-development` - Parallel agent workflows
-- `superpowers:dispatching-parallel-agents` - Concurrent subagent dispatch
-- `superpowers:writing-skills` - Create new skills
-- `superpowers:using-git-worktrees` - Isolated development branches
-- `superpowers:requesting-code-review` - Pre-review checklist
-- `superpowers:receiving-code-review` - Respond to feedback
-- `superpowers:finishing-a-development-branch` - Merge/PR workflow
-
-**Rule: Invoke relevant skills BEFORE any response or action.**
+file.ext.bak-2026-05-20           # date-based (default)
+combo.bak-before-vn-update/        # purpose-based (rõ lý do hơn)
+combo.bak-2026-05-20-pre-update/   # date + purpose (an toàn nhất)
+```

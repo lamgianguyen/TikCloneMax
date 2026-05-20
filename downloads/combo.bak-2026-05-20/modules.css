@@ -668,7 +668,7 @@
 }
 
 #onPageEventContainer .eventGrid {
-    margin-top: 0;
+    margin-top: -20px;
 }
 
 .newActionTemplate .actionTextColor {
@@ -834,19 +834,6 @@
     margin-bottom: 45px !important;
 }
 
-#onPageActionContainer,
-#onPageEventContainer {
-    width: 100%;
-    overflow-x: auto;
-}
-
-@media (max-width: 1400px) {
-    .actionGrid,
-    .eventGrid {
-        min-width: 980px;
-    }
-}^
-
 #datagridSounds .dx-cell-modified::after {
     border: 0px !important;
 }
@@ -867,62 +854,6 @@
     z-index: 99 !important;
     position: absolute;
     width: fit-content;
-}
-
-#sounds-grid {
-    position: relative;
-    width: 100%;
-    max-width: 1200px;
-    margin: 0;
-    box-sizing: border-box;
-}
-
-#sounds-grid.is-loading {
-    min-height: 200px;
-}
-
-#sounds-grid > div {
-    width: 100%;
-}
-
-#sounds-grid.is-loading::after {
-    content: "Loading sound alerts...";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 120px;
-    text-align: center;
-    color: #9e9e9e;
-    font-size: 14px;
-    pointer-events: none;
-}
-
-#sounds-grid.is-loading #datagridSounds {
-    opacity: 0.35;
-}
-
-#datagridSounds {
-    width: 100%;
-    overflow-x: auto;
-    transition: opacity 0.2s ease;
-}
-
-#datagridSounds .dx-datagrid {
-    width: 100%;
-    max-width: 100%;
-}
-
-@media (max-width: 1400px) {
-    #datagridSounds .dx-datagrid {
-        min-width: 980px;
-    }
-}
-
-@media (max-width: 900px) {
-    #soundGridToolbar {
-        position: static;
-        margin-bottom: 10px;
-    }
 }
 
 .usergrid-container {
@@ -1267,10 +1198,6 @@
 
 #widgetChristmasevent .dx-editor-outlined, #widgetChristmasevent > div > div:nth-child(2), #widgetChristmasevent > div > div:nth-child(1):not(.border) {
     width: 100% !important;
-}
-
-#widgetMyActions > div > div:first-child, #widgetMyActions .obsoverlays-screen-chooser {
-    width: 110px !important;
 }
 
 /* if screen width is greater than 768px, set the width to 25% */

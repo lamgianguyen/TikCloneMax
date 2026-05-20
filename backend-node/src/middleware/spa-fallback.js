@@ -28,9 +28,25 @@ function spaFallback() {
 
     const channels = require('../db/models/channels');
     const ch = channels.findDefault();
+    // Detect lang prefix so SPA-fallback for `/vi/...` serves the VN HTML
+    // instead of the default English one. Cookie fallback when no prefix
+    // — the bundle's client-side router strips /<lang>/ when navigating
+    // to /tiktok/* pages, so we need the cookie to keep serving VN.
+    const m = String(req.path || '').match(/^\/([a-z]{2})(\/|$)/);
+    const urlLang = (m && ['vi', 'de', 'es'].includes(m[1])) ? m[1] : '';
+    let lang = urlLang;
+    if (!lang) {
+      const cookieMatch = String(req.headers.cookie || '').match(/(?:^|;\s*)tf_lang=([a-z]{2})/);
+      if (cookieMatch && ['vi', 'de', 'es'].includes(cookieMatch[1])) lang = cookieMatch[1];
+    }
+    if (urlLang) {
+      res.setHeader('Set-Cookie',
+        `tf_lang=${urlLang}; Path=/; Max-Age=31536000; SameSite=Lax`);
+    }
     const buf = buildIndexHtml({
       channelId: ch ? ch.ChannelId : DEFAULT_CHANNEL_ID,
       channelName: ch ? ch.ChannelName : DEFAULT_CHANNEL_NAME,
+      lang,
     });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.status(200).end(buf);
