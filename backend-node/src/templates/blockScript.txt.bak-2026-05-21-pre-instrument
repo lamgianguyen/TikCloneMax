@@ -70,83 +70,6 @@
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
-   Auto-instrument: log every fetch + XHR call (method, URL, body,
-   response status + first 500 chars of body). Goal: bypass the
-   reverse-from-stack-trace approach and just READ what the bundle
-   asks for. After a session, dump window.__tfCallLog in DevTools to
-   harvest exact request/response shapes — feed to har-to-stubs.js
-   for stub generation. Off by default; enable per-session by setting
-   `localStorage.setItem('tf-instrument', '1')` and reloading.
-   ───────────────────────────────────────────────────────────────────── */
-(function tfAutoInstrument(){
-  try {
-    if (localStorage.getItem('tf-instrument') !== '1') return;
-    var MAX_BODY_PREVIEW = 500;
-    var MAX_LOG = 2000;
-    window.__tfCallLog = window.__tfCallLog || [];
-    function record(entry) {
-      try {
-        if (window.__tfCallLog.length >= MAX_LOG) window.__tfCallLog.shift();
-        window.__tfCallLog.push(entry);
-        var tag = '[TF-CALL] ' + entry.phase + ' ' + entry.method + ' ' + entry.url;
-        if (entry.status != null) tag += ' -> ' + entry.status;
-        console.debug(tag, entry);
-      } catch (_) {}
-    }
-    function snip(text) {
-      if (text == null) return null;
-      var s = typeof text === 'string' ? text : (function(){ try { return JSON.stringify(text); } catch(_) { return String(text); } })();
-      return s.length > MAX_BODY_PREVIEW ? s.slice(0, MAX_BODY_PREVIEW) + '...[' + (s.length - MAX_BODY_PREVIEW) + ' more]' : s;
-    }
-    var origFetch = window.fetch;
-    window.fetch = function(input, init) {
-      var url = typeof input === 'string' ? input : (input && input.url) || '';
-      var method = (init && init.method) || (typeof input !== 'string' && input && input.method) || 'GET';
-      var reqBody = init && init.body;
-      var id = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-      record({ id: id, phase: 'req', kind: 'fetch', method: method, url: url, body: snip(reqBody), at: Date.now() });
-      return origFetch.apply(this, arguments).then(function(res) {
-        try {
-          res.clone().text().then(function(text) {
-            record({ id: id, phase: 'res', kind: 'fetch', method: method, url: url, status: res.status, body: snip(text), at: Date.now() });
-          });
-        } catch (_) {}
-        return res;
-      });
-    };
-    var XHR = window.XMLHttpRequest && window.XMLHttpRequest.prototype;
-    if (XHR) {
-      var origOpen = XHR.open;
-      var origSend = XHR.send;
-      XHR.open = function(method, url) { this.__tfMethod = method; this.__tfUrl = url; return origOpen.apply(this, arguments); };
-      XHR.send = function(body) {
-        var self = this;
-        var id = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-        record({ id: id, phase: 'req', kind: 'xhr', method: self.__tfMethod || 'GET', url: self.__tfUrl || '', body: snip(body), at: Date.now() });
-        this.addEventListener('loadend', function() {
-          record({ id: id, phase: 'res', kind: 'xhr', method: self.__tfMethod || 'GET', url: self.__tfUrl || '', status: self.status, body: snip(self.responseText), at: Date.now() });
-        });
-        return origSend.apply(this, arguments);
-      };
-    }
-    window.__tfDumpCallLog = function(filter) {
-      var arr = window.__tfCallLog || [];
-      if (filter) arr = arr.filter(function(e) { return (e.url || '').indexOf(filter) >= 0 || (e.method || '') === filter; });
-      var json = JSON.stringify(arr, null, 2);
-      var blob = new Blob([json], { type: 'application/json' });
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'tf-call-log-' + Date.now() + '.json';
-      a.click();
-      console.log('[TF-Instrument] dumped ' + arr.length + ' entries');
-    };
-    console.log('[TF-Instrument] enabled — call window.__tfDumpCallLog() to download a JSON of all traffic');
-  } catch (e) {
-    console.warn('[TF-Instrument] init failed:', e && e.message);
-  }
-})();
-
-/* ─────────────────────────────────────────────────────────────────────
    STANDALONE window.token bootstrap.
    Bundle's `getAiTtsBackendContext()` (app.js offset 3344494) requires
    BOTH `window.appConfig.ttsHost` AND `window.token` to be truthy before
@@ -2191,25 +2114,6 @@
       }
     } catch(e) {}
   }
-  // Bundle's settings.restore() POSTs /api/me with the cached `channelName`
-  // + monetary fields whenever it re-hydrates state from a successful XHR.
-  // The server has no concept of those fields, so the response shape doesn't
-  // match what settings.restore expects, and the bundle reloads — forever.
-  // Detect the shape (POST /api/me with channelName, no profileId, plus a
-  // monetary marker) and swallow it.
-  function isMeSettingsRestorePost(method, url, body) {
-    try {
-      if (method !== 'POST' || !url || !/\/api\/me(\?|$)/.test(url)) return false;
-      if (typeof body !== 'string' || body.indexOf('channelName') < 0) return false;
-      var parsed = JSON.parse(body);
-      return !!(parsed &&
-        typeof parsed.channelName === 'string' &&
-        typeof parsed.profileId === 'undefined' &&
-        (typeof parsed.monthlyEarnings !== 'undefined' || typeof parsed.streamGifter !== 'undefined'));
-    } catch(e) {
-      return false;
-    }
-  }
   XMLHttpRequest.prototype.send=function(body){
     // Mock TTS endpoints — synthesise a successful readyState=4 response
     // so the bundle's XHR-based loader sees mock voices / preview error.
@@ -2231,10 +2135,6 @@
       return;
     }
     if(this._blocked)return;
-    if(isMeSettingsRestorePost(this._tfMethod, this._tfUrl, body)){
-      console.warn('[TF-Restore] swallowed POST /api/me settings.restore');
-      return;
-    }
     _markProfileSwitchIfApplicable(this._tfMethod, this._tfUrl, body);
     // BLOCK updateSettings XHR ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â silently drop, no callback, no reload
     body=rewriteTikTokConnectString(body,this._tfUrl);
@@ -2467,12 +2367,7 @@
       if(typeof nextOpts.body==='string'){
         nextOpts.body=rewriteTikTokConnectString(nextOpts.body,rawUrl);
       }
-      var fetchMethod = String((nextOpts.method||'GET')).toUpperCase();
-      if(isMeSettingsRestorePost(fetchMethod, rawUrl, nextOpts.body)){
-        console.warn('[TF-Restore] swallowed fetch POST /api/me settings.restore');
-        return new Promise(function(){});
-      }
-      _markProfileSwitchIfApplicable(fetchMethod, rawUrl, nextOpts.body);
+      _markProfileSwitchIfApplicable(String((nextOpts.method||'GET')).toUpperCase(), rawUrl, nextOpts.body);
       if(token&&needsAuth(rawUrl)){
         var headers=new Headers(nextOpts.headers||(url&&url.headers)||undefined);
         if(!headers.has('Authorization'))headers.set('Authorization','Bearer '+token);
