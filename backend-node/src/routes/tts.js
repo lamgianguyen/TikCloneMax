@@ -97,6 +97,32 @@ async function callTikTokTts(voice, text, sessionId) {
   }
 }
 
+// Bundle POSTs here to obtain an auth token before calling the AI voice
+// catalog / preview endpoints (`tts.tikfinity.com/api/tts/...`). The original
+// service mints a short-lived JWT scoped to the user. We don't have a real
+// AI TTS backend, so we mint a placeholder token from the user's existing
+// login JWT — bundle treats any 200 response as success and proceeds to call
+// the catalog endpoint, where the blockScript fetch mock takes over and
+// returns the local voice list (UI parity, no real playback).
+// Without this endpoint, bundle gets 404 → its success/error callback chain
+// triggers `settings.restore()` → page reload → reload-guard kills →
+// voice picker mounts in a broken state and AI tab stays empty.
+router.post('/auth-token', (req, res) => {
+  const cookieHeader = String(req.headers.cookie || '');
+  const loginToken = (cookieHeader.match(/(?:^|;\s*)tf_login_token=([^;]+)/) || [])[1] || '';
+  // Production gốc response shape (captured from network):
+  //   {"status":200, "message":"OK", "ttsAuthToken":"eyJ..."}
+  // Bundle's ensureAiAuthToken reads ttsAuthToken — every other field name we
+  // tried (token/accessToken/aiAuthToken/jwt) was ignored and aiAuthToken
+  // stayed empty.
+  const tok = loginToken || 'tf-local-ai-token';
+  res.json({
+    status: 200,
+    message: 'OK',
+    ttsAuthToken: tok,
+  });
+});
+
 router.get('/generate', async (req, res) => {
   const voice = typeof req.query.voice === 'string' && req.query.voice ? req.query.voice : 'en_us_002';
   const rawText = typeof req.query.text === 'string' ? req.query.text : '';

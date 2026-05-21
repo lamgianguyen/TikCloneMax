@@ -70,178 +70,6 @@
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
-   STANDALONE window.token bootstrap.
-   Bundle's `getAiTtsBackendContext()` (app.js offset 3344494) requires
-   BOTH `window.appConfig.ttsHost` AND `window.token` to be truthy before
-   it'll fetch the AI voice catalog. ttsHost is already in tfPageloadData,
-   but `window.token` is never written by anything else — bundle relies on
-   an external host page or auth flow to set it. Without it,
-   `hasAiTtsBackendContext` returns false, `loadAiVoiceState` early-returns
-   with zero fetches, and the AI voice picker tab stays empty.
-   Set window.token here from the JWT we already have (cookie tf_login_token
-   or localStorage setting_loginaccesstoken) so the loader proceeds.
-   ───────────────────────────────────────────────────────────────────── */
-/* ─────────────────────────────────────────────────────────────────────
-   Voice loader instrumentation — log every step of `window.tts.loadAiVoiceState`
-   so we can see WHY voices end up empty without manual console probing.
-   Wraps the function once window.tts becomes available; logs:
-     - call start (with stack so we know who triggered it)
-     - whether hasAiTtsBackendContext gate passed
-     - fetch URLs during the call
-     - aiVoices length before vs after
-   This is a diagnostic — once voice picker reliably shows voices, the whole
-   IIFE can be removed.
-   ───────────────────────────────────────────────────────────────────── */
-(function tfInstrumentVoiceLoader(){
-  function hook(){
-    if (!window.tts || typeof window.tts.loadAiVoiceState !== 'function' || window.tts.__tfLoaderHooked) return false;
-    // Hook loadAiVoices (the REAL catalog loader — separate from loadAiVoiceState
-    // which just loads credits/state). Probed via Object.keys(window.tts).
-    if (typeof window.tts.loadAiVoices === 'function') {
-      var origLoadVoices = window.tts.loadAiVoices.bind(window.tts);
-      window.tts.loadAiVoices = function(){
-        var beforeLen = window.tts.aiVoices ? window.tts.aiVoices.length : 'no-array';
-        var fetches = [];
-        var origFetch = window.fetch;
-        window.fetch = function(url, opts){
-          var u = typeof url==='string' ? url : (url && url.url);
-          fetches.push({u:u, m:(opts && opts.method) || 'GET'});
-          return origFetch.apply(this, arguments);
-        };
-        try { console.log('[TF-loader] loadAiVoices CALLED — beforeLen=' + beforeLen); } catch(_){}
-        var result = origLoadVoices.apply(this, arguments);
-        function done(){
-          try {
-            window.fetch = origFetch;
-            var afterLen = window.tts.aiVoices ? window.tts.aiVoices.length : 'no-array';
-            console.log('[TF-loader] loadAiVoices DONE — afterLen=' + afterLen + ' fetches=' + JSON.stringify(fetches.map(function(f){return f.m+' '+f.u;})));
-          } catch(_){}
-        }
-        if (result && typeof result.then === 'function') result.then(done, done);
-        else done();
-        return result;
-      };
-    }
-    var orig = window.tts.loadAiVoiceState.bind(window.tts);
-    window.tts.loadAiVoiceState = function(){
-      var beforeLen = window.tts.aiVoices ? window.tts.aiVoices.length : 'no-array';
-      var hasCtx = false;
-      try {
-        var api = window.aiTts;
-        hasCtx = !!(api && api.hasBackendContext && api.hasBackendContext());
-      } catch(_){}
-      var traceFetches = [];
-      var origFetch = window.fetch;
-      window.fetch = function(url, opts){
-        var u = typeof url==='string' ? url : (url && url.url);
-        traceFetches.push({u:u, m:(opts && opts.method) || 'GET'});
-        return origFetch.apply(this, arguments);
-      };
-      try { console.log('[TF-loader] loadAiVoiceState CALLED — beforeLen=' + beforeLen + ' hasCtx=' + hasCtx + ' hasToken=' + !!window.token + ' ttsHost=' + (window.appConfig && window.appConfig.ttsHost)); } catch(_){}
-      var result = orig.apply(this, arguments);
-      function done(){
-        try {
-          window.fetch = origFetch;
-          var afterLen = window.tts.aiVoices ? window.tts.aiVoices.length : 'no-array';
-          console.log('[TF-loader] loadAiVoiceState DONE — afterLen=' + afterLen + ' fetches=' + JSON.stringify(traceFetches.map(function(f){return f.m+' '+f.u;})));
-          if (afterLen === 0 || afterLen === 'no-array') {
-            console.warn('[TF-loader] aiVoices ended empty — check fetches above. If empty array, gate blocked; if URLs listed, response shape mismatch');
-          }
-        } catch(_){}
-      }
-      if (result && typeof result.then === 'function') result.then(done, done);
-      else done();
-      return result;
-    };
-    window.tts.__tfLoaderHooked = true;
-    try { console.log('[TF-loader] instrumentation installed on window.tts.loadAiVoiceState'); } catch(_){}
-    return true;
-  }
-  if (hook()) return;
-  var t0 = Date.now();
-  var iv = setInterval(function(){
-    if (hook() || Date.now() - t0 > 30000) {
-      try { clearInterval(iv); } catch(_){}
-    }
-  }, 100);
-})();
-
-/* ─────────────────────────────────────────────────────────────────────
-   Force-enable AI TTS backend context.
-   `window.aiTts.hasBackendContext()` reads obfuscated config keys that don't
-   line up with what tfPageloadData provides — even with `window.token` and
-   `window.appConfig.ttsHost` set, it still returns false (verified via
-   tfInstrumentVoiceLoader logs). Override it once the bundle exposes
-   `window.aiTts` so `loadAiVoiceState()` proceeds to fetch the catalog (which
-   our mock then intercepts). Safer than reverse-engineering every
-   obfuscated lookup the original function does.
-   ───────────────────────────────────────────────────────────────────── */
-(function tfForceAiTtsBackend(){
-  function hook(){
-    if (!window.aiTts || window.aiTts.__tfForced) return false;
-    // Keep a reference to the original in case any code path needs the
-    // real context object (returns {url, token} or null).
-    var origHasBackend = window.aiTts.hasBackendContext;
-    window.aiTts.hasBackendContext = function(){
-      try {
-        var real = origHasBackend ? origHasBackend.apply(window.aiTts, arguments) : false;
-        if (real) return true;
-      } catch(_){}
-      // Force true so the loader path executes. Mock fetch will serve the
-      // catalog without needing a real auth context.
-      return true;
-    };
-    window.aiTts.__tfForced = true;
-    try { console.log('[TF-aiTts-force] hasBackendContext now returns true always'); } catch(_){}
-    return true;
-  }
-  if (hook()) return;
-  var t0 = Date.now();
-  var iv = setInterval(function(){
-    if (hook() || Date.now() - t0 > 30000) {
-      try { clearInterval(iv); } catch(_){}
-    }
-  }, 100);
-})();
-
-(function tfBootstrapWindowToken(){
-  function readCookie(name){
-    try {
-      var m = String(document.cookie || '').match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
-      return m ? decodeURIComponent(m[1]) : '';
-    } catch(_){ return ''; }
-  }
-  function getToken(){
-    try {
-      var ls = (typeof localStorage !== 'undefined' && localStorage.getItem('setting_loginaccesstoken')) || '';
-      if (ls) return ls;
-    } catch(_){}
-    return readCookie('tf_login_token');
-  }
-  function apply(){
-    try {
-      if (window.token && typeof window.token === 'string' && window.token.length > 16) return true;
-      var t = getToken();
-      if (t && t.length > 16) {
-        window.token = t;
-        try { console.log('[TF-token-bootstrap] window.token set, length=' + t.length); } catch(_){}
-        return true;
-      }
-    } catch(_){}
-    return false;
-  }
-  if (apply()) return;
-  // Cookie may be set just after this script runs (e.g. login flow). Poll
-  // briefly so the token is in place by the time bundle queries it.
-  var t0 = Date.now();
-  var iv = setInterval(function(){
-    if (apply() || Date.now() - t0 > 8000) {
-      try { clearInterval(iv); } catch(_){}
-    }
-  }, 60);
-})();
-
-/* ─────────────────────────────────────────────────────────────────────
    STANDALONE i18n patch installer.
    The new bundle (≥3.9MB combo/app.js) introduced 57 translation keys
    (`tts.voice_picker.*`, `tts.credits_topup.*`, `tts.daily_limit.*`, ...)
@@ -2024,44 +1852,18 @@
   // voice picker modal renders + Try/Chọn click shows the "đang phát
   // triển" toast instead of attempting real TTS playback.
   function _tfXhrMockBody(url) {
-    if (/tts\.tikfinity\.com\/api\/tts\/user(\/|\?|$)/.test(url)) {
-      var nowU = new Date();
-      var tomU = new Date(nowU); tomU.setUTCHours(24,0,0,0);
-      var nextU = Math.floor((tomU.getTime() - nowU.getTime()) / 1000);
-      return { status: 200, body: JSON.stringify({
-        statusCode: 200, message: 'Success',
-        data: { id:1, createdAt: nowU.toISOString(), updatedAt: nowU.toISOString(), userId:'1',
-          quota: { exceeded:false, currentUsageMode:'free', currentUsageCurrency:'requests',
-            subscriptionCreditsRemaining:0, subscriptionCreditsTotal:0,
-            purchasedCreditsRemaining:0, purchasedCreditsTotal:0,
-            freeRequestsRemaining:25, freeRequestsTotal:25,
-            nextResetAt: tomU.toISOString(), nextResetSeconds: nextU }}}) };
-    }
     if (/tts\.tikfinity\.com\/api\/tts\/voices(\/|\?|$)/.test(url)) {
       // Same id/name/provider aliasing as the fetch mock — see tfNormalizeMockVoice
       // below for the rationale (bundle filter reads .id/.name/.provider).
       var _normalized = TF_MOCK_VOICES.map(function(v){
         var vId = v.vendorId || '', vcId = v.voiceId || '';
-        var prov = vId === 'ttsm' ? 'ai' : (vId === 'polly' ? 'polly' : vId);
-        var idBase = vId && vcId ? vId + '__' + vcId : (vcId || vId);
-        // tts_api__ prefix required by bundle's resolveVoiceConfigFromId — see
-        // tfNormalizeMockVoice (fetch mock variant) for the rationale.
-        var fullId = (prov === 'ai' && idBase) ? ('tts_api__' + idBase) : idBase;
         return Object.assign({}, v, {
-          id: fullId,
+          id: vId && vcId ? vId + '__' + vcId : (vcId || vId),
           name: v.displayName || v.voiceName || '',
-          provider: prov
+          provider: vId === 'ttsm' ? 'ai' : (vId === 'polly' ? 'polly' : vId)
         });
       });
-      // Emit multi-path payload so both the loader (window.tts.loadAiVoiceState)
-      // and manual fetch probes see the catalog. See fetch mock comment above.
-      var _payload = JSON.stringify({
-        statusCode: 200,
-        message: 'Success',
-        result: { voices: _normalized },
-        data: { voices: _normalized, aiVoices: _normalized }
-      });
-      return { status: 200, body: _payload };
+      return { status: 200, body: JSON.stringify({ statusCode: 200, message: 'Success', data: { voices: _normalized } }) };
     }
     if (/tts\.tikfinity\.com\/api\/tts\/preview/.test(url)) {
       return { status: 503, body: JSON.stringify({ statusCode: 503, message: 'Tính năng đang phát triển — vui lòng quay lại sau', error: 'feature_in_development' }) };
@@ -2243,69 +2045,16 @@
     var vendorId = v.vendorId || '';
     var voiceId = v.voiceId || '';
     var provider = vendorId === 'ttsm' ? 'ai' : (vendorId === 'polly' ? 'polly' : vendorId);
-    // Bundle (window.aiTts.resolveVoiceConfigFromId) requires AI voice IDs
-    // to be prefixed with `tts_api__` (the value of window.aiTts.voiceIdPrefix
-    // at runtime). Without the prefix the resolver returns null → bundle's
-    // loader skips the voice → AI tab stays empty. Polly (free) voices use a
-    // different format and are not parsed through this resolver.
-    var idBase = vendorId && voiceId ? vendorId + '__' + voiceId : (voiceId || vendorId);
-    var id = (provider === 'ai' && idBase) ? ('tts_api__' + idBase) : idBase;
     return Object.assign({}, v, {
-      id: id,
+      id: vendorId && voiceId ? vendorId + '__' + voiceId : (voiceId || vendorId),
       name: v.displayName || v.voiceName || '',
       provider: provider,
     });
   }
-  function tfHandleTtsTikfinityUser(url) {
-    if (!/tts\.tikfinity\.com\/api\/tts\/user(\/|\?|$)/.test(url)) return null;
-    // Production gốc response captured from network — bundle calls this AFTER
-    // ensureAiAuthToken to populate quota state. Without it, loader chain
-    // breaks before reaching loadAiVoices.
-    var now = new Date();
-    var tomorrow = new Date(now);
-    tomorrow.setUTCHours(24, 0, 0, 0);
-    var nextResetSeconds = Math.floor((tomorrow.getTime() - now.getTime()) / 1000);
-    var payload = {
-      statusCode: 200,
-      message: 'Success',
-      data: {
-        id: 1,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-        userId: '1',
-        quota: {
-          exceeded: false,
-          currentUsageMode: 'free',
-          currentUsageCurrency: 'requests',
-          subscriptionCreditsRemaining: 0,
-          subscriptionCreditsTotal: 0,
-          purchasedCreditsRemaining: 0,
-          purchasedCreditsTotal: 0,
-          freeRequestsRemaining: 25,
-          freeRequestsTotal: 25,
-          nextResetAt: tomorrow.toISOString(),
-          nextResetSeconds: nextResetSeconds,
-        },
-      },
-    };
-    try { console.log('[TF-voice-mock] /api/tts/user intercept — returning quota payload'); } catch(_){}
-    return Promise.resolve(tfBuildMockJsonResponse(payload));
-  }
   function tfHandleTtsTikfinityCom(url, opts) {
     if (!/tts\.tikfinity\.com\/api\/tts\/voices(\/|\?|$)/.test(url)) return null;
     var normalized = TF_MOCK_VOICES.map(tfNormalizeMockVoice);
-    // Bundle's `window.tts.loadAiVoiceState()` reads from a different path
-    // than the raw API shape. Diagnose confirmed `data.voices` alone leaves
-    // `window.tts.aiVoices === []` (loader doesn't populate). Bundle's loader
-    // seems to expect `result.voices` or `data.aiVoices`. Emit BOTH legacy
-    // (data.voices) and new (data.aiVoices + result.voices) aliases so manual
-    // probes and bundle's loader both see the catalog.
-    var payload = {
-      statusCode: 200,
-      message: 'Success',
-      result: { voices: normalized },
-      data: { voices: normalized, aiVoices: normalized }
-    };
+    var payload = { statusCode: 200, message: 'Success', data: { voices: normalized } };
     var bodyStr = JSON.stringify(payload);
     try {
       console.log('[TF-voice-mock] fetch intercept →', url);
@@ -2354,8 +2103,8 @@
         console.log('[TF-fetch-trace]', (opts && opts.method) || 'GET', rawUrl);
       }
     } catch(_){}
-    // Voice catalog + preview + user (quota) mocks (UI parity, no functional play).
-    var mocked = tfHandleTtsTikfinityCom(rawUrl, opts) || tfHandleTtsTikfinityUser(rawUrl) || tfHandleTtsPreview(rawUrl, opts);
+    // Voice catalog + preview mocks (UI parity, no functional play).
+    var mocked = tfHandleTtsTikfinityCom(rawUrl, opts) || tfHandleTtsPreview(rawUrl, opts);
     if (mocked) return mocked;
     rawUrl=rewriteKnownRemoteUrl(rawUrl);
     if(typeof url==='string')url=rawUrl;

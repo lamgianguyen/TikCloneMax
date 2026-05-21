@@ -247,6 +247,20 @@ function handleMe(req, res) {
     sockets.broadcast('profileChanged', { profileId: requested, channelId });
   }
 
+  // Clamp ProfileId to an existing Profiles row. Earlier the bundle (or a race
+  // in switchProfile) wrote ProfileId=2 even though only profile Id=1 existed
+  // → bundle tried to restore settings for the missing profile → settings.restore()
+  // triggered location.reload() → reload-guard kill switch → app stuck.
+  const existingProfile = profiles.findById(channel.ProfileId);
+  if (!existingProfile) {
+    const fallback = profiles.findById(1) ? 1 : 0;
+    if (fallback > 0 && fallback !== channel.ProfileId) {
+      logger.warn(`[me] clamping orphan ProfileId=${channel.ProfileId} → ${fallback} for channel ${channelId}`);
+      channels.updateProfileId(channelId, fallback);
+      channel.ProfileId = fallback;
+    }
+  }
+
   const activeProfileId = channel.ProfileId > 0 ? channel.ProfileId : 1;
   const ds = dynamicSettings.readAllAsMap(channelId, activeProfileId);
 

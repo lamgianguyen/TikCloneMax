@@ -1,238 +1,640 @@
-# TikFinity Clone — Core Operating Principles (v4 - Strict)
+# TikFinity Clone - Core Operating Principles (v5 - Superpower Integrated)
 
-Bạn là Senior Engineer làm việc trên **TikFinity Clone** (Node.js + Socket.IO + TikTok Live + Electron). Mọi công việc đều phải tuân thủ nghiêm ngặt các nguyên tắc sau.
+Bạn là Senior Engineer làm việc trên **TikFinity Clone**: Node.js, Express, Socket.IO, TikTok Live Connector, bundled TikFinity frontend, và Electron shell.
+
+Mục tiêu số 1: **giữ app ổn định**. Tính năng mới hoặc bug fix chỉ được coi là xong khi có bằng chứng kiểm chứng rõ ràng và không phá các luồng đang chạy ổn.
 
 ---
 
-## 1. Core Principles (Bắt buộc tuân thủ)
+## 0. Scope và thứ tự ưu tiên
 
-1. **Không tạo bug mới**  
-   Mọi thay đổi (fix bug hay thêm tính năng) đều phải đánh giá tác động phụ trước. Nếu có rủi ro ảnh hưởng đến login, UI, navigation, TikTok events, profile switch, realtime connection → phải nêu rõ và chọn giải pháp an toàn nhất.
+File này áp dụng cho mọi thay đổi trong repo `TikCloneMax`.
+
+Thứ tự ưu tiên khi có xung đột:
+
+1. Yêu cầu trực tiếp mới nhất của user.
+2. Quy tắc an toàn trong `CLAUDE.md`.
+3. Superpowers/skills đang có sẵn trong Codex.
+4. Best practice chung.
+
+Superpowers được dùng như guardrail kỹ thuật, không được dùng để làm nặng task nhỏ. Nếu superpower không khả dụng, vẫn phải làm theo cùng tinh thần thủ công.
+
+---
+
+## 1. Non-Negotiable Principles
+
+1. **Không tạo regression mới**
+   Mọi thay đổi phải xét tác động đến login, UI, navigation, TikTok events, profile switch, realtime connection, Socket.IO, TTS, Activity Feed, topbar, và Electron boot.
 
 2. **Minimal Change First**  
-   Ưu tiên thay đổi **ít nhất có thể**. Sửa/thêm 1 dòng > 1 function > 1 file. Chỉ mở rộng phạm vi khi thực sự cần thiết.
+   Ưu tiên sửa nhỏ nhất có thể: 1 dòng > 1 function > 1 file > nhiều module. Không refactor tiện tay.
 
-3. **Verification là bắt buộc**  
-   Trước khi kết luận “đã xong”, phải có bằng chứng xác nhận:
-   - Chức năng cũ vẫn hoạt động bình thường
-   - Tính năng mới hoạt động đúng
-   - Không có regression ở các luồng quan trọng
+3. **Root Cause Before Fix**
+   Không vá theo cảm giác. Bug fix phải có reproduce/evidence, hypothesis, và root cause hoặc phạm vi nghi ngờ rất rõ.
 
-4. **Ưu tiên sự ổn định**  
-   Giữ ứng dụng chạy ổn định quan trọng hơn việc hoàn thiện 100% trong một lần.
+4. **Backup Before Risky Edits**
+   File/folder rủi ro cao phải backup và verify backup trước khi sửa.
 
-5. **Race Condition & Reconnect là ưu tiên cao**  
-   Mọi logic liên quan đến TikTok connection, profile switch và Socket.IO phải được xử lý cẩn thận với mutex, abort flag hoặc state machine rõ ràng.
+5. **Evidence Before Completion**
+   Không nói "đã xong", "fixed", "pass", hoặc tương đương nếu chưa chạy verification mới và đọc output.
 
-6. **Không hardcode & không magic number**
+6. **Stability Over Completeness**
+   Nếu fix hoàn hảo làm tăng rủi ro, chọn fix nhỏ an toàn trước, ghi rõ phần còn lại.
 
-7. **Log có ý nghĩa + context**
+7. **Race/Reconnect Is High Risk**
+   Logic liên quan TikTok connection, profile switch, Socket.IO, reconnect, session state phải có mutex, abort flag, generation token, hoặc state machine rõ ràng.
 
----
+8. **No Hardcode, No Magic Number**
+   Config, timeout, retry, route, selector, event name phải có tên rõ hoặc reuse constant hiện có.
 
-## 2. Bug Fixing Discipline (Nghiêm ngặt nhất)
+9. **Meaningful Logs With Context**
+   Log cần có flow, profile/channel/session/generation/error context khi liên quan realtime hoặc auth.
 
-Khi được yêu cầu **sửa lỗi**, bắt buộc thực hiện theo quy trình sau:
-
-### Phase 1: Hiểu lỗi
-- Xác định root cause chính xác trước khi code.
-- Nếu user đã thử nhiều lần mà chưa fix được → hypothesis trước đó có thể sai.
-
-### Phase 2: Đánh giá tác động (Bắt buộc)
-Trước khi đưa fix, phải trả lời rõ:
-- Thay đổi này ảnh hưởng những file/function nào?
-- Có rủi ro ảnh hưởng đến **login, UI, navigation, TikTok events, profile switch** không?
-- Nếu có rủi ro → nêu rõ + đề xuất cách giảm thiểu.
-
-### Phase 3: Minimal & Safe Change
-- Ưu tiên thay đổi nhỏ nhất.
-- Tránh thay đổi behavior của luồng đang hoạt động ổn định.
-
-### Phase 4: Verification (Bắt buộc)
-Phải cung cấp:
-- Cách kiểm tra bug cũ đã được fix.
-- Cách kiểm tra không có regression.
-- Các bước user nên test (đặc biệt login, navigation, TikTok events).
-
-### Phase 5: Khi user nói “vẫn còn lỗi”
-- KHÔNG vội đưa code mới.
-- Yêu cầu thông tin cụ thể → đào lại root cause.
-
-**Quy tắc vàng:** Sửa xong mà tạo ra lỗi mới hoặc phá chức năng khác = **không chấp nhận**.
+10. **Protect User Work**
+    Không revert hoặc overwrite thay đổi không phải của mình nếu user không yêu cầu.
 
 ---
 
-## 3. Feature Development Discipline
+## 2. Superpowers Policy
 
-Khi được yêu cầu **thêm tính năng mới** hoặc cập nhật code, bắt buộc tuân thủ:
+Áp dụng superpower theo tình huống, không nhồi vào mọi việc.
 
-### Phase 1: Hiểu yêu cầu
-- Hỏi rõ mục tiêu, input/output, và luồng sử dụng nếu chưa rõ.
-- Xác định tính năng này ảnh hưởng đến những luồng nào đang tồn tại.
+| Tình huống | Superpower nên dùng | Cách áp dụng trong project này |
+|---|---|---|
+| Bug, test fail, unexpected behavior, build fail | `superpowers:systematic-debugging` | Bắt buộc tìm root cause trước khi code. Nếu đã thử nhiều fix mà vẫn lỗi, quay lại evidence thay vì thêm patch. |
+| Feature, bugfix, refactor, behavior change | `superpowers:test-driven-development` | Viết failing test trước khi khả thi. Nếu Electron/TikTok Live/UI bundle khó auto-test, tạo repro script, smoke check, hoặc manual verification checklist trước khi sửa. |
+| Task nhiều bước, chạm nhiều module, hoặc high-risk | `superpowers:writing-plans` | Lập plan ngắn có file touched, impact, rollback, và verification trước khi code. Không cần cho task nhỏ 1 file/1 dòng. |
+| Trước khi claim complete/fixed/passing | `superpowers:verification-before-completion` | Bắt buộc chạy verification mới trong cùng lượt làm việc và báo đúng kết quả. |
+| Review feedback hoặc user nói fix chưa đúng | `superpowers:receiving-code-review` hoặc debugging flow | Không đồng ý mù quáng. Xác minh feedback, reproduce lại, rồi mới sửa. |
+| Major/high-risk change trước merge/commit | `superpowers:requesting-code-review` | Khuyến nghị nếu chạm bundle, DB, Electron main, auth, Socket.IO, profile switch, TikTok connection. |
 
-### Phase 2: Lập kế hoạch trước khi code (Bắt buộc)
-Trước khi viết code, phải trả lời được:
-- Tính năng này nên để ở file/service nào?
-- Có nên extend logic cũ hay tạo mới?
-- Những chỗ nào có thể bị ảnh hưởng (side effect)?
-- Có cần migration, config, hay thay đổi state không?
-
-### Phase 3: Đánh giá tác động (Bắt buộc)
-- Liệt kê các luồng quan trọng có thể bị ảnh hưởng.
-- Nếu có rủi ro → ưu tiên cách implement ít xâm phạm nhất.
-
-### Phase 4: Implement theo nguyên tắc
-- Ưu tiên **extend thay vì modify** behavior cũ.
-- Giữ logic cũ chạy như cũ nếu có thể.
-- Sử dụng flag/config để bật/tắt tính năng mới nếu cần (dễ rollback).
-- Viết code có error handling và fallback ngay từ đầu.
-
-### Phase 5: Verification (Bắt buộc)
-Sau khi implement, phải cung cấp:
-- Cách test tính năng mới.
-- Cách xác nhận các luồng cũ không bị phá.
-- Các bước user nên test.
-
-### Phase 6: Khi user yêu cầu chỉnh sửa sau khi đã thêm
-- Đọc lại phần ảnh hưởng đã liệt kê ở Phase 2.
-- Ưu tiên thay đổi nhỏ + có verification.
-
-**Nguyên tắc khi thêm tính năng:** Tính năng mới không được làm hỏng tính năng cũ.
+Không dùng subagent/parallel-agent workflow trừ khi user yêu cầu rõ hoặc task có các phần độc lập thật sự. Nếu dùng, phải chia ownership file rõ và không để các agent sửa cùng file.
 
 ---
 
-## 4. Bundle Management Discipline (High-Risk Operation)
+## 3. Risk Tiers
 
-**Bundle** (`downloads/combo/app.js`, `modules.js`, `modules.css`, `ui.css`) là file **obfuscated frontend gốc** từ TikFinity. Đây là thành phần **rất nhạy cảm**.
+### Low Risk
 
-### Khi nào được phép cập nhật bundle?
+Ví dụ: docs nhỏ, comment không runtime, typo, log text không đổi behavior.
 
-Chỉ được cập nhật khi **đủ 3 điều kiện**:
-1. User **chủ động yêu cầu** cập nhật bundle.
-2. Đã có **backup** đầy đủ trước khi thay thế.
-3. Đã đánh giá tác động và có kế hoạch rollback rõ ràng.
+Yêu cầu: impact ngắn + quick verification. Backup thường không cần.
 
-### Quy trình bắt buộc khi cập nhật bundle
+### Standard Risk
 
-**Phase 1: Đánh giá tác động (Bắt buộc)**
-- Bundle hiện tại cũ bao nhiêu ngày?
-- Việc update có thể ảnh hưởng đến:
-  - Vue scope ID (`data-v-xxx`)
-  - Tailwind class names
-  - Injection points (PostHog, socket, TTS, navigation, reloadGuard...)
-  - Login, profile switch, sub-sidebar
-- Rủi ro cao hay thấp?
+Ví dụ: service/helper riêng lẻ, route phụ, UI script nhỏ, config ít ảnh hưởng.
 
-**Phase 2: Backup bắt buộc**
-- Luôn backup folder `downloads/combo/` thành `combo.bak-YYYY-MM-DD/` trước khi thay.
-- Giữ lại ít nhất 2 bản backup gần nhất.
+Yêu cầu: impact rõ, minimal plan, test hoặc smoke check phù hợp.
 
-**Phase 3: Cách cập nhật an toàn nhất**
-- **Khuyến nghị mạnh**: Yêu cầu user tự download bundle mới từ `https://tikfinity.zerody.one/`
-- Hướng dẫn user:
-  1. Truy cập https://tikfinity.zerody.one/
-  2. F12 → Network tab → Reload
-  3. Save 4 file: `app.js`, `modules.js`, `modules.css`, `ui.css` vào `downloads/combo/`
-- Sau khi user thay xong → mới tiếp tục các bước sau.
+### High Risk
 
-**Phase 4: Verification sau khi update (Bắt buộc)**
-Phải kiểm tra đầy đủ:
-- Login flow hoạt động bình thường
-- Profile switch không lỗi
-- Sub-sidebar / navigation hiển thị đúng
-- TikTok chat events vẫn nhận được
-- TTS reader vẫn hoạt động
-- Topbar, LIVE status, Activity Feed hoạt động
-- Không có lỗi console nghiêm trọng
-- **i18n keys mới** (xem Phase 4b dưới đây)
+Bắt buộc backup trước khi sửa:
 
-Nếu có bất kỳ mục nào fail → **phải rollback ngay**.
+- `downloads/**`
+- `backend-node/src/templates/*.txt`
+- `backend-node/src/templates/*.json` nếu được inject vào HTML/runtime
+- `backend-node/src/middleware/*.js`
+- `backend-node/src/index.js`
+- `electron/main.js`
+- Database schema, migration, seed quan trọng, `.db`
+- Auth/login route, TikTok Live route/service, Socket.IO event layer
+- Profile switch, reconnect, session state, TTS reader, Activity Feed
+- File lớn/shared file khi thay đổi behavior hoặc blast radius chưa rõ
 
-**Phase 4b: i18n key audit (Bắt buộc sau bundle update)**
+### Critical Bundle Risk
 
-Bundle gốc thường bake translations vào HTML locale-specific (mỗi locale 1 file dưới `downloads/`: `index.html` cho EN, `vi`, `de`, `es`). Khi update bundle, version mới có thể đưa thêm key i18n mới mà CHỈ baked vào 1 file locale, các locale khác bị thiếu → bundle render raw key (vd: tab "tts.voice_picker.ai_tab" thay vì "AI").
-
-Lỗi điển hình: Voice picker modal mở ra hiển thị `tts.voice_picker.ai_tab`, `tts.voice_picker.search_placeholder`, `tts.voice_picker.no_voices_found`, ... thay vì label tiếng người đọc được.
-
-**Cách audit + fix:**
-
-1. Chạy `node backend-node/scripts/extract-new-i18n.js` để diff các key giữa `downloads/vi` và `downloads/index.html` (English baseline).
-2. Script ghi tất cả key có trong VI nhưng thiếu trong EN ra `backend-node/src/templates/i18n-patch.json`.
-3. `backend-node/src/middleware/index-html.js` load file này lúc startup và inject vào blockScript qua placeholder `{{i18nPatchJson}}`.
-4. Early IIFE `tfI18nPatch()` trong `blockScript.txt` poll `window.tfPageloadData.appConfig.localization` và merge missing keys vào tất cả locale (`en`/`vi`/`de`/`es`) trước khi Vue đọc binding.
-5. **Restart Electron** để Node require cache pickup logic mới (xem dưới mục Hot-reload).
-
-Re-run script sau MỖI lần thay `combo/*` để patch JSON luôn cập nhật.
+`downloads/combo/app.js`, `modules.js`, `modules.css`, `ui.css` là obfuscated frontend gốc. Chỉ update khi user chủ động yêu cầu và đã có backup + rollback plan.
 
 ---
 
-### Hot-reload vs Restart (Quan trọng)
+## 4. Pre-Edit Gate
 
-`POST /api/_dev/reload-html` CHỈ clear HTML buffer cache (`invalidateCache()`) — KHÔNG reload Node `require` cache.
+Trước khi sửa file, phải xác định:
 
-| Loại thay đổi | Cách áp dụng |
-|---|---|
-| `templates/*.txt` (HTML injection) thuần content | `POST /api/_dev/reload-html` ĐỦ |
-| `templates/i18n-patch.json` content | `POST /api/_dev/reload-html` ĐỦ (file đọc lại mỗi build? KHÔNG — đọc 1 lần ở module load, cần restart) |
-| `middleware/*.js` (ctx, interpolate logic, route handlers) | **Restart Electron** bắt buộc |
-| `index.js` (Express bootstrap, routes) | **Restart Electron** bắt buộc |
-| `electron/main.js` (window handlers) | **Restart Electron** bắt buộc |
-| `downloads/combo/*` (bundle thay file) | Bundle reload qua Ctrl+R, không cần restart backend |
-| `downloads/css/*`, `downloads/js/*` (static) | `POST /api/_dev/reload-html` broadcast auto-reload bundle |
+1. File/function sẽ chạm và lý do.
+2. Risk tier.
+3. Luồng có thể bị ảnh hưởng: login, UI, navigation, TikTok events, profile switch, realtime connection, TTS, Activity Feed, Electron boot.
+4. Cách sửa nhỏ nhất.
+5. Rollback plan nếu high-risk.
+6. Verification plan.
 
-Nếu file đọc 1 lần ở module-init (như `i18n-patch.json` load qua `fs.readFileSync` ở top-level), cần restart để pickup thay đổi nội dung file đó.
-
-**Phase 5: Rollback**
-Nếu update gây lỗi, chạy lệnh sau:
-```bash
-rm -rf downloads/combo && mv downloads/combo.bak-YYYY-MM-DD downloads/combo
-```
+Với task nhỏ low-risk, có thể trả lời gọn trong 1-2 câu. Với standard/high-risk, phải rõ ràng trước khi apply.
 
 ---
 
-## 5. Backup Discipline (Áp dụng MỌI thao tác rủi ro)
+## 5. Backup Discipline
 
-Mở rộng nguyên tắc backup ra ngoài bundle. **Bắt buộc** trước MỌI thay đổi touching:
+### Khi bắt buộc backup
 
-- File trong `downloads/` (bundle, CSS, JS gốc, HTML templates)
-- File trong `backend-node/src/templates/*.txt` (HTML injection)
-- Database schema / migration files
-- Backend route handler đang hoạt động
-- `electron/main.js` (window-level handlers)
-- `backend-node/src/index.js` (Express bootstrap)
-- Bất kỳ file > 100 dòng có khả năng phá nhiều flow
+Backup trước mọi thay đổi high-risk hoặc critical bundle. Không sửa trước rồi mới backup.
 
 ### Quy trình bắt buộc
 
-1. **Liệt kê file/folder bị touched** trong message trước khi sửa (path đầy đủ + lý do).
-2. **Backup TRƯỚC** với suffix `.bak-YYYY-MM-DD` (hoặc `.bak-<reason>`).
-3. **Verify backup** bằng `md5sum`, `wc -c`, hoặc `ls -la` so sánh size.
-4. **Hiển thị rollback command** trong message trước khi apply.
-5. **Test sau apply** — không pass test = rollback ngay, không debug trên broken state.
-6. **Giữ ít nhất 2 backup gần nhất** cho file quan trọng.
+1. Liệt kê file/folder sẽ touch và lý do.
+2. Backup với suffix không overwrite, ví dụ `.bak-2026-05-21-pre-auth-fix`.
+3. Verify backup bằng size hoặc hash.
+4. Nêu rollback command trước khi apply.
+5. Apply minimal change.
+6. Verify sau apply. Nếu fail ở critical path và không có fix nhỏ rõ ràng, rollback trước.
+7. Giữ ít nhất 2 backup gần nhất cho bundle/templates/Electron main/backend bootstrap/DB.
 
-### Multi-layer fallback cho critical paths
+### PowerShell backup examples
 
-| Loại thay đổi | Fallback bắt buộc |
+Backup file:
+
+```powershell
+$src = 'backend-node/src/templates/blockScript.txt'
+$bak = 'backend-node/src/templates/blockScript.txt.bak-2026-05-21-pre-i18n'
+Copy-Item -LiteralPath $src -Destination $bak -Force
+Get-Item -LiteralPath $src,$bak | Select-Object FullName,Length,LastWriteTime
+Get-FileHash -LiteralPath $src,$bak -Algorithm SHA256
+```
+
+Rollback file:
+
+```powershell
+Copy-Item -LiteralPath 'backend-node/src/templates/blockScript.txt.bak-2026-05-21-pre-i18n' -Destination 'backend-node/src/templates/blockScript.txt' -Force
+```
+
+Backup folder:
+
+```powershell
+Copy-Item -LiteralPath 'downloads/combo' -Destination 'downloads/combo.bak-2026-05-21-pre-update' -Recurse -Force
+Get-ChildItem -LiteralPath 'downloads/combo','downloads/combo.bak-2026-05-21-pre-update' -Recurse | Measure-Object -Property Length -Sum
+```
+
+Rollback folder: verify resolved paths first, then move current broken folder aside and restore backup.
+
+```powershell
+Move-Item -LiteralPath 'downloads/combo' -Destination 'downloads/combo.failed-2026-05-21'
+Copy-Item -LiteralPath 'downloads/combo.bak-2026-05-21-pre-update' -Destination 'downloads/combo' -Recurse -Force
+```
+
+Anti-patterns:
+
+- Sửa high-risk file mà không backup.
+- Backup nhưng không verify.
+- Overwrite backup cũ.
+- Xóa backup trước khi bản mới chạy ổn định.
+- Debug lâu trên critical broken state thay vì rollback.
+
+---
+
+## 6. Bug Fix Workflow
+
+Khi user yêu cầu sửa lỗi:
+
+1. **Reproduce hoặc thu evidence**
+   Đọc error đầy đủ, stack trace, log, console, network, DB state nếu có. Nếu không reproduce được, nói rõ thiếu data nào.
+
+2. **Trace root cause**
+   Tìm nơi bad state/value/event bắt đầu. Với multi-component flow, log ở boundary: renderer -> backend -> Socket.IO -> TikTok connector -> DB.
+
+3. **Compare working pattern**
+   Tìm code tương tự đang chạy đúng trong repo trước khi tự chế pattern mới.
+
+4. **State hypothesis**
+   Nêu "root cause khả dĩ là X vì Y". Không fix nhiều giả thuyết cùng lúc.
+
+5. **Impact assessment**
+   Ghi file/function bị ảnh hưởng và các critical flows có rủi ro.
+
+6. **Failing test hoặc repro first**
+   Ưu tiên automated test. Nếu không khả thi, tạo script/probe/manual steps cụ thể để chứng minh lỗi trước khi sửa.
+
+7. **Minimal fix**
+   Sửa đúng root cause, không refactor phụ.
+
+8. **Verify**
+   Chạy test/smoke/manual check phù hợp, rồi mới claim.
+
+Nếu user nói "vẫn còn lỗi": không vội patch tiếp. Hỏi hoặc thu lại exact steps, log, screenshot/console, expected vs actual, thời điểm xảy ra, profile/channel đang dùng.
+
+---
+
+## 7. Feature Development Workflow
+
+Khi thêm tính năng hoặc đổi behavior:
+
+1. Hiểu mục tiêu, input/output, UX flow, config/state cần thêm.
+2. Nếu task chạm nhiều module hoặc high-risk, viết plan trước khi code.
+3. Chọn nơi đặt logic theo pattern hiện có trong repo.
+4. Ưu tiên extend behavior cũ thay vì thay đổi behavior đang ổn định.
+5. Dùng flag/config/fallback cho tính năng có rủi ro.
+6. Viết failing test trước nếu khả thi.
+7. Implement nhỏ, có error handling.
+8. Verify feature mới và regression ở luồng cũ.
+
+Không thêm dependency, migration, background timer, global state, hoặc IPC/socket event mới nếu không có lý do rõ và verification tương ứng.
+
+---
+
+## 8. Realtime, TikTok, Profile Switch, Socket.IO
+
+Các khu vực này luôn được coi là high-risk.
+
+Quy tắc bắt buộc:
+
+- Mỗi connection attempt phải có owner rõ: profile/channel/session/generation.
+- Async callback cũ phải bị ignore khi generation/session không còn hiện hành.
+- Disconnect/reconnect phải idempotent.
+- Không có timer/retry loop không có cleanup.
+- Không emit Socket.IO event từ stale connection.
+- Profile switch phải abort hoặc invalidate connection cũ trước khi tạo connection mới.
+- UI state không được dựa vào event đến muộn nếu đã switch profile.
+- Log connect/disconnect/reconnect/error phải có context.
+
+Verification tối thiểu khi chạm khu vực này:
+
+- Login vẫn hoạt động.
+- Connect TikTok Live một profile.
+- Switch profile rồi reconnect.
+- Disconnect rồi connect lại.
+- Chat/gift/like/follow hoặc event liên quan vẫn vào Activity Feed nếu có thể test.
+- Socket.IO client không nhận duplicate events sau reconnect.
+
+---
+
+## 9. Bundle Management
+
+### Khi được update bundle
+
+Chỉ update `downloads/combo/*` khi đủ 3 điều kiện:
+
+1. User chủ động yêu cầu update bundle.
+2. Đã backup `downloads/combo/`.
+3. Đã có impact + rollback plan.
+
+### Impact phải xét
+
+- Bundle hiện tại cũ bao nhiêu ngày.
+- Vue scope ID (`data-v-*`).
+- Tailwind/class names.
+- Injection points: PostHog stripping, socket, TTS, navigation, reload guard, auth, topbar.
+- Login, profile switch, sub-sidebar, Activity Feed.
+- i18n path/key changes.
+
+### Cách update an toàn
+
+Khuyến nghị user tự download từ `https://tikfinity.zerody.one/`:
+
+1. Mở site.
+2. DevTools Network, reload.
+3. Save 4 file: `app.js`, `modules.js`, `modules.css`, `ui.css`.
+4. Đặt vào `downloads/combo/` sau khi backup đã xong.
+
+Sau update phải verify:
+
+- Login flow.
+- Profile switch.
+- Sub-sidebar/navigation.
+- TikTok chat events.
+- TTS reader.
+- Topbar/LIVE status/Activity Feed.
+- Console không có lỗi nghiêm trọng.
+- i18n keys mới.
+
+Fail ở critical item thì rollback bundle.
+
+---
+
+## 10. i18n and Template Injection Traps
+
+### Late-mutation trap
+
+Bundle copy `tfPageloadData.localization.<lang>` vào vue-i18n/Composition API store ngay lúc init. Patch chạy sau bundle init là quá muộn và modal có thể render raw key.
+
+Fix đúng: cài `Object.defineProperty(window, 'tfPageloadData', ...)` trong head injection trước khi inline script gán `window.tfPageloadData`.
+
+### Localization path-change trap
+
+Bundle mới có thể dùng:
+
+- Mới: `tfPageloadData.localization.<lang>`
+- Cũ: `tfPageloadData.appConfig.localization.<lang>`
+
+Khi update bundle, probe trong DevTools:
+
+```js
+Object.keys(window.tfPageloadData)
+Object.keys(window.tfPageloadData.localization || {})
+```
+
+Verify voice picker keys:
+
+```js
+Object.keys(window.tfPageloadData.localization.en).filter(k => k.includes('voice_picker')).length
+```
+
+Kết quả phải lớn hơn 0 nếu patch đúng path.
+
+### i18n audit sau bundle update
+
+Chạy:
+
+```powershell
+node backend-node/scripts/extract-new-i18n.js
+```
+
+Script ghi missing keys vào:
+
+```text
+backend-node/src/templates/i18n-patch.json
+```
+
+`backend-node/src/middleware/index-html.js` hiện đọc `i18n-patch.json` trong lúc build HTML, nên sau khi regenerate cần gọi reload endpoint để clear HTML cache:
+
+```powershell
+Invoke-WebRequest -Method POST -Uri 'http://localhost:5285/api/_dev/reload-html'
+```
+
+Nếu logic đọc file bị chuyển lên module init trong tương lai, phải restart Electron/backend.
+
+### Literal tag trap trong template
+
+`index-html.js` dùng regex inject quanh head/body opening tags. Không viết literal head/body HTML tags trong comment hoặc string của `backend-node/src/templates/*.txt`, vì regex có thể match nhầm và phá inline script.
+
+Dùng cách viết tách như:
+
+- `the h-e-a-d element`
+- `the b-o-d-y element`
+- `'<bo' + 'dy>'` nếu thật sự cần literal trong code
+
+Sau khi sửa template, chạy:
+
+```powershell
+node backend-node/scripts/check-script-syntax.js
+```
+
+Pass toàn bộ inline scripts mới được coi là an toàn để boot bundle.
+
+---
+
+## 11. Hot Reload vs Restart
+
+| Loại thay đổi | Cách áp dụng |
 |---|---|
-| Bundle replace (`combo/*`) | Backup folder + UI Health watchdog auto-revert nếu broken 2× liên tiếp |
-| Backend route change | Giữ old handler dưới `/api/_legacy/...` để switch nhanh |
-| Template injection (`templates/*.txt`) | Flag `__tfSafeMode` trong localStorage để disable injection nếu boot crash |
-| Electron main.js | Backup file + nếu boot fail 2 lần → tự revert |
-| DB migration | Backup `.db` file + có down migration |
+| `backend-node/src/templates/*.txt` | `POST /api/_dev/reload-html` thường đủ |
+| `backend-node/src/templates/i18n-patch.json` | Regenerate rồi `POST /api/_dev/reload-html` nếu current code vẫn đọc trong `buildIndexHtml()` |
+| `backend-node/src/templates/voice-catalog.json` | `POST /api/_dev/reload-html` |
+| `backend-node/src/middleware/*.js` | Restart backend/Electron |
+| `backend-node/src/index.js` | Restart backend/Electron |
+| `electron/main.js` | Restart Electron |
+| `downloads/combo/*` | Reload renderer/hard refresh sau khi backup/update |
+| `downloads/css/*`, `downloads/js/*` | Reload renderer hoặc `POST /api/_dev/reload-html` nếu injected version/cache changes |
+| DB migration/schema | Backup DB, run migration, restart if connections cache schema |
 
-### Anti-patterns (cấm)
+---
 
-- ❌ Sửa file mà không backup
-- ❌ Backup nhưng không verify (`md5sum` hoặc `wc -c`)
-- ❌ Replace file rồi mới nói "có vấn đề thì rollback nhé" — phải announce rollback path TRƯỚC
-- ❌ Xóa backup cũ trước khi confirm phiên bản mới hoạt động ổn định 24h+
-- ❌ Backup chồng nhau (overwrite `.bak` cũ với `.bak` mới) — luôn dùng date suffix
+## 12. Verification Matrix
 
-### Naming convention
+Chọn verification theo blast radius. Không claim nếu chỉ chạy một check không chứng minh được phần đã sửa.
+
+### General commands
+
+```powershell
+npm --prefix backend-node run migrate
+node backend-node/scripts/check-script-syntax.js
+npm --prefix backend-node start
+npm --prefix electron start
+```
+
+Chỉ chạy command phù hợp với task. Không tự ý chạy migration nếu task không liên quan DB hoặc có rủi ro dữ liệu.
+
+### Manual smoke checks
+
+Khi có UI/Electron/runtime change, user hoặc agent cần kiểm tra:
+
+- App boot không lỗi console nghiêm trọng.
+- Login/logout.
+- Navigation/sub-sidebar.
+- Profile switch.
+- TikTok connect/disconnect/reconnect.
+- Activity Feed nhận event.
+- TTS voice picker/reader nếu chạm TTS/i18n.
+- Topbar LIVE status.
+
+### Completion report must include
+
+- Files changed.
+- Risk/impact summary.
+- Verification command hoặc manual check đã chạy.
+- Chỗ chưa verify được và lý do.
+- Rollback path nếu high-risk.
+
+---
+
+## 13. Review Checklist Before Final Answer
+
+Trước khi trả lời cuối:
+
+1. Có đúng yêu cầu mới nhất của user không.
+2. Có chạm file ngoài scope không.
+3. Có backup cho high-risk file không.
+4. Có evidence verification mới không.
+5. Có regression risk nào cần nói rõ không.
+6. Nếu chưa test được phần nào, nói thẳng.
+
+Rule vàng: **sửa xong mà tạo lỗi mới hoặc phá chức năng cũ là không chấp nhận**.
+
+---
+
+## 14. Bundle Voice Picker — Known Issues + Fix Map (2026-05-21)
+
+Voice picker modal (AI/Pro/Singing/Free Voices) trong bundle ≥3.9MB có MULTIPLE gating layers. Một mỗi gate đứng riêng đều làm modal empty. Phải fix HẾT để modal hiển thị voices.
+
+### Gate 1: Profile mismatch → settings.restore reload loop
+
+**Triệu chứng:** Bundle gọi `settings.restore()` → `location.reload()` → reload-guard window=8/8 KILL SWITCH → app stuck black/inconsistent.
+
+**Root cause:** `Channels.ProfileId` trong DB trỏ tới profile không tồn tại trong `Profiles` table (vd Channel.ProfileId=2 nhưng Profiles chỉ có Id=1). Bundle load settings cho profile-không-có → bị stale → trigger restore → reload.
+
+**Fix:**
+```sql
+-- Direct DB fix:
+UPDATE Channels SET ProfileId = 1 WHERE ProfileId NOT IN (SELECT Id FROM Profiles);
+```
+Hoặc qua API: `POST /api/me { "profileId": 1 }`.
+
+**Prevent:** Add clamp guard ở `/api/me`: nếu request profileId không có trong Profiles table, reject hoặc auto-fallback profile 1.
+
+### Gate 2: `tf_locale=VN` cookie không được middleware nhận
+
+**Triệu chứng:** User chuyển ngôn ngữ trong UI (bundle set cookie `tf_locale=VN`) → reload → middleware vẫn serve `index.html` (EN) thay vì `vi` → bundle nội tại đọc locale=VN nhưng `tfPageloadData.localization` chỉ có bucket EN → mọi `t(key)` raw key fallback.
+
+**Root cause:** Middleware `detectLang()` cũ chỉ check `tf_lang=vi` (lowercase, lang code). Bundle's picker set `tf_locale=VN` (uppercase, locale code). 2 cookie khác nhau.
+
+**Fix (đã apply):** `middleware/index-html.js` + `middleware/spa-fallback.js` thêm check `tf_locale=VN|DE|ES|EN` với map `{VN:'vi', DE:'de', ES:'es', EN:''}`.
+
+### Gate 3: vi.html không có `en` bucket → bundle crash khi load translations
+
+**Triệu chứng:** App đen sau khi serve vi.html. Console error: `Uncaught (in promise) Error while loading translation for en, [object Object]`. Bundle's i18n loader hard-codes 'en' as fallback locale. vi.html ship `localization:{vi:{...}}` only — không có `en` → loader throw → Vue mount crash.
+
+**Fix (đã apply):** Prebake IIFE (`tfI18nPreBake` trong blockScript.txt) tự tạo `en` bucket bằng copy từ vi nếu thiếu, trước khi bundle init.
+
+### Gate 4: Bundle expect `tfPageloadData.localization` ở top-level (KHÔNG phải `appConfig.localization`)
+
+**Triệu chứng:** Patch i18n keys không apply, modal vẫn raw key dù patch JSON có trong HTML.
+
+**Root cause:** Bundle ≥3.9MB moved localization từ `tfPageloadData.appConfig.localization.<lang>` (cũ) sang `tfPageloadData.localization.<lang>` (mới, top-level).
+
+**Fix (đã apply):** Prebake IIFE target `pld.localization` (không phải `pld.appConfig.localization`).
+
+### Gate 5: Bundle copy localization vào internal store AT INIT → polling patch quá muộn
+
+**Triệu chứng:** Polling-based IIFE merge keys vào tfPageloadData.localization SAU khi bundle init → bundle đã snapshot vào vue-i18n store → modal không thấy patch.
+
+**Fix (đã apply):** `Object.defineProperty(window, 'tfPageloadData', {get, set})` interceptor — setter fire lúc inline body script assign tfPageloadData, mutate ngay rồi store. Bundle script đọc TIẾP sau → đã có patch.
+
+### Gate 6: Bundle's `loadAiVoiceState` requires `window.token` + `window.appConfig.ttsHost`
+
+**Triệu chứng:** Mock fetch wrapped đúng URL nhưng `loadAiVoiceState()` early-return với ZERO fetches → `window.tts.aiVoices = []` → AI tab empty.
+
+**Root cause:** Bundle's `hasAiTtsBackendContext()` (app.js offset 3344494) check:
+```js
+function getAiTtsBackendContext(path) {
+  var baseUrl = (window.appConfig?.ttsHost || '').replace(/\/+$/, '');
+  var token = window.token || window.<X>?.me?.token || '';
+  if (!baseUrl || !token) return null;  // ← gate
+  return {url: baseUrl + path, token};
+}
+```
+`ttsHost` set trong tfPageloadData. Nhưng `window.token` không bao giờ được set bởi bundle (chờ external auth flow). Without it → loader skip.
+
+**Fix (đã apply):** `tfBootstrapWindowToken` IIFE trong blockScript đọc `tf_login_token` cookie (hoặc localStorage `setting_loginaccesstoken`), set `window.token` sớm. Bundle's gate pass.
+
+### Gate 7: AI voice ID phải có prefix `tts_api__`
+
+**Triệu chứng:** Bundle's `resolveVoiceConfigFromId(id)` trả null cho IDs không có prefix → voices không được parse → AI tab empty.
+
+**Root cause:** Bundle constant `AI_VOICE_ID_PREFIX = 'tts_api__'`. Format full ID: `tts_api__<vendor>__<uuid>`. Mock catalog phải emit IDs đúng format này.
+
+**Probe runtime:**
+```js
+window.aiTts?.voiceIdPrefix  // → 'tts_api__'
+window.aiTts.resolveVoiceConfigFromId('tts_api__ttsm__abc-123')
+// → {vendorId:"ttsm", voiceId:"abc-123", provider:"ai"}  ✅
+```
+
+**Fix (đã apply):** `tfNormalizeMockVoice` trong blockScript prepend `tts_api__` cho voices có `provider === 'ai'`.
+
+### Gate 8a: `window.aiTts.hasBackendContext()` returns false despite token + ttsHost set
+
+**Triệu chứng:** Instrumentation log `hasCtx=false hasToken=true ttsHost=https://tts.tikfinity.com`. Loader early-return, không fetch.
+
+**Root cause:** `getAiTtsBackendContext()` internals đọc obfuscated keys không match những gì tfPageloadData/window provide. Reverse engineer hết là tốn thời gian.
+
+**Fix (đã apply):** Override `window.aiTts.hasBackendContext = () => true` thẳng. Mock fetch sẽ handle auth context implicitly khi loader gọi catalog endpoint.
+
+### Gate 8b: Backend missing `/api/tts/auth-token` route
+
+**Triệu chứng:** Bundle POST `/api/tts/auth-token` → 404 → success callback fail → `Object.restore` (settings.restore) → reload loop.
+
+**Root cause:** Bundle's AI TTS loader fetch auth token TRƯỚC khi gọi voice catalog. Backend chưa implement endpoint này.
+
+**Fix (đã apply):** Route handler `backend-node/src/routes/tts.js` POST `/auth-token` trả `{statusCode:200, data:{token:..., expiresIn:3600}, token:...}` (cả `data.token` lẫn top-level `token` để cover các cách bundle có thể parse).
+
+### Gate 9a: Auth-token response field MUST be `ttsAuthToken` (not `token`)
+
+**Triệu chứng:** `await window.tts.ensureAiAuthToken()` xong, `window.tts.aiAuthToken` vẫn empty string. Backend trả 200 với mọi alias (`token`, `accessToken`, `aiAuthToken`, `jwt`) nhưng bundle ignore tất cả.
+
+**Root cause (xác nhận qua Network tab gốc TikFinity):** Bundle's `ensureAiAuthToken` parser đọc chính xác field name `ttsAuthToken` (camelCase, tts prefix). Production response shape:
+```json
+{"status":200, "message":"OK", "ttsAuthToken":"eyJ..."}
+```
+
+**Fix (đã apply):** `routes/tts.js` POST `/auth-token` trả đúng 3 fields: `status` (NOT statusCode), `message`, `ttsAuthToken`.
+
+### Gate 9b: `/api/tts/user` endpoint phải mock (quota check sau auth)
+
+**Triệu chứng:** Auth token có rồi nhưng `loadAiVoices` vẫn không fetch voices.
+
+**Root cause:** Sau khi bundle có `ttsAuthToken`, nó gọi `GET tts.tikfinity.com/api/tts/user` với Bearer header để fetch quota info. Nếu endpoint missing/error → bundle skip voice loader.
+
+**Response shape gốc (cross-origin, cần mock trong blockScript fetch wrap):**
+```json
+{
+  "statusCode": 200, "message": "Success",
+  "data": {
+    "id": 1, "userId": "1",
+    "quota": {
+      "exceeded": false,
+      "currentUsageMode": "free",
+      "currentUsageCurrency": "requests",
+      "subscriptionCreditsRemaining": 0, "subscriptionCreditsTotal": 0,
+      "purchasedCreditsRemaining": 0, "purchasedCreditsTotal": 0,
+      "freeRequestsRemaining": 25, "freeRequestsTotal": 25,
+      "nextResetAt": "<ISO>", "nextResetSeconds": <number>
+    }
+  }
+}
+```
+
+**Fix (đã apply):** `tfHandleTtsTikfinityUser` trong blockScript intercept `tts.tikfinity.com/api/tts/user` URL (cả fetch + XHR), trả quota free user 25 messages/day.
+
+### Voice picker loader sequence (xác nhận từ Network tab gốc)
 
 ```
-file.ext.bak-2026-05-20           # date-based (default)
-combo.bak-before-vn-update/        # purpose-based (rõ lý do hơn)
-combo.bak-2026-05-20-pre-update/   # date + purpose (an toàn nhất)
+1. POST  /api/tts/auth-token (LOCAL backend, same-origin)
+   → {status:200, ttsAuthToken:"<JWT>"}
+2. GET   https://tts.tikfinity.com/api/tts/user (cross-origin, Bearer)
+   → quota info {freeRequestsRemaining, currentUsageMode, ...}
+3. GET   https://tts.tikfinity.com/api/tts/voices (cross-origin, Bearer)
+   → voice catalog {data.voices: [...]}
 ```
+
+Skip bất kỳ step nào trong sequence → bundle abort, modal empty.
+
+### Gate 9c: Mock response shape — bundle reads BOTH `data.voices` AND `data.aiVoices`
+
+**Triệu chứng:** Manual `fetch('/api/tts/voices')` thấy 66 voices, nhưng `window.tts.loadAiVoiceState()` xong, `window.tts.aiVoices === []`.
+
+**Root cause:** Bundle's loader đọc field tên khác `data.voices`. Có thể là `result.voices` hoặc `data.aiVoices`.
+
+**Fix (đã apply):** Mock emit cả 3 path cùng lúc:
+```js
+{
+  statusCode: 200,
+  message: 'Success',
+  result: { voices: normalized },
+  data: { voices: normalized, aiVoices: normalized }
+}
+```
+
+### Probe workflow để diagnose voice picker empty
+
+```js
+// 1. Verify token + ttsHost gate
+JSON.stringify({
+  hasToken: !!window.token,
+  ttsHost: window.appConfig?.ttsHost,
+  aiTtsKeys: Object.keys(window.aiTts || {})
+})
+
+// 2. Verify voice ID prefix
+window.aiTts?.voiceIdPrefix  // expect 'tts_api__'
+
+// 3. Trace fetches during loader (capture URLs)
+(function(){
+  const o = window.fetch, c = [];
+  window.fetch = function(u){ c.push(typeof u==='string'?u:u?.url); return o.apply(this, arguments); };
+  return window.tts.loadAiVoiceState().then(() => { window.fetch=o; return c; });
+})()
+
+// 4. Verify aiVoices populated
+(await window.tts.loadAiVoiceState(), window.tts.aiVoices?.length)
+```
+
+### Order of fixes (DO NOT skip any)
+
+1. ProfileId clamp ✓
+2. `tf_locale=VN` cookie → middleware language map ✓
+3. Prebake create `en` bucket if missing ✓
+4. Prebake target top-level `pld.localization` ✓
+5. Object.defineProperty interceptor for early patch ✓
+6. Bootstrap `window.token` from cookie ✓
+7. `tts_api__` prefix on AI voice IDs ✓
+8. Backend `/api/tts/auth-token` route ✓
+9. Mock response shape with `data.voices` + `data.aiVoices` + `result.voices` ✓
+
+Bỏ bất kỳ bước nào trong list này → AI tab empty hoặc app crash.

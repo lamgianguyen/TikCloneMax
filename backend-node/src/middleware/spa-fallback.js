@@ -32,11 +32,23 @@ function spaFallback() {
     // instead of the default English one. Cookie fallback when no prefix
     // — the bundle's client-side router strips /<lang>/ when navigating
     // to /tiktok/* pages, so we need the cookie to keep serving VN.
+    // Bundle also sets its own `tf_locale=VN|DE|ES|EN` (uppercase, locale not
+    // lang) via the in-app language picker — honor that too, otherwise the
+    // picker's choice doesn't survive once the user navigates back to a
+    // `/tiktok/...` deep-link.
+    const TF_LOCALE_TO_LANG = { VN: 'vi', DE: 'de', ES: 'es', EN: '' };
     const m = String(req.path || '').match(/^\/([a-z]{2})(\/|$)/);
     const urlLang = (m && ['vi', 'de', 'es'].includes(m[1])) ? m[1] : '';
     let lang = urlLang;
+    const cookieStr = String(req.headers.cookie || '');
     if (!lang) {
-      const cookieMatch = String(req.headers.cookie || '').match(/(?:^|;\s*)tf_lang=([a-z]{2})/);
+      const bundleLocale = cookieStr.match(/(?:^|;\s*)tf_locale=([A-Z]{2})/);
+      if (bundleLocale && TF_LOCALE_TO_LANG[bundleLocale[1]]) {
+        lang = TF_LOCALE_TO_LANG[bundleLocale[1]];
+      }
+    }
+    if (!lang) {
+      const cookieMatch = cookieStr.match(/(?:^|;\s*)tf_lang=([a-z]{2})/);
       if (cookieMatch && ['vi', 'de', 'es'].includes(cookieMatch[1])) lang = cookieMatch[1];
     }
     if (urlLang) {
