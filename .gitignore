@@ -60,8 +60,16 @@ patch_app.js
 missing_context.txt
 out.json
 
-# Bundle reverse-engineering outputs (large, regenerated on demand)
-decompiled/
+# Bundle reverse-engineering outputs
+# COMMIT the human-readable artefacts (so company agent without HAR can read):
+#   - decompiled/modules/deobfuscated.js  (945 KB Vue source, grep-able)
+#   - routes-generated/*.merged.shapes.md (60 KB endpoint preview catalogue)
+# SKIP the large raw artefacts (regenerable from `npm run reverse`):
+decompiled/app/
+decompiled/**/node_modules/
+decompiled/**/bundle.json
+routes-generated/*.merged.endpoints.json
+routes-generated/*.merged.js
 captures/*.har
-routes-generated/
 tf-call-log-*.json
+*.bak-*

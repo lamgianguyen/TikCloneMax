@@ -9,7 +9,9 @@
     "desktop": "npm --prefix electron start",
     "desktop:build": "npm --prefix electron run build",
     "install:all": "npm --prefix backend-node install && npm --prefix electron install",
-    "build:installer": "npm --prefix electron run build:installer"
+    "build:installer": "npm --prefix electron run build:installer",
+    "reverse": "node scripts/decompile/run-all.js",
+    "reverse:no-decompile": "node scripts/decompile/run-all.js --skip-decompile"
   },
   "author": "",
   "license": "ISC"
