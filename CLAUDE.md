@@ -23,6 +23,32 @@ Superpowers được dùng như guardrail kỹ thuật, không được dùng đ
 
 ## 1. Non-Negotiable Principles
 
+00. **Bundle UI override priority (workaround pattern hierarchy)**
+
+Khi bundle obfuscated render khác mong đợi, áp dụng theo thứ tự ƯU TIÊN — pattern nào cao hơn fail thì xuống pattern dưới:
+
+| Priority | Pattern | Khi nào dùng | File touch |
+|---|---|---|---|
+| 1 | **Backend response fix** | Nếu bundle đọc field từ HTTP response API và data của tôi sai shape | `routes/*.js`, mock `/api/*` |
+| 2 | **Pinia/store force-patch** | Nếu bundle read từ Pinia/window store mà response API không trigger update | `blockScript.txt` IIFE periodic 2s |
+| 3 | **`data-*` attribute + CSS** | Nếu bundle render hardcoded text mà Vue re-render đè lại JS mutation | `data-tf-*` attribute trên `<html>` + earlyCss rules |
+| 4 | **CSS pseudo-element override** | Nếu bundle render fixed string/format mà cần thay đổi visual ONLY | `font-size:0` + `::before content` (KHÔNG `display:none` — break flex) |
+| 5 | **DOM MutationObserver replace** | Last resort cho dynamic text. PHẢI throttle ≥100ms để không fight Vue |
+| ❌ | **Patch bundle's render function** | KHÔNG bao giờ — obfuscated, blast radius unknown, fragile per bundle update |
+| ❌ | **Set Pinia value as wrong type** | E.g., `proCredits: '100k'` (string thay vì number) — break downstream math |
+
+Choose lowest-priority pattern that solves problem. CSS > JS observer.
+
+0. **TikClone là ALL-PRO by design**
+   Serial Key gate ở TikfinityServer startup đã unlock TẤT CẢ tính năng Pro của bundle. Mọi response của `/api/me`, `/api/tts/user`, `/api/tts/auth-token` PHẢI emit user state là Pro:
+   - `/api/me` → `isPro: true`, `subscription.isPro: true`, `userFeatures.isPro: true`
+   - JWT từ `/api/tts/auth-token` payload có `subscriptionEnabled: true` + `subscriptionPeriodCredits > 0`
+   - `/api/tts/user` quota: `currentUsageMode: 'subscription'`, `subscriptionCreditsRemaining: 100000`, `subscriptionCreditsTotal: 100000`
+
+   Side-effect duy nhất: bundle's topbar chip render TikTok avatar thay vì coin (Pro UX gốc). Fix qua CSS override trong `earlyCss.txt` (force-hide `<img>` + show coin twemoji 1fa99 pseudo-element). Selector dùng `bg-[#D435554D]` (chip's burgundy background) — ổn định qua bundle updates.
+
+   KHÔNG được set isPro=false hoặc currentUsageMode='free' để workaround vấn đề khác — sẽ lock các Pro feature người dùng kỳ vọng.
+
 1. **Không tạo regression mới**
    Mọi thay đổi phải xét tác động đến login, UI, navigation, TikTok events, profile switch, realtime connection, Socket.IO, TTS, Activity Feed, topbar, và Electron boot.
 
@@ -571,6 +597,376 @@ window.aiTts.resolveVoiceConfigFromId('tts_api__ttsm__abc-123')
 ```
 
 **Fix (đã apply):** `tfHandleTtsTikfinityUser` trong blockScript intercept `tts.tikfinity.com/api/tts/user` URL (cả fetch + XHR), trả quota free user 25 messages/day.
+
+### Gate 21: Bundle fixtures stale — sync from gốc TikFinity at startup (2026-05-21)
+
+**Triệu chứng:** "Trình duyệt đồ họa quà tặng" (Gift Browser) chỉ hiện ~1500 items trong khi gốc TikFinity hiện ~3400. User: *"đây là hình gốc tới 3000 mấy lận, bên mình có 1000 mấy à"*.
+
+**Root cause:** [downloads/api/getAllGifts](downloads/api/getAllGifts) là static snapshot tháng 3/2026 chứa 1518 gifts (397KB). [routes/data.js:150](backend-node/src/routes/data.js#L150) chỉ serve raw file → không bao giờ tự refresh. TikTok thêm gifts liên tục, gốc TikFinity sync mới (3386 items, 885KB).
+
+**Fix:** New module [services/bundle-fixtures-sync.js](backend-node/src/services/bundle-fixtures-sync.js):
+- On backend startup, fetch fresh từ `https://tikfinity.zerody.one/api/<endpoint>` (no auth required — public)
+- Validate JSON shape trước khi ghi đè
+- Backup file cũ vào `.bak` (preserve manual `.bak-YYYY-MM-DD`)
+- Fire-and-forget: backend listen NGAY, sync chạy parallel ~2s
+
+```js
+// Wired in backend-node/src/index.js sau server.listen():
+const bundleFixturesSync = require('./services/bundle-fixtures-sync');
+bundleFixturesSync.syncAll(config.FRONTEND_PATH).catch((err) => {
+  logger.error({ err }, '[BOOT] bundle-fixtures-sync uncaught');
+});
+```
+
+**Endpoints verified public (no auth) on gốc as of 2026-05-21:**
+
+| Endpoint                  | Local before | Gốc fresh | Status |
+|---------------------------|--------------|-----------|--------|
+| `/api/getAllGifts`        | 397KB / 1518 | 885KB / 3386 | ✅ synced |
+| `/api/getAllAnimations`   | 43KB         | 32KB      | ✅ synced |
+| `/api/getGlobalTransactions` | 2KB synthetic | 403 (auth) | ❌ skip |
+| `/api/getAppConfig`       | 1.5KB        | 404       | ❌ skip |
+| `/api/getSystemConfig`    | 1.5KB        | 404       | ❌ skip |
+
+**Boot timing (verified):**
+- T+0: backend listening on 5285
+- T+0.5s: sync start
+- T+2.4s: sync complete (getAllAnimations + getAllGifts updated)
+- Bundle calls `/api/getAllGifts` 4× trong 2s đầu — 2 lần đầu nhận old data, từ lần 3 nhận NEW data
+
+**Race condition acceptable:** bundle re-render grid khi nhận response mới. Nếu user mở Gift Browser ngay trong 2s đầu thì có thể thấy 1518 → refresh trang là thấy 3386.
+
+**Anti-patterns đã tránh:**
+
+- ❌ Periodic refresh — User explicitly said "fetch lúc mở lên thôi". Không setInterval, không cron, restart backend để re-fetch.
+- ❌ Await sync trước khi listen — block boot 2s+ tệ UX, race acceptable vì file already exists làm fallback.
+- ❌ Fetch on every `/api/getAllGifts` request — kéo 885KB từ external mỗi lần là tự tử bandwidth + latency. File cache trên disk là đúng pattern.
+- ❌ Validate bằng `JSON.parse(text)` — parse 885KB chỉ để validate là lãng phí. Dùng cheap heuristic `startsWith('[') && /"id":\d+/.test()` đủ.
+- ❌ Direct fetch từ TikTok webcast API — cần auth + region-specific. Proxy qua gốc TikFinity là đúng (họ đã handle auth/region).
+
+**Pattern principle:**
+
+> **Bundle fixtures = "dữ liệu công khai gốc đã có"**. Đối với bất kỳ static file nào dưới `downloads/api/`, kiểm tra: (1) gốc có public endpoint không (curl unauthenticated → 200?); (2) shipped file có outdated không (timestamp + count); (3) bundle có tolerate transient stale data trong vài giây đầu không. Nếu cả 3 ✅ → thêm vào FIXTURES array trong bundle-fixtures-sync. Nếu cần auth (như `getGlobalTransactions`) → giữ local file synthetic, không sync.
+
+**Cách add fixture mới:**
+
+```js
+// services/bundle-fixtures-sync.js — FIXTURES array
+{
+  localPath: 'api/<endpoint>',
+  upstream: '/api/<endpoint>',
+  validate: (text) => /* cheap shape check */,
+}
+```
+
+**Test trước khi commit:**
+
+```bash
+# Test endpoint public không cần auth:
+curl -s -o /tmp/test.json -w "%{http_code} %{size_download}\n" \
+  --max-time 15 -H "User-Agent: Mozilla/5.0" \
+  "https://tikfinity.zerody.one/api/<endpoint>"
+```
+
+---
+
+### Gate 20: Overlay Library page overflow — ROOT CAUSE là `#pages` width, không phải card widths (2026-05-21)
+
+> **Supersedes Gate 19.** Gate 19 mô tả triệu chứng đúng nhưng misdiagnosed nguồn gốc. Cards KHÔNG cần override — bundle đã có rule responsive `width: calc(50% - 16px); min-width: 770px`. Vấn đề thật là `#pages` bị ép `width: 100%` mà bundle lại set `margin-left: 335px` → overflow toàn bộ container 335px, không phải cards.
+
+**Triệu chứng:** Trang "Thư viện lớp phủ" (`data-pageid=obsoverlays`) khi maximize: cards trông bị "lệch", `body.scrollWidth = 2250px` trong khi viewport = 1920px → overflow 330px. Cards bên trong shrink đúng 50% rồi nhưng container đã extend ra ngoài viewport.
+
+**Probe data (DevTools console):**
+```
+innerWidth: 1920, document.documentElement.clientWidth: 1915
+body.scrollWidth: 2250 (vượt viewport 330px)
+.page.pageenabled: x=343, width=1915, right=2258 (lấn 343px = sidebar width)
+.obsOverlayContainer: width=1915, children=28
+.greyBackgroundSection (card): w=948, right=2258 (đúng 50% của 1915, nhưng container đã sai)
+```
+
+**Root cause:** Trong `earlyCss.txt` có rule
+```css
+#navigation-app, #pages { width: 100% !important; max-width: 100vw !important; }
+```
+Bundle đồng thời có rule (verified từ `main.min.css`):
+```css
+body[data-new-navigation-design] #pages { margin-left: 335px; margin-top: 75px; }
+```
+**Cộng dồn:** #pages width 1920px (100vw) + margin-left 335px = right edge tại x=2255 → lấn viewport 335px. Mọi child (`.page.pageenabled`, `.obsOverlayContainer`, cards) đều lấn theo.
+
+**Fix CORE — `backend-node/src/templates/earlyCss.txt`:**
+
+```css
+/* CRITICAL: KHÔNG ép #pages = 100vw. Bundle gives margin-left: 335px,
+   nên 100vw + 335px = overflow đúng 335px. */
+#navigation-app { width: 100% !important; max-width: 100vw !important; }
+#pages {
+  width: auto !important;
+  max-width: calc(100vw - 335px) !important;
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
+}
+```
+
+**Bundle's NATURAL card sizing (KHÔNG override):**
+
+Verified từ `main.min.css` grep:
+```css
+body[data-new-navigation-design] .page[data-pageid=obsoverlays] .obsOverlayContainer .greyBackgroundSection {
+  margin-right: 0;
+  width: calc(50% - 16px) !important;
+  min-width: 770px;
+  box-sizing: border-box;
+}
+```
+Container rule:
+```css
+body[data-new-navigation-design] .page[data-pageid=obsoverlays] .obsOverlayContainer {
+  margin-top: 20px; display: flex; gap: 16px;
+  flex-wrap: wrap; justify-content: flex-start;
+}
+```
+
+Bundle đã responsive sẵn: cards stretch 50% với min-width 770px, wrap khi <1556px. Sau khi fix `#pages` thì:
+- Viewport 1920 → #pages 1585 → cards 50%-16 = 776.5px each (> 770 min ✓)
+- Viewport <1556 → wrap xuống 1 cột (min-width force wrap)
+
+**Anti-patterns đã thử và sai:**
+
+- ❌ Override `width: calc(50% - 10px)` cho cards → off 6px so với bundle's `calc(50% - 16px)` → user complain "lệch"
+- ❌ Force `flex: 0 1 calc(50% - 10px) !important` + `max-width: calc(50% - 10px)` → ép cards stretch ra ngoài design intent
+- ❌ Set `.obsOverlayContainer { gap: 20px }` → bundle dùng 16px, override làm sai spacing
+- ❌ Cho `body { overflow-x: auto }` → tạo scroll bar không đẹp; vấn đề là page width, không phải body
+- ❌ Gate 19's CSS dùng `[class*="grid-cols-2"]` → trang này dùng LEGACY `.obsOverlayContainer` flex, không phải Tailwind grid → fix không apply
+
+**Pattern principle:**
+
+> **Khi thấy overflow ở 1 page cụ thể, đo VIEWPORT vs CONTAINER trước, đừng vội fix cards.** Probe DOM với DevTools script để xem `body.scrollWidth`, `.page.pageenabled.width`, `.page.x`. Nếu page.x > 0 (sidebar margin) AND page.width ≈ 100vw → root cause là PARENT width, không phải children. Bundle thường có responsive logic built-in cho cards/grids — chỉ override khi đo được nó thật sự sai.
+
+**Verification probe (paste vào DevTools console khi đang ở trang lỗi):**
+
+```js
+(function tfProbeOverflow() {
+  const log = [];
+  const p = (msg) => log.push(msg);
+  p('vw=' + window.innerWidth + ' body.scrollWidth=' + document.body.scrollWidth);
+  const page = document.querySelector('.page.pageenabled');
+  if (page) {
+    const r = page.getBoundingClientRect();
+    p('page pageid=' + page.getAttribute('data-pageid') + ' x=' + r.x + ' width=' + r.width + ' right=' + r.right);
+  }
+  // Find elements past viewport right edge
+  const vw = window.innerWidth;
+  let over = [];
+  document.body.querySelectorAll('*').forEach(el => {
+    const r = el.getBoundingClientRect();
+    if (r.right > vw + 5 && r.width > 50 && r.width < 2000) {
+      over.push(el.tagName + '.' + (el.className||'').toString().slice(0,40) + ' w=' + Math.round(r.width) + ' right=' + Math.round(r.right));
+    }
+  });
+  p('elements past right (' + over.length + '):'); over.slice(0,5).forEach(o => p('  ' + o));
+  console.log(log.join('\n'));
+})();
+```
+
+Nếu `page.x = 343, page.width = 1915` → ĐÚNG Gate 20 pattern → fix `#pages`. Nếu `page.width` đã ≤ viewport thì là vấn đề khác.
+
+---
+
+### Gate 19: Layout overflow khi window resize (responsive) [SUPERSEDED by Gate 20]
+
+> ⚠️ **Diagnosed sai root cause.** Vẫn giữ để reference các pattern responsive grid (cho các trang Tailwind grid-cols-*), nhưng cho **overlay library page** dùng Gate 20.
+
+**Triệu chứng:** Khi maximize, các card 2-column (Ghép xu PRO + Hũ đựng tiền xu PRO, etc.) extend ra ngoài viewport. Body scrollWidth (2250px) > viewport (1920px).
+
+**Root cause (sai):** Bundle dùng **LEGACY class `.obsOverlayContainer`** (NOT Tailwind grid-cols-*). Container `display: flex` không wrap. Cards có `min-width: 560px` (cũ) fix-width → 2 cards = ~1900px → overflow.
+
+Cards classes verified từ probe:
+- `.obsOverlayOnPage.greyBackgroundSection.greyBackgroundSectionOverlayFix` (Ghép xu)
+- `.greyBackgroundSection.greyBackgroundSectionOverlayFix` (Hũ đựng tiền xu)
+- `.graphicSection` (legacy)
+
+Anti-pattern (đã từng có):
+- ❌ CSS chỉ target `.graphicSection` → miss `.obsOverlayOnPage` và `.greyBackgroundSection` → fix không apply
+
+**Fix (CSS responsive grid override):**
+
+```css
+/* Override fixed columns với auto-fit + minmax */
+[class*="grid-cols-2"]:not([class*="md:grid-cols-2"]):not([class*="lg:grid-cols-2"]) {
+  grid-template-columns: repeat(auto-fit, minmax(min(450px, 100%), 1fr)) !important;
+}
+[class*="grid-cols-3"]:not([class*="md:grid-cols-3"]):not([class*="lg:grid-cols-3"]) {
+  grid-template-columns: repeat(auto-fit, minmax(min(350px, 100%), 1fr)) !important;
+}
+/* Card grid children không push content ra ngoài */
+div[class*="grid"] > div {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+/* Input + buttons trong card shrink-friendly */
+div[class*="grid"] input[type="text"] {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+```
+
+**Pattern principle:**
+> Bundle's grid layouts thường fixed-columns. Khi cần responsive, override với `auto-fit` + `minmax(min(IDEAL_WIDTH, 100%), 1fr)`. Đặt `min-width: 0` cho grid children để khắc phục flexbox/grid default `min-width: auto` đẩy nội dung ra. Selector loại trừ `:not([class*="md:..."])` / `:not([class*="lg:..."])` để không phá responsive breakpoints bundle đã set sẵn.
+
+**Anti-pattern:**
+- ❌ Đặt `overflow-x: auto` ở body — tạo scroll bar horizontal không đẹp
+- ❌ Set max-width fixed (e.g., `max-width: 1200px`) — bị white space ở screens lớn
+
+### Gate 18: Pro credit chip — bg color khác Free + image src vẫn TikTok avatar
+
+**Triệu chứng (v1):** Chip hiện "0" → fixed via `tfForceProCredits` (Gate 17).
+**Triệu chứng (v2):** Chip hiện đúng "100k" (bundle native compact) NHƯNG image vẫn là TikTok avatar (Pro-mode bg `#FFB54D14`, không phải `#D435554D` free-mode cũ).
+
+**Root cause:** Bundle dùng 2 bg colors cho chip:
+- Free tier (`subscriptionEnabled: false`): `bg-[#D435554D]` (burgundy)
+- Pro tier (`subscriptionEnabled: true`): `bg-[#FFB54D14]` (yellow/amber)
+
+CSS rule cũ chỉ match burgundy → miss khi user Pro → tiktokcdn img leak qua.
+
+**Bundle's NATIVE behavior for Pro chip:**
+- Compact format "100k" — bundle TỰ format khi `proCredits ≥ 1000` (KHÔNG cần CSS pseudo override)
+- title attr = "100,000" (locale-formatted with comma) — bundle dùng `Intl.NumberFormat()` cho title
+- image = TikTok user avatar (BUG bundle — should be coin icon)
+
+**Fix đúng (multi-selector CSS):**
+
+Target CẢ 2 bg colors trong CSS rule:
+
+```css
+div[class*="bg-[#D435554D]"] > div.flex.items-center > img[src*="tiktokcdn"],
+div[class*="bg-[#FFB54D14]"] > div.flex.items-center > img[src*="tiktokcdn"] {
+  display: none !important;
+}
+div[class*="bg-[#D435554D]"] > div.flex.items-center::before,
+div[class*="bg-[#FFB54D14]"] > div.flex.items-center::before {
+  content: '';
+  background-image: url('/twemoji/svg/1fa99.svg');
+  /* ... */
+}
+```
+
+**Principle (extend Section 1.00):**
+> Khi bundle dùng nhiều bg colors cho variants (Free vs Pro, Light vs Dark, etc.), CSS rule phải LIST hết bg colors (comma-separated selectors). Không assume một color duy nhất sẽ cover mọi state. Bundle update có thể đổi bg → grep lại tất cả `bg-[#...]` colors xuất hiện trong chip's outerHTML.
+
+### Gate 17: Pro credit chip render "0" dù `/api/me` trả `ttsProCredits: 100000`
+
+**Triệu chứng:** Topbar coin chip hiển thị "0" cho user Pro (isPro=true, ttsProCredits=100k ở /api/me). Popover còn show "Đã dùng 100k trong tổng 100k".
+
+**Root cause:** Bundle's chip Vue component đọc credits từ **Pinia store** (mảng state riêng), KHÔNG đọc trực tiếp từ `tfPageloadData.me.channel.ttsProCredits`. Pinia store init với default 0, chỉ update từ `/api/tts/user` fetch response (cross-origin call). Trước khi user trigger AI voice flow → fetch không fire → Pinia ở 0 → chip "0".
+
+**Anti-pattern (KHÔNG làm):**
+1. ❌ Trông chờ Pinia auto-sync từ `tfPageloadData.me.channel.*` — bundle không làm vậy
+2. ❌ Set `ttsProCredits` ở /api/me thôi — chip không read từ đây
+
+**Fix đúng (blockScript IIFE `tfForceProCredits`):**
+
+1. Mỗi 2s, walk **mọi Pinia stores** của mọi Vue apps mounted (`document.querySelectorAll('[data-v-app]')`).
+2. Cho mỗi store state, force-set TẤT CẢ field credit/quota về Pro full value (nếu field exist):
+   - `proCredits`, `proCreditsMax`, `subscriptionCreditsRemaining`, `subscriptionCreditsTotal`, `lastKnownAiCreditsTotal` → 100000
+   - `freeMessages`, `freeMessagesMax`, `freeRequestsRemaining`, `freeRequestsTotal` → 25
+   - `topUpCredits`, `purchasedCreditsRemaining` → 0
+   - `aiCreditsBlocked` → false
+   - `trialBannerDismissed` → true
+3. Vue reactive re-renders → chip update tự nhiên.
+
+**Pattern principle:**
+> Khi bundle dùng Pinia store với state riêng (không sync từ tfPageloadData), force-set tất cả credit/quota fields đã biết tên qua periodic Pinia patcher. Liệt kê fields trong CLAUDE.md để future bundle update có thể extend.
+
+### Gate 16: Bundle render LIVE label hardcoded inline + avatar hide khi disconnected
+
+**Triệu chứng (initial):** Bundle render "LIVE" trong topbar dropdown dù `account.isLive: false`.
+
+**Triệu chứng (regression v1 — DOM text mutation approach):** Label flicker giật giật giữa "LIVE" và "Disconnected" — observer/Vue fight nhau re-render.
+
+**Root cause:** Bundle's Vue render function cho user dropdown component (`data-v-41c476b8`) hardcode "LIVE" string làm text content (obfuscated string table, 1 occurrence). Không phải i18n key. Vue re-render component periodic → đè lên DOM text mutation của tôi → flicker.
+
+**Anti-pattern (KHÔNG làm):**
+1. ❌ MutationObserver replace `span.textContent` mỗi mutation — fight Vue → flicker
+2. ❌ Tìm và patch bundle's render function — obfuscated, blast radius khó kiểm soát
+3. ❌ Set `connected: false` ở backend — break chat event subscription
+
+**Fix đúng (attribute + CSS pattern):**
+
+1. **blockScript IIFE `tfPatchLiveBadge`:**
+   - Poll `/api/tiktok/status` mỗi 5s
+   - Set `<html data-tf-live-state="live|disconnected">` dựa trên `account.isLive`
+   - **KHÔNG touch DOM text** — chỉ set attribute (Vue không touch attribute này)
+   - Default `disconnected` trước khi poll đầu tiên (tránh flash LIVE)
+
+2. **earlyCss.txt CSS rules** (CSS chạy tự nhiên, không fight Vue):
+   ```css
+   html[data-tf-live-state="disconnected"] div.flex.flex-col > span.text-xs {
+     font-size: 0 !important;
+     color: transparent !important;
+   }
+   html[data-tf-live-state="disconnected"] div.flex.flex-col > span.text-xs::before {
+     content: 'Disconnected';
+     font-size: 0.75rem;
+     color: rgb(239, 63, 98) !important;
+   }
+   /* Hide TikTok avatar khi disconnected (user request: không load avt khi disconnected) */
+   html[data-tf-live-state="disconnected"] .profile-avatar-wrap img {
+     display: none !important;
+   }
+   html[data-tf-live-state="disconnected"] .profile-avatar-wrap {
+     background-image: url('/img/nothumb.webp');
+     background-size: cover;
+     border-radius: 50%;
+   }
+   ```
+
+**Pattern principle (Đăng ký vào skill):**
+> Khi bundle hardcode text/style obfuscated và Vue re-render đè:
+> 1. Set state qua `data-*` attribute trên `<html>` (Vue không touch)
+> 2. Render visual khác qua CSS rule (`font-size: 0` + `::before content`)
+> 3. KHÔNG dùng MutationObserver replace text — fight Vue → flicker
+> 4. Default state trước khi poll đầu (tránh flash sai state)
+
+**Khi nào KHÔNG dùng pattern này:** Nếu bundle text cần dynamic value (vd "100 viewers"), pattern CSS `::before content` không support dynamic value qua CSS — phải fall back sang JS replacement với throttle ≥ 100ms.
+
+### Gate 15: "LIVE" badge under user avatar luôn hiển thị dù không broadcasting
+
+**Triệu chứng:** User avatar trong topbar có badge "LIVE" màu xanh dù user không đang live streaming. Confusing UX.
+
+**Root cause:** `tiktok-bridge.js` `accountSnapshot()` set `isLive: !!_state.connected` — chỉ check session connection, không check broadcasting state. Bundle reads `account.isLive` cho LIVE badge → badge sáng khi session connected.
+
+**Fix (đã apply):** Đổi điều kiện thành `!!(_state.connected && _state.roomId)`. LIVE badge chỉ sáng khi:
+1. TikTok bridge có session active
+2. AND bridge đã detect 1 live room (roomId không null)
+
+`_state.connected` đứng riêng vẫn `true` khi user account connected — các flow khác (event subscription, chat input enable) không bị ảnh hưởng.
+
+### Gate 14: `/api/tts/user` response `currentUsageMode='subscription'` trigger `settings.restore()` reload loop
+
+**Triệu chứng:** Sau khi mock trả `currentUsageMode:'subscription'` + `subscriptionCreditsRemaining:100000` cho Pro look, app crash reload liên tục. Stack: `Object.restore` ở app.js → XHR success callback → `location.reload()` → reload-guard window=5/8 → loop.
+
+**Root cause (suspect):** Bundle's Pro-mode code path validates token/credentials chặt hơn. Nếu `ttsAuthToken` không phải real JWT (mock dùng plain string `"tf-local-ai-token"`) → bundle nghi credentials mismatch → trigger settings.restore() → reload.
+
+**Fix tạm (đã apply):** Revert `/api/tts/user` mock về `currentUsageMode:'free'`. Chip render gold coin + 25 free messages (matches gốc free-tier visual). Pro features vẫn unlocked qua Serial Key — chỉ chip topbar look free.
+
+**Future:** Nếu cần Pro mode cosmetic, mint real JWT cho `ttsAuthToken` (encode userId + expiry + signed). Cũng cần verify bundle's Pro validation path không có gate khác.
+
+### Gate 13: `/config/localization/<lang>.json` 404 → reload loop khi user chuyển locale
+
+**Triệu chứng:** User chọn locale lạ (vd Japanese) qua profile dropdown → app đen / reload-guard KILL SWITCH window=8/8 → console error `Uncaught (in promise) Error while loading translation for ja, [object Object]`.
+
+**Root cause:** Bundle fetch `/config/localization/<lang>.json` (root path, không qua `/api/` prefix) khi user switch language. Nếu 404 → bundle's loader throw → Vue crash → location.reload() → reload-guard chặn → app stuck đen.
+
+**Fix (đã apply):** Route `GET /config/localization/:lang.json` trong `backend-node/src/index.js`:
+- Lang trong `{vi, en, de, es}` → parse và return baked `tfPageloadData.localization.<lang>` từ HTML file tương ứng
+- Lang khác (ja/ko/zh/...) → fallback return EN baseline → UI render English labels thay vì raw keys
+
+**KHÔNG return empty `{}`** — bundle's i18n loader sẽ thay tất cả label bằng raw key (`nav.search`, `menu_start`, `start_connect_button`, ...) → UI broken.
+
+**Phòng ngừa:** Project chỉ focus VN + EN. Các locale khác auto-fallback. User reset locale qua profile dropdown.
 
 ### Voice picker loader sequence (xác nhận từ Network tab gốc)
 

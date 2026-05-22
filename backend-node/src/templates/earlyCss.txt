@@ -52,7 +52,21 @@
      page can be short (just Welcome text) and a forced viewport-height
      leaves a black gap between topbar and Welcome footer. Let content
      flow naturally. */
-  #navigation-app, #pages { width: 100% !important; max-width: 100vw !important; }
+  /* CRITICAL: do NOT force #pages width to 100vw — bundle gives #pages a
+     `margin-left: 335px` (sidebar). With width: 100vw + margin-left: 335px,
+     #pages right edge = 100vw + 335px = OVERFLOW by sidebar width. Verified
+     via runtime probe on Overlay Library page (pageid=obsoverlays):
+       page.x = 343, page.width = 1915, body.scrollWidth = 2250
+     i.e. the page extends 343px past the viewport. Let #pages keep its
+     auto-width (= viewport - 335px margin). #navigation-app stays at 100vw
+     because it's the topbar (positioned, no margin). */
+  #navigation-app { width: 100% !important; max-width: 100vw !important; }
+  #pages {
+    width: auto !important;
+    max-width: calc(100vw - 335px) !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
   /* Some bundle pages (Overlays gallery, Goals) put two wide cards side
      by side that overflow the viewport on narrower windows. Confine
      horizontal scroll to the inner page container so the body stays
@@ -71,43 +85,34 @@
      page-level `overflow-x: auto` we set above lets the user scroll. */
 
   /* === Overlay Gallery layout =============================================
-     Bundle ships cards with `width: 780px` + `zoom: 0.9` curve so at HD
-     viewport, 2 zoomed cards (702px each) fit the content area after
-     sidebar + sub-sidebar. Without zoom (which breaks on resize), the raw
-     780px cards × 2 + gap = 1580px overflow the ~1420px content area at
-     maximized 1920px window → right card gets clipped, buttons unreachable.
-     Fix: use `flex: 1 1 <basis>` so cards STRETCH to fill container at
-     wide widths AND wrap cleanly to 1 column when basis can't fit twice.
-     `width: auto !important` overrides bundle's 780px so flex sizing
-     drives card width instead. */
+     Match gốc bundle exactly. Verified from main.min.css:
+       body[data-new-navigation-design] .page[data-pageid=obsoverlays] .obsOverlayContainer {
+         margin-top: 20px; display: flex; gap: 16px;
+         flex-wrap: wrap; justify-content: flex-start;
+       }
+       .graphicSection { width: 730px }
+       .compactPathBox { width: 315px !important }
+     Two graphicSection cards + 16px gap = 1476px → fits content area
+     1585px (viewport 1920 − sidebar 335) with 109px breathing room on
+     right. Cards left-align (flex-start) — gốc behavior. The overflow
+     issue we fixed earlier was the #pages root cause (forced to 100vw
+     + margin-left 335px → extended past viewport). With that fixed,
+     bundle's natural fixed widths work correctly. DO NOT override card
+     widths here — overrides made cards STRETCH to 50% of container,
+     which doesn't match gốc and looks "lệch" (off). */
   .obsOverlayContainer {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    gap: 20px !important;
     zoom: 1 !important;                   /* nuke bundle's broken zoom curve */
     max-width: 100% !important;
-    justify-content: flex-start !important;
-    align-items: flex-start !important;
-    align-content: flex-start !important;
   }
-  /* `flex: 0 1 calc(50% - 10px)` = each card wants exactly half the row
-     (minus half the 20px gap) — DOES NOT grow beyond that. `min-width: 560px`
-     forces wrap when the per-card half drops below 560px. This guarantees:
-       - container <  1140px → 1 column (min-width forces wrap, card 100%)
-       - container >= 1140px → 2 columns (each ≈ half, no overflow)
-       - container >= 1700px → 3 columns (wide monitors get more)
-     Critical change from the prior `flex: 1 1 720px`: removing flex-grow
-     prevents cards from inflating past their half-share and overflowing
-     the right edge — which broke once the sub-sidebar started occupying
-     256px on the left, leaving the content area narrower than the old
-     basis assumed. `calc(50% - 10px)` adapts automatically to whatever
-     space the container has, so the rule stays correct regardless of
-     sidebar visibility. */
-  .obsOverlayContainer > .graphicSection {
-    flex: 0 1 calc(50% - 10px) !important;
-    width: auto !important;
-    min-width: 560px !important;
+  /* Page container — let `.page.pageenabled` fit parent (#pages) naturally.
+     #pages itself is now capped via `max-width: calc(100vw - 335px)`
+     above, so the page inherits the correct available width. */
+  .page, .pageenabled, .page.pageenabled {
     max-width: 100% !important;
+    width: auto !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
   }
 
   /* === GUEST STATE (tf-logged-out) === */
@@ -228,17 +233,201 @@
   }
 
   /* TTS Logs panel — bundle ships <pre id="ttsLogs"> with inline
-     `position: absolute; max-width: 400px;`. With many log entries the
-     pre grows unbounded vertically and overflows the bounding card.
-     Cap height + add internal scroll so entries stay inside the panel.
-     Also break long single lines so they don't push max-width out. */
+     `position: absolute; max-width: 400px;`. The absolute positioning
+     takes the pre OUT of the parent flow, so its overflow isn't bound by
+     parent's height. Tall log lists then render outside the bounding card.
+
+     Verified parent structure (from gốc HTML capture):
+       <div id="ttsVoiceTesterArea" style="height: 310px;">
+         <h4>Voice Tester</h4>
+         <input id="textboxTtsTest">
+         <div id="buttonTtsTest">Play</div>
+         <h4>TTS Logs</h4>
+         <pre id="ttsLogs" style="position: absolute; max-width: 400px;">...</pre>
+       </div>
+
+     Fix:
+     1. Force <pre> position: static so it flows inside parent (override
+        the bundle's inline position:absolute via !important).
+     2. Cap pre's height + add scroll for many entries.
+     3. Make parent #ttsVoiceTesterArea position:relative (gives the pre a
+        proper containing block if any descendant uses absolute positioning).
+     4. Allow parent to expand a bit beyond bundle's 310px since pre now
+        flows below the input + Play button. */
+  /* Responsive layout for 2-card side-by-side panels (Overlay library,
+     Goals page, etc.). Bundle may use grid OR flex — cover both:
+     1. Grid columns: override fixed grid-cols-* to auto-fit with min-width
+     2. Flex containers: allow wrap when narrow */
+
+  /* Grid variant */
+  [class*="grid-cols-2"]:not([class*="md:grid-cols-2"]):not([class*="lg:grid-cols-2"]) {
+    grid-template-columns: repeat(auto-fit, minmax(min(450px, 100%), 1fr)) !important;
+  }
+  [class*="grid-cols-3"]:not([class*="md:grid-cols-3"]):not([class*="lg:grid-cols-3"]) {
+    grid-template-columns: repeat(auto-fit, minmax(min(350px, 100%), 1fr)) !important;
+  }
+
+  /* Flex variant — bundle uses Tailwind `flex` with explicit gap; cards
+     don't wrap by default. Force flex-wrap so cards stack when narrow. */
+  div.flex.gap-4:not([class*="flex-col"]),
+  div.flex.gap-6:not([class*="flex-col"]),
+  div.flex.gap-8:not([class*="flex-col"]) {
+    flex-wrap: wrap !important;
+  }
+  /* Direct child cards of wrapped flex parents — give them flex basis so
+     they fill width when stacked, half-width when 2 fit. */
+  div.flex.gap-4:not([class*="flex-col"]) > div,
+  div.flex.gap-6:not([class*="flex-col"]) > div,
+  div.flex.gap-8:not([class*="flex-col"]) > div {
+    flex: 1 1 min(450px, 100%) !important;
+    min-width: 0 !important;
+  }
+
+  /* All grid/flex children: prevent inner content from pushing out */
+  div[class*="grid"] > div,
+  div.flex.gap-4 > div,
+  div.flex.gap-6 > div,
+  div.flex.gap-8 > div {
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+  /* Input + URL field shrinks instead of overflowing */
+  div[class*="grid"] input[type="text"],
+  div.flex input[type="text"] {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
   #ttsLogs {
-    max-height: 320px !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
+    position: static !important;
+    max-width: 100% !important;
+    max-height: 200px !important;
+    overflow: hidden !important;  /* hide scroll bar — old entries clipped */
     white-space: pre-wrap !important;
     word-break: break-word !important;
     font-size: 12px !important;
     line-height: 1.4 !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
   }
+  #ttsVoiceTesterArea {
+    position: relative !important;
+    height: auto !important;
+    min-height: 310px !important;
+    overflow: hidden !important;
+  }
+
+  /* Topbar credit chip — match gốc visual exactly.
+     Bundle decides chip variant from subscriptionEnabled:
+       - Free tier:   bg-[#D435554D] (burgundy)
+       - Pro tier:    bg-[#FFB54D14] (yellow/amber)
+     User wants gốc-identical look = ALWAYS burgundy. Clone is ALL-PRO
+     internally (features unlocked via Serial Key) but visually should
+     match free-tier gốc appearance. Override Pro yellow → burgundy via
+     CSS so chip color matches gốc regardless of subscription state.
+     Also hide TikTok avatar bleed-through + render credit.png coin icon
+     from gốc CDN (identical to free-tier gốc screenshot). */
+  /* Topbar credit chip — match gốc Pro visual exactly.
+     Per gốc screenshot capture: BOTH free + Pro tier chips use burgundy bg
+     (`bg-[#D435554D]`). Only the popover bar INSIDE uses Pro yellow color.
+     - Chip outer bg: burgundy (both modes)
+     - Popover bar fill/progress: yellow (Pro indicator, design-native)
+     Hide TikTok avatar bleed-through + render coin icon via ::before. */
+
+  /* Hide TikTok avatar inside chip (covers both burgundy + yellow bg
+     variants in case bundle differs across modes) */
+  div[class*="bg-[#D435554D]"] > div.flex.items-center > img[src*="tiktokcdn"],
+  div[class*="bg-[#FFB54D14]"] > div.flex.items-center > img[src*="tiktokcdn"] {
+    display: none !important;
+  }
+  /* Coin icon via ::before pseudo — only render WHEN chip's natural img
+     is TikTok avatar (which we hide). When bundle renders credit.png
+     natively (correct icon), don't add a duplicate coin. Use :has() to
+     scope the ::before only to chips containing a hidden TikTok avatar.
+     Without this, initial bundle render with credit.png + our ::before
+     causes "2 coin images" stacked side-by-side until Pinia state forces
+     bundle re-render. */
+  div[class*="bg-[#D435554D]"]:has(> div.flex.items-center > img[src*="tiktokcdn"]) > div.flex.items-center::before,
+  div[class*="bg-[#FFB54D14]"]:has(> div.flex.items-center > img[src*="tiktokcdn"]) > div.flex.items-center::before {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    background-image: url('https://tikfinity-assets.b-cdn.net/icons/credit.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    flex-shrink: 0;
+  }
+
+  /* LIVE/Disconnected badge under user avatar (topbar dropdown).
+     The blockScript IIFE `tfPatchLiveBadge` polls /api/tiktok/status every
+     5s and sets `data-tf-live-state="live"` or `"disconnected"` on <html>
+     based on `account.isLive` (strict: connected && roomId && status===2).
+     CSS rules below visually transform the badge based on the attribute —
+     no DOM text mutation, no MutationObserver, no Vue fight, no flicker.
+
+     - When disconnected:
+         * Hide the original "LIVE" text via 0-width font-size + visibility
+         * Render "Disconnected" via ::before in red
+         * Also hide the user avatar IMG (user requested: no avatar load
+           when disconnected) — replaced with a generic silhouette via CSS
+     - When live (default Vue render): badge stays as bundle drew it
+     Selector matches the badge by its sibling structure (sits inside a
+     `.flex.flex-col` next to a `.text-sm` username span) so we don't
+     depend on data-v scope IDs which change between bundle builds. */
+  html[data-tf-live-state="disconnected"] div.flex.flex-col > span.text-xs {
+    font-size: 0 !important;
+    color: transparent !important;
+    line-height: normal !important;
+  }
+  html[data-tf-live-state="disconnected"] div.flex.flex-col > span.text-xs::before {
+    content: 'Disconnected';
+    font-size: 0.75rem; /* tailwind text-xs */
+    color: rgb(239, 63, 98) !important;
+    display: inline;
+  }
+  /* Hide ALL TikTok-CDN avatars when disconnected — bundle caches them
+     in two topbar locations:
+       1. User-profile dropdown (right) — `.profile-avatar-wrap`
+       2. Stream Profile dropdown (left) — `.rounded-full.bg-white/6.size-8`
+     Both keep showing the TikTok user pic even after disconnect, which is
+     misleading. Hide any <img> whose src points at TikTok's CDN; bundle's
+     legitimate twemoji icons (🌹 rose for default Stream Profile) come from
+     `/twemoji/svg/...` so they keep rendering. */
+  html[data-tf-live-state="disconnected"] img[src*="tiktokcdn"] {
+    display: none !important;
+  }
+  /* Stream Profile dropdown (left side of topbar) — bundle ALWAYS swaps
+     the icon for the connected TikTok user's avatar, even though this
+     dropdown logically represents the Stream Profile's own icon (rose 🌹,
+     fire 🔥, etc.). User explicitly requested: TikTok avatar ONLY in the
+     user-profile dropdown (right), NOT here. Hide tiktokcdn images in this
+     specific wrapper AND fill with rose twemoji as background so it isn't
+     an empty grey circle (matches Profile 1's default rose icon — user has
+     only Profile 1 active per their setup). */
+  div.rounded-full.bg-white\/6.size-8 img[src*="tiktokcdn"] {
+    display: none !important;
+  }
+  div.rounded-full.bg-white\/6.size-8:has(img[src*="tiktokcdn"]) {
+    background-image: url('/twemoji/svg/1f339.svg');
+    background-size: 16px 16px;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+  /* For the user-profile avatar specifically, also paint a neutral fallback
+     in the empty wrap so it doesn't collapse to an empty circle. */
+  html[data-tf-live-state="disconnected"] .profile-avatar-wrap {
+    background-image: url('/img/nothumb.webp');
+    background-size: cover;
+    background-position: center;
+    background-color: rgba(255,255,255,0.1);
+    border-radius: 50%;
+  }
+  /* Note: Stream Profile dropdown wrapper already gets rose 🌹 background
+     via the wrapper rule below (line ~270). Don't add a disconnected-only
+     gradient here — it would override the rose with higher CSS specificity
+     (extra html[data-*] selector), leaving an empty grey circle. */
+
 </style>

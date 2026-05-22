@@ -103,5 +103,12 @@
   "languages_fi": "Suomi",
   "languages_tr": "Türkçe",
   "languages_ro": "Română",
-  "languages_is": "Íslenska"
+  "languages_is": "Íslenska",
+  "Widget": "Tiện ích",
+  "Setting": "Cài đặt",
+  "Modal": "Cửa sổ",
+  "Counter": "Bộ đếm",
+  "Dock": "Dock",
+  "Commands": "Lệnh",
+  "Song Requests": "Yêu cầu bài hát"
 }

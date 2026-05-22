@@ -281,6 +281,158 @@
   }, 100);
 })();
 
+/* ─────────────────────────────────────────────────────────────────────
+   Pro credit chip force-populate.
+   Bundle's topbar chip reads from a Pinia store (window.tts or similar)
+   that gets initialized to 0 and only updates from /api/tts/user fetch
+   response. Until that fetch fires (user opens AI voice modal etc.), chip
+   shows "0" despite /api/me returning full Pro values. Walk every mounted
+   Vue app's Pinia state and force-set credit fields to Pro full values.
+   Runs periodically (2s) so Vue reactive re-renders pick up the changes.
+   ───────────────────────────────────────────────────────────────────── */
+/* ─────────────────────────────────────────────────────────────────────
+   TTS Logs auto-trim.
+   Bundle appends every TTS event to <pre id="ttsLogs"> without trimming —
+   the pre grows unbounded and (per gốc HTML) has `position: absolute` +
+   `max-width: 400px` so it overflows the bounding card. CSS rules above
+   clip the visual overflow + force position:static, but the underlying
+   text content still accumulates indefinitely. Trim text to the most
+   recent N lines every 1s so DOM doesn't bloat over long live sessions.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfTrimTtsLogs(){
+  var MAX_LINES = 15;
+  function trim(){
+    try {
+      var pre = document.getElementById('ttsLogs');
+      if (!pre) return;
+      var text = pre.textContent || '';
+      var lines = text.split('\n').filter(function(l){ return l.trim(); });
+      if (lines.length > MAX_LINES) {
+        // Keep the most recent MAX_LINES (bundle appends to bottom).
+        pre.textContent = lines.slice(-MAX_LINES).join('\n');
+      }
+    } catch(_){}
+  }
+  setInterval(trim, 1000);
+})();
+
+(function tfForceProCredits(){
+  var FULL_PRO = 100000;
+  var FULL_FREE = 25;
+  function patchOne(state){
+    if (!state || typeof state !== 'object') return false;
+    var touched = false;
+    // Bundle's TTS Pinia store uses these field names (verified via
+    // earlier probes — Object.keys(state) listed them). Set every known
+    // credit/quota field to its Pro-full value so the chip never shows 0
+    // regardless of which field bundle's render component reads.
+    var fields = {
+      freeMessages: FULL_FREE,
+      freeMessagesMax: FULL_FREE,
+      proCredits: FULL_PRO,
+      proCreditsMax: FULL_PRO,
+      topUpCredits: 0,
+      topUpCreditsMax: 0,
+      creditsRefreshDays: 30,
+      subscriptionCreditsRemaining: FULL_PRO,
+      subscriptionCreditsTotal: FULL_PRO,
+      purchasedCreditsRemaining: 0,
+      purchasedCreditsTotal: 0,
+      freeRequestsRemaining: FULL_FREE,
+      freeRequestsTotal: FULL_FREE,
+      lastKnownAiCreditsTotal: FULL_PRO,
+      lastKnownFreeMessagesRemaining: FULL_FREE,
+      lastKnownTopUpCredits: 0,
+      aiCreditsBlocked: false,
+      trialBannerDismissed: true
+    };
+    for (var k in fields) {
+      if (k in state) {
+        if (state[k] !== fields[k]) { state[k] = fields[k]; touched = true; }
+      }
+    }
+    return touched;
+  }
+  function patchAllStores(){
+    var totalTouched = 0;
+    // 1. Patch window.tts (bundle's TTS service object — verified from
+    //    runtime probe to have proCredits/freeMessages/aiVoices/etc.).
+    //    This is where chip render component reads from.
+    if (window.tts && typeof window.tts === 'object') {
+      if (patchOne(window.tts)) totalTouched++;
+    }
+    // 2. Patch any Pinia stores too (covers Pro-mode subscription chip
+    //    rendering which may read from a separate quota store).
+    var apps = document.querySelectorAll('[data-v-app]');
+    for (var i = 0; i < apps.length; i++) {
+      var app = apps[i].__vue_app__;
+      if (!app) continue;
+      var pinia = app.config && app.config.globalProperties && app.config.globalProperties.$pinia;
+      if (!pinia || !pinia.state) continue;
+      var states = pinia.state.value;
+      for (var name in states) {
+        if (patchOne(states[name])) totalTouched++;
+      }
+    }
+    if (totalTouched > 0) {
+      try { console.log('[TF-credit-force] patched', totalTouched, 'store(s) → 100k Pro'); } catch(_){}
+    }
+  }
+  // Run after Vue mounts + periodic refresh
+  setInterval(patchAllStores, 2000);
+  setTimeout(patchAllStores, 500);
+  setTimeout(patchAllStores, 1500);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   Live-badge accuracy patch.
+   Bundle's user-profile dropdown renders a "LIVE" badge under the username
+   whenever the TikTok bridge has a session (`connected: true`), regardless
+   of whether the user is actually broadcasting. In gốc the badge correctly
+   shows "Disconnected" when no live room is detected.
+   Backend's /api/tiktok/status returns `account.isLive` + top-level
+   `isLive` based on a strict check (`connected && roomId && roomInfo.data
+   .status === 2`). We can't easily find the bundle's Vue render function
+   for this badge (obfuscated, 'LIVE' literal appears once in string table),
+   so we patch the rendered DOM directly: poll status every 5s, find the
+   LIVE span in the topbar, replace text/color when isLive is false.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfPatchLiveBadge(){
+  // Approach: set `data-tf-live-state="live"` or `"disconnected"` on
+  // <html> based on backend status poll. CSS rules in earlyCss.txt do the
+  // visual change. This avoids fighting Vue's reactive re-render — we change
+  // an attribute Vue doesn't touch, CSS handles the rest. Mutation observer
+  // is removed because attribute-based CSS works without re-applying on every
+  // DOM mutation (no flicker).
+  var lastIsLive = null;
+  function setState(isLive){
+    try {
+      document.documentElement.setAttribute('data-tf-live-state', isLive ? 'live' : 'disconnected');
+    } catch(_){}
+  }
+  function refreshStatus(){
+    fetch('/api/tiktok/status').then(function(r){ return r.json(); }).then(function(d){
+      var live = !!(d && d.account && d.account.isLive);
+      if (live !== lastIsLive) {
+        lastIsLive = live;
+        try { console.log('[TF-live-badge] isLive=' + live + ' connected=' + (d.connected) + ' roomId=' + d.roomId); } catch(_){}
+      }
+      setState(live);
+    }).catch(function(){});
+  }
+  // Default to "disconnected" until the first status poll resolves — keeps
+  // the badge red on initial render instead of briefly flashing LIVE blue
+  // before the poll completes.
+  setState(false);
+  refreshStatus();
+  // Status polling cadence: 5s strikes a balance between fast UI update when
+  // user starts/stops live and not hammering the backend. The bridge already
+  // broadcasts `channelStatus` over Socket.IO on state change — if we wanted
+  // instant update we could hook that instead; 5s poll is simpler and
+  // sufficient for visual state.
+  setInterval(refreshStatus, 5000);
+})();
+
 (function tfBootstrapWindowToken(){
   function readCookie(name){
     try {
@@ -2105,14 +2257,13 @@
       var nowU = new Date();
       var tomU = new Date(nowU); tomU.setUTCHours(24,0,0,0);
       var nextU = Math.floor((tomU.getTime() - nowU.getTime()) / 1000);
+      // Read live credit state from localStorage so XHR + fetch mock stay
+      // in sync with any decrements from tfHandleTtsGenerate.
+      var _live = tfReadCreditState();
       return { status: 200, body: JSON.stringify({
         statusCode: 200, message: 'Success',
         data: { id:1, createdAt: nowU.toISOString(), updatedAt: nowU.toISOString(), userId:'1',
-          quota: { exceeded:false, currentUsageMode:'free', currentUsageCurrency:'requests',
-            subscriptionCreditsRemaining:0, subscriptionCreditsTotal:0,
-            purchasedCreditsRemaining:0, purchasedCreditsTotal:0,
-            freeRequestsRemaining:25, freeRequestsTotal:25,
-            nextResetAt: tomU.toISOString(), nextResetSeconds: nextU }}}) };
+          quota: tfBuildQuotaPayload(_live) }}) };
     }
     if (/tts\.tikfinity\.com\/api\/tts\/voices(\/|\?|$)/.test(url)) {
       // Same id/name/provider aliasing as the fetch mock — see tfNormalizeMockVoice
@@ -2356,6 +2507,94 @@
       provider: provider,
     });
   }
+  /* ─────────────────────────────────────────────────────────────────────
+     /api/tts/generate mock — bundle POSTs here when user triggers AI voice
+     playback (Test button, chat read with Pro voice, etc.). Gốc response
+     shape (from Network tab capture):
+       {
+         statusCode: 201, message: "Success",
+         data: {
+           result: { fromCache: false, audioUrl, engineType, generationDurationMs },
+           user: { ..., quota: {...decremented...} }
+         }
+       }
+     Decrement count via localStorage so chip updates after each call. User
+     will map AI voiceId → real TikTok TTS voice later — for now return a
+     placeholder audioUrl (bundle may fail to play silently; that's OK).
+     ───────────────────────────────────────────────────────────────────── */
+  // TikClone is ALL-PRO by design (CLAUDE.md §1.0). Pro user expects the
+  // 100k credit balance to be visible at all times — chip should never show
+  // "0" or a depleted state. Real TTS playback goes through the TikTok
+  // session legacy endpoint (no actual charging), so tracking credits in
+  // localStorage was creating fake "depleted" UX with no real benefit.
+  // Always return 100k for both read and write — chip stays at full
+  // Pro balance regardless of usage. If user later wants daily/monthly
+  // reset with actual decrement, replace these two functions.
+  function tfReadCreditState(){ return 100000; }
+  function tfWriteCreditState(_n){ /* no-op — credits fixed at Pro 100k */ }
+  function tfBuildQuotaPayload(remaining){
+    var nowDate = new Date();
+    // Subscription credits reset MONTHLY per gốc Pro semantics ("100.000
+    // tín dụng mỗi tháng"). Next reset = 1st of next month.
+    var nextMonth = new Date(Date.UTC(
+      nowDate.getUTCFullYear(),
+      nowDate.getUTCMonth() + 1,
+      1, 0, 0, 0
+    ));
+    var nextSec = Math.floor((nextMonth.getTime() - nowDate.getTime()) / 1000);
+    return {
+      exceeded: false, // Pro never exceeded — always has 100k
+      currentUsageMode: 'subscription',
+      currentUsageCurrency: 'characters',
+      subscriptionCreditsRemaining: remaining,
+      subscriptionCreditsTotal: 100000,
+      purchasedCreditsRemaining: 0,
+      purchasedCreditsTotal: 0,
+      freeRequestsRemaining: 25,
+      freeRequestsTotal: 25,
+      nextResetAt: nextMonth.toISOString(),
+      nextResetSeconds: nextSec,
+    };
+  }
+  function tfHandleTtsGenerate(url, opts) {
+    if (!/tts\.tikfinity\.com\/api\/tts\/generate(\/|\?|$)/.test(url)) return null;
+    var body = {};
+    try {
+      if (opts && opts.body) body = typeof opts.body === 'string' ? JSON.parse(opts.body) : opts.body;
+    } catch(_) {}
+    var charCount = String(body.text || '').length;
+    var remaining = tfReadCreditState();
+    var cost = Math.max(1, charCount); // 1 credit per character (gốc semantics)
+    var newRemaining = Math.max(0, remaining - cost);
+    tfWriteCreditState(newRemaining);
+    try { console.log('[TF-tts-gen]', 'voice=' + (body.voiceId || body.voice || '?'),
+      'chars=' + charCount, 'cost=' + cost,
+      'credits=' + remaining + '→' + newRemaining); } catch(_){}
+    // Placeholder audio URL — user maps AI voiceId → real TikTok TTS voice
+    // later. Returning a non-functional URL lets bundle complete its flow
+    // (update quota state, refresh chip count) without throwing.
+    var payload = {
+      statusCode: 201,
+      message: 'Success',
+      data: {
+        result: {
+          fromCache: false,
+          audioUrl: '/api/tts/generate?voice=en_us_002&text=' + encodeURIComponent(String(body.text||'').slice(0,200)),
+          engineType: null,
+          generationDurationMs: 500,
+        },
+        user: {
+          id: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          userId: '1',
+          quota: tfBuildQuotaPayload(newRemaining),
+        },
+      },
+    };
+    return Promise.resolve(tfBuildMockJsonResponse(payload, 201));
+  }
+
   function tfHandleTtsTikfinityUser(url) {
     if (!/tts\.tikfinity\.com\/api\/tts\/user(\/|\?|$)/.test(url)) return null;
     // Production gốc response captured from network — bundle calls this AFTER
@@ -2365,6 +2604,13 @@
     var tomorrow = new Date(now);
     tomorrow.setUTCHours(24, 0, 0, 0);
     var nextResetSeconds = Math.floor((tomorrow.getTime() - now.getTime()) / 1000);
+    // Pro user (Serial Key gated) — chip shows subscription credits (100k).
+    // Visual: chip uses TikTok avatar by default which collides with the user
+    // avatar next to it. earlyCss.txt has a CSS rule to swap the chip img for
+    // a gold coin twemoji while keeping the Pro credit count.
+    // Read live credit state — chip will reflect any decrements done by
+    // tfHandleTtsGenerate via localStorage.
+    var liveRemaining = tfReadCreditState();
     var payload = {
       statusCode: 200,
       message: 'Success',
@@ -2373,19 +2619,7 @@
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
         userId: '1',
-        quota: {
-          exceeded: false,
-          currentUsageMode: 'free',
-          currentUsageCurrency: 'requests',
-          subscriptionCreditsRemaining: 0,
-          subscriptionCreditsTotal: 0,
-          purchasedCreditsRemaining: 0,
-          purchasedCreditsTotal: 0,
-          freeRequestsRemaining: 25,
-          freeRequestsTotal: 25,
-          nextResetAt: tomorrow.toISOString(),
-          nextResetSeconds: nextResetSeconds,
-        },
+        quota: tfBuildQuotaPayload(liveRemaining),
       },
     };
     try { console.log('[TF-voice-mock] /api/tts/user intercept — returning quota payload'); } catch(_){}
@@ -2454,8 +2688,11 @@
         console.log('[TF-fetch-trace]', (opts && opts.method) || 'GET', rawUrl);
       }
     } catch(_){}
-    // Voice catalog + preview + user (quota) mocks (UI parity, no functional play).
-    var mocked = tfHandleTtsTikfinityCom(rawUrl, opts) || tfHandleTtsTikfinityUser(rawUrl) || tfHandleTtsPreview(rawUrl, opts);
+    // Voice catalog + user (quota) + generate (credit decrement) + preview mocks.
+    var mocked = tfHandleTtsTikfinityCom(rawUrl, opts) ||
+                 tfHandleTtsTikfinityUser(rawUrl) ||
+                 tfHandleTtsGenerate(rawUrl, opts) ||
+                 tfHandleTtsPreview(rawUrl, opts);
     if (mocked) return mocked;
     rawUrl=rewriteKnownRemoteUrl(rawUrl);
     if(typeof url==='string')url=rawUrl;

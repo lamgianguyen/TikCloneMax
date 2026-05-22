@@ -698,7 +698,21 @@ function accountSnapshot() {
       ?? stats.viewerCount
       ?? aggregates.counters().viewerCount
       ?? 0,
-    isLive: !!_state.connected,
+    // `isLive` only true when user is ACTIVELY broadcasting. Bridge caches
+    // roomId after a stream ends, so we additionally check TikTok's own
+    // live-status signals on roomInfo.data:
+    //   - data.status === 2 → currently broadcasting (live)
+    //   - data.status === 4 → live ended
+    //   - data.finish_time > 0 → live ended (timestamp of end)
+    // Earlier conditions (just connected, or connected + roomId) lit the
+    // LIVE badge minutes/hours after a stream ended because the bridge
+    // never refreshed roomInfo — confusing users into thinking they were
+    // still "live" when they weren't.
+    isLive: !!(
+      _state.connected
+      && _state.roomId
+      && ri && (ri.status === 2 || (ri.status !== 4 && !ri.finish_time))
+    ),
     startedAtMs: ri.create_time ? Number(ri.create_time) * 1000 : null,
   };
 }
@@ -714,6 +728,11 @@ function status() {
     connecting: _state.connecting,
     isConnectedToTikTok: _state.connected,
     isConnecting: _state.connecting,
+    // Top-level `isLive` aliases account.isLive — some bundle components
+    // read this directly instead of digging through .account. Mirrors the
+    // strict broadcasting check (connected + roomId + status===2).
+    isLive: account.isLive,
+    isBroadcasting: account.isLive,
     username: _state.username,
     tiktok: _state.username,
     currentUsername: _state.username,

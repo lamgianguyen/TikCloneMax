@@ -108,18 +108,42 @@ async function callTikTokTts(voice, text, sessionId) {
 // triggers `settings.restore()` → page reload → reload-guard kills →
 // voice picker mounts in a broken state and AI tab stays empty.
 router.post('/auth-token', (req, res) => {
-  const cookieHeader = String(req.headers.cookie || '');
-  const loginToken = (cookieHeader.match(/(?:^|;\s*)tf_login_token=([^;]+)/) || [])[1] || '';
   // Production gốc response shape (captured from network):
   //   {"status":200, "message":"OK", "ttsAuthToken":"eyJ..."}
-  // Bundle's ensureAiAuthToken reads ttsAuthToken — every other field name we
-  // tried (token/accessToken/aiAuthToken/jwt) was ignored and aiAuthToken
-  // stayed empty.
-  const tok = loginToken || 'tf-local-ai-token';
+  // Bundle's ensureAiAuthToken reads ttsAuthToken. CRITICAL: bundle DECODES
+  // the JWT payload to read subscriptionEnabled/subscriptionPeriodCredits —
+  // a plain string makes bundle treat user as Pro (no subscriptionEnabled
+  // field defaults truthy), which then renders the chip with TikTok avatar
+  // instead of gold coin. Mint a real JWT shape with subscriptionEnabled
+  // false so the chip stays in free-tier mode.
+  function b64url(obj) {
+    return Buffer.from(JSON.stringify(obj))
+      .toString('base64')
+      .replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const header = { alg: 'HS256', typ: 'JWT' };
+  // TikClone is ALL-PRO by design (Serial Key gate). JWT must reflect Pro
+  // state so bundle unlocks every paywalled flow (voice picker AI tab,
+  // unlimited usage, custom voices, etc.). Avatar-on-chip side-effect of
+  // Pro mode is fixed via earlyCss.txt CSS override.
+  const payload = {
+    userId: '1',
+    subscriptionEnabled: true,
+    subscriptionPeriodDays: 30,
+    subscriptionPeriodCredits: 100000,
+    subscriptionPeriodExpiresAt: '2099-12-31T00:00:00.000Z',
+    iat: nowSec,
+    exp: nowSec + 86400,
+  };
+  // Signature is faked — bundle calls tts.tikfinity.com endpoints which we
+  // mock client-side; nobody verifies HS256 signature locally.
+  const fakeSig = 'tf-local-signature-' + nowSec;
+  const jwt = b64url(header) + '.' + b64url(payload) + '.' + fakeSig;
   res.json({
     status: 200,
     message: 'OK',
-    ttsAuthToken: tok,
+    ttsAuthToken: jwt,
   });
 });
 

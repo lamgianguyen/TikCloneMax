@@ -174,6 +174,67 @@ try {
 app.use('/api', meRouter);       // /me, /loginChannel, /switchProfile, /setAffiliate
 app.use('/api', settingsRouter); // /updateSettings, /getOverlayConfig, /modules
 app.use('/api', configRouter);   // /getAppConfig, /config, /getSystemConfig, /getTranslations, /init, /v2/sync
+
+// Bundle fetches `/config/localization/<lang>.json` directly at root (no /api
+// prefix) when user switches language from the profile dropdown. If 404,
+// bundle's loader throws "Error while loading translation for <lang>" →
+// Vue mount crashes → black screen. If empty {}, bundle has no labels for
+// that locale → entire UI renders raw keys (nav.search, menu_start, ...).
+// Extract the baked tfPageloadData.localization.<lang> from the served HTML
+// file for the requested lang, falling back to en for unsupported locales.
+const LOCALE_FILES = { vi: 'vi', en: 'index.html', de: 'de', es: 'es' };
+const localeCache = new Map();
+function extractLocaleFromHtml(filePath, langKey) {
+  if (localeCache.has(filePath + '|' + langKey)) return localeCache.get(filePath + '|' + langKey);
+  try {
+    const html = require('fs').readFileSync(filePath, 'utf8');
+    // Find `localization:{<lang>:{...}}` block and parse value.
+    const marker = 'localization:{' + langKey + ':{';
+    const start = html.indexOf(marker);
+    if (start < 0) { localeCache.set(filePath + '|' + langKey, null); return null; }
+    // Walk braces to find matching close
+    let i = start + marker.length;
+    let depth = 1, inStr = false, esc = false, strChar = '';
+    while (i < html.length && depth > 0) {
+      const c = html[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === strChar) inStr = false;
+      } else {
+        if (c === '"' || c === "'") { inStr = true; strChar = c; }
+        else if (c === '{') depth++;
+        else if (c === '}') depth--;
+      }
+      i++;
+    }
+    if (depth !== 0) { localeCache.set(filePath + '|' + langKey, null); return null; }
+    const inner = html.substring(start + marker.length, i - 1);
+    // Convert JS object literal (unquoted keys + single quotes) to JSON via Function eval
+    // SAFE: source is our own downloads/* file, not user input.
+    const obj = new Function('return {' + inner + '}')();
+    localeCache.set(filePath + '|' + langKey, obj);
+    return obj;
+  } catch (e) {
+    localeCache.set(filePath + '|' + langKey, null);
+    return null;
+  }
+}
+app.get('/config/localization/:lang.json', (req, res) => {
+  const langArg = String(req.params.lang || '').toLowerCase();
+  const path = require('path');
+  const downloadsDir = path.resolve(__dirname, '..', '..', 'downloads');
+  // Try requested lang's bundled HTML first.
+  let payload = null;
+  if (LOCALE_FILES[langArg]) {
+    payload = extractLocaleFromHtml(path.join(downloadsDir, LOCALE_FILES[langArg]), langArg);
+  }
+  // Fallback to EN baseline so UI still shows readable English labels.
+  if (!payload) {
+    payload = extractLocaleFromHtml(path.join(downloadsDir, 'index.html'), 'en') || {};
+  }
+  res.json(payload);
+});
 app.use('/api', authRouter);     // /auth/*, /v1/auth/*, /v1/flow/*, /v1/code/*
 app.use('/api/rest', actionsRouter); // /rest/action (GET/POST/DELETE)
 app.use('/api', soundsRouter);       // /sounds*, /rest/sound*
@@ -481,6 +542,15 @@ app.locals.io = io;
     logger.info(`[BOOT] Frontend path: ${config.FRONTEND_PATH}`);
     logger.info(`[BOOT] Data dir: ${config.DATA_DIR}`);
     logger.info(`[BOOT] DB path: ${config.DB_PATH}`);
+  });
+
+  // Background sync of bundle fixtures from gốc TikFinity. Fire-and-forget:
+  // backend serves stale data for the first few seconds while fetch runs,
+  // then `/api/getAllGifts` returns fresh data on subsequent requests.
+  // See [services/bundle-fixtures-sync.js] for which endpoints are synced.
+  const bundleFixturesSync = require('./services/bundle-fixtures-sync');
+  bundleFixturesSync.syncAll(config.FRONTEND_PATH).catch((err) => {
+    logger.error({ err }, '[BOOT] bundle-fixtures-sync uncaught');
   });
 })();
 

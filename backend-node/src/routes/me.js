@@ -273,9 +273,13 @@ function handleMe(req, res) {
   }
   const frontendChannelName = preferredTikTokName || channel.ChannelName;
 
-  // User reached this endpoint, which means they passed the TikfinityServer
-  // license gate at app startup. Treat as Pro regardless of local Subscription
-  // row (which may still default to isPro=false).
+  // TikClone unlocks ALL Pro features via the TikfinityServer Serial Key
+  // gate at app startup. Every user reaching /api/me is Pro by design.
+  // The chip's TikTok-avatar visual artifact (avatar overlapping coin) is
+  // fixed via CSS override in earlyCss.txt that force-hides the chip's
+  // inline <img> and renders a gold coin twemoji pseudo-element instead —
+  // so chip still LOOKS like gốc free-tier (coin + count) while bundle
+  // internally treats user as Pro and keeps every paywalled feature open.
   const isPro = true;
 
   const wsAuthToken = getOrMintWsToken(channel, isPro);
@@ -339,13 +343,22 @@ function handleMe(req, res) {
       monthlyEarningsMax: 0,
       streamGifter: 0,
       streamGifterMax: 0,
-      // UI-only quota fields read by bundle's TTSFreeDropdown component
-      // (the "X / Y free messages" chip in topbar). 0/25 = full quota
-      // available; bundle renders chip when Max > 0.
-      ttsFreeMessages: 0,
+      // UI quota fields read by bundle's topbar credit chip.
+      // TikClone is ALL-PRO (CLAUDE.md §1.0): set BOTH free + pro fields to
+      // their max so chip ALWAYS shows full balance regardless of which
+      // value bundle picks. Empirically bundle sometimes reads ttsFreeMessages
+      // even for Pro users (depending on chip rendering context), so keeping
+      // both at max avoids "0 đồng" state when bundle hasn't yet fetched
+      // /api/tts/user quota data.
+      // Field naming convention (verified from gốc /api/me response):
+      //   ttsFreeMessages    = remaining count (NOT used count)
+      //   ttsFreeMessagesMax = daily quota total
+      //   ttsProCredits      = remaining subscription credits
+      //   ttsProCreditsMax   = monthly subscription total
+      ttsFreeMessages: 25,
       ttsFreeMessagesMax: 25,
-      ttsProCredits: 0,
-      ttsProCreditsMax: 0,
+      ttsProCredits: 100000,
+      ttsProCreditsMax: 100000,
       trialBannerDismissed: false,
       lastSeenIp: remoteIp,
       lastActiveProDate: null,
