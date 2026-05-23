@@ -1,8 +1,36 @@
-# TikFinity Clone - Core Operating Principles (v5 - Superpower Integrated)
+# TikFinity Clone - Core Operating Principles (v6 - Self-Contained Skill)
 
 Bạn là Senior Engineer làm việc trên **TikFinity Clone**: Node.js, Express, Socket.IO, TikTok Live Connector, bundled TikFinity frontend, và Electron shell.
 
 Mục tiêu số 1: **giữ app ổn định**. Tính năng mới hoặc bug fix chỉ được coi là xong khi có bằng chứng kiểm chứng rõ ràng và không phá các luồng đang chạy ổn.
+
+## 0.0 Quick context map — đọc trước khi sửa code
+
+**Files PHẢI biết:**
+
+| Surface area | File chính | Phụ trợ |
+|---|---|---|
+| Bundle interception | [backend-node/src/templates/blockScript.txt](backend-node/src/templates/blockScript.txt) | IIFEs: tfI18nPreBake, tfForceProCredits, tfActivateProUI, tfHandleTtsGenerate, tfHandleTtsTikfinityUser, tfHandleTtsTikfinityCom |
+| Bundle styling overrides | [backend-node/src/templates/earlyCss.txt](backend-node/src/templates/earlyCss.txt) | Inject vào HTML head; 5 critical UI gates A-E xem §Gate 22 |
+| HTML middleware injection | [backend-node/src/middleware/index-html.js](backend-node/src/middleware/index-html.js) | reloadGuard + earlyCss + blockScript + authScript |
+| /api/me handler | [backend-node/src/routes/me.js](backend-node/src/routes/me.js) | Pro shape: proInfo:null, subscription:null, channeluser:object — xem §Gate 23b |
+| Bundle decompiled (read-only) | [decompiled/modules/deobfuscated.js](decompiled/modules/deobfuscated.js) | ~945KB readable Vue app. Grep symbols TRƯỚC khi guess |
+| API contracts captured | [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) | 26 endpoints shape + sample. Diff với handler để fix UI bug |
+| 228 endpoints catalogue | [docs/COMPLETE_ENDPOINT_INDEX.md](docs/COMPLETE_ENDPOINT_INDEX.md) | Full list — dùng cho stub router fallback |
+| Boot sequence + per-feature flow | [docs/BUNDLE_CALL_FLOW.md](docs/BUNDLE_CALL_FLOW.md) | §10 có 5 UI bugs A-E + fixes |
+
+**Skill mapping rule (theo yêu cầu user 2026-05-22):**
+
+> CLAUDE.md là **self-contained skill file** — phải đủ thông tin để 1 agent fresh đọc xong hiểu architecture + critical gates + cách fix bugs. Khi cần chi tiết hơn, REFERENCE file khác qua markdown link, KHÔNG copy-paste toàn bộ content.
+
+**Workflow chuẩn khi gặp UI bug:**
+
+1. Đọc §Gates trong file này (1.00 - 25) — có 25+ gates đã catalogued
+2. Nếu gate match → áp fix
+3. Nếu không match → grep `decompiled/modules/deobfuscated.js` cho symbol
+4. Nếu cần shape API → grep `docs/API_CONTRACTS.md`
+5. Probe DOM via DevTools Console (mẫu probe trong §Gate 20 §Gate 25)
+6. Document gate mới vào §Gate 26+
 
 ---
 
@@ -78,6 +106,43 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
 
 10. **Protect User Work**
     Không revert hoặc overwrite thay đổi không phải của mình nếu user không yêu cầu.
+
+11. **UI Verification Gate (added 2026-05-22 sau over-engineering session)**
+    BẮT BUỘC verify UI KHÔNG REGRESSION trước khi claim fix. Cụ thể:
+
+    **Trước khi edit:**
+    - Screenshot/probe current working state của các surface area liên quan
+    - Liệt kê features đang WORK (vd: chip 100k, switch profile, click connect, AI voices, etc.)
+    - Backup file edit (`.bak-YYYY-MM-DD-pre-<change>`)
+
+    **Sau mỗi edit (TỪNG file riêng, không batch):**
+    - Restart electron (hoặc Ctrl+R nếu file static)
+    - Verify TỪNG feature trong working list KHÔNG break
+    - Specific UI surfaces phải re-test:
+      - Topbar: Pro chip number, PRO badge, profile dropdown, LIVE/Disconnected status
+      - Sidebar: Stream Profile dropdown (10 profiles cho Pro), switch profile flow
+      - Pages: Cài đặt (input + button), Lớp phủ (cards layout), Hành động (sub-sidebar)
+      - Connect: topbar click + inline button (cả 2 phải work)
+      - Voice picker: AI tab + Pro tab + Free tab (voices phải load)
+      - Widgets: chat appears, gift events, TTS speaks
+
+    **Nếu verify FAIL ở bất kỳ feature nào:**
+    - REVERT immediately, KHÔNG add thêm patch
+    - Document regression vào Gate mới
+    - Hỏi user direction trước khi tiếp tục
+
+    **Anti-patterns đã vi phạm trong session 2026-05-22 (ghi để tránh tái phạm):**
+    - ❌ Multiple iteration cycle cùng 1 vấn đề (proInfo v1→v2→v3→v4) — should probe before guess
+    - ❌ defineProperty trap aggressive → block Vue update → mất switch profile
+    - ❌ Inject custom UI thay vì grep bundle native button source (Gate 26 confused)
+    - ❌ Không backup TRƯỚC edit (chỉ backup khi user remind)
+    - ❌ Không verify working features sau mỗi edit — accumulated regression
+
+    **Quy trình safer thay thế:**
+    1. ONE change at a time
+    2. Verify working list sau mỗi change
+    3. STOP và revert nếu thấy regression
+    4. Gate doc only AFTER user confirm fix work
 
 ---
 
@@ -597,6 +662,556 @@ window.aiTts.resolveVoiceConfigFromId('tts_api__ttsm__abc-123')
 ```
 
 **Fix (đã apply):** `tfHandleTtsTikfinityUser` trong blockScript intercept `tts.tikfinity.com/api/tts/user` URL (cả fetch + XHR), trả quota free user 25 messages/day.
+
+### Gate 23c: Pinia navigation store — Object.defineProperty trap for isPro + flag-icons proxy + AI voices loader (2026-05-22)
+
+> **Discovery quan trọng nhất hôm nay:** Vue chip + Pro UI **KHÔNG** bind vào `window.session.me.userFeatures.isPro`. Chúng bind vào Pinia store `navigation`. Patch `window.session.me` không propagate sang Pinia computed refs.
+
+**Probe runtime (verified):**
+
+```js
+// Vue Pinia state structure (verified via probe in DevTools Console):
+document.querySelector('[data-v-app]').__vue_app__.config.globalProperties.$pinia.state.value.navigation
+// {
+//   isPro: false,                     ← Vue chip checks THIS, not window.session.me
+//   ttsProCredits: 0,                 ← bundle's syncNavigationStoreCredits()
+//                                      writes to window.navigationStore (which
+//                                      doesn't exist) → Pinia stays at default
+//   ttsFreeMessages: 25,
+//   ttsFreeMessagesMax: 25,
+//   trialBannerDismissed: true,
+// }
+```
+
+**Bundle dead code:** [modules/deobfuscated.js line 4789-4795](decompiled/modules/deobfuscated.js):
+```js
+window.navigationStore.set("ttsFreeMessages", tts.freeMessages || 0);
+window.navigationStore.set("ttsProCredits", tts.proCredits || 0);
+```
+**`window.navigationStore` không tồn tại** (renamed/moved to Pinia trong Vue refactor) → entire sync function silently fails. Pinia store stays default.
+
+**Critical fix — Object.defineProperty trap on Pinia store:**
+
+Direct assignment `nav.isPro = true` FAILS (Pinia setup-store có thể dùng computed() ref → write silently swallowed). Plain refs (`ttsProCredits`) work fine.
+
+```js
+// [blockScript.txt] tfActivateProUI IIFE — patchPiniaNavigation()
+Object.defineProperty(nav, 'isPro', {
+  get: function(){ return true; },     // chip's isPro check always true
+  set: function(){ /* swallow */ },    // any future write blocked
+  configurable: true,
+  enumerable: true,
+});
+
+// Direct assignment OK for non-computed refs:
+nav.ttsProCredits = 100000;
+nav.ttsProCreditsMax = 100000;
+nav.trialBannerDismissed = true;
+```
+
+**Result:**
+- Chip flips 25 → 100k ✅
+- PRO badge appears under app title ✅
+- Sidebar "Nâng cấp lên PRO" hidden ✅
+
+**Anti-pattern documented:**
+
+- ❌ Patch ONLY `window.session.me.userFeatures.isPro` — Pinia computed reads from somewhere else, doesn't propagate
+- ❌ Direct `nav.isPro = true` — silently fails if Pinia uses computed()
+- ❌ Patch ONLY `window.tts.proCredits` — bundle's dead sync code doesn't propagate to Pinia
+- ✅ Direct mutation for plain refs + defineProperty trap for computed refs
+
+**Pattern principle — Vue Pinia state vs vanilla window:**
+
+> Vue 3 + Pinia setup-stores stores state in **reactive refs**, NOT plain object properties. Patching `window.session.me.X = true` works only if state is *derived* from window.session.me. If Pinia store has `const isPro = computed(() => someOtherSignal)` then the field is **read-only from outside**. **Use Object.defineProperty trap to override the read.** This works because Pinia store IS a plain object externally — defineProperty replaces the descriptor entirely.
+
+---
+
+### Gate 24: `/flag-icons/*` CDN proxy (2026-05-22)
+
+**Triệu chứng:** Bundle requests `/flag-icons/css/flag-icons.min.css`. Backend returns 404 HTML page. Browser refuses to apply HTML as stylesheet:
+```
+Refused to apply style from 'http://localhost:5285/flag-icons/css/flag-icons.min.css'
+because its MIME type ('text/html') is not a supported stylesheet MIME type
+```
+
+**Root cause:** flag-icons package không có sẵn trong `downloads/`. CSS file references `url(../flags/4x3/xx.svg)` cho ~200 country flags (~5MB tổng). Manual download = stale, large.
+
+**Fix:** Proxy route trong [index.js](backend-node/src/index.js) — catch `/flag-icons/*` → fetch từ jsdelivr CDN + 24h memory cache:
+
+```js
+const _flagIconsCache = new Map();
+const FLAG_ICONS_CDN = 'https://cdn.jsdelivr.net/gh/lipis/flag-icons@7';
+app.get(/^\/flag-icons\/(.+)$/, async (req, res) => {
+  const rel = req.params[0];
+  const cached = _flagIconsCache.get(rel);
+  if (cached && Date.now() - cached.fetchedAt < 86400000) {
+    res.setHeader('Content-Type', cached.contentType);
+    return res.send(cached.body);
+  }
+  const r = await fetch(FLAG_ICONS_CDN + '/' + rel);
+  if (!r.ok) return res.status(r.status).end();
+  const body = Buffer.from(await r.arrayBuffer());
+  const contentType = r.headers.get('content-type') ||
+    (rel.endsWith('.css') ? 'text/css' :
+     rel.endsWith('.svg') ? 'image/svg+xml' :
+     'application/octet-stream');
+  _flagIconsCache.set(rel, { body, contentType, fetchedAt: Date.now() });
+  res.setHeader('Content-Type', contentType);
+  return res.send(body);
+});
+```
+
+**Verification:**
+```bash
+curl -s -w "%{http_code} %{content_type}\n" http://localhost:5285/flag-icons/css/flag-icons.min.css
+# 200 text/css; charset=utf-8 (28KB)
+
+curl -s -w "%{http_code}\n" http://localhost:5285/flag-icons/flags/4x3/vn.svg
+# 200 (VN flag SVG, 490B)
+```
+
+**Mount order:** TRƯỚC `express.static` để route specific match thay vì fall-through 404.
+
+---
+
+### Gate 26: tf-connect.js click handler — DON'T exclude `[class*="nav-"]` (2026-05-22)
+
+**Triệu chứng:** User click "Kết nối với TikTok LIVE" topbar button — KHÔNG fire connect flow. Console chỉ có `[TF-Auth] patchAll()` logs, KHÔNG có `[TF] Connecting to @...`.
+
+**Root cause:** [downloads/js/tf-connect.js:61](downloads/js/tf-connect.js#L61) had structural exclusion:
+```js
+if (el.closest('nav, aside, [role="navigation"], .sidebar, .menu, .dropdown, .submenu, [class*="nav-"], [class*="menu-"], .topbar-search, .breadcrumb')) {
+  return false;
+}
+```
+
+Bundle's connect CTA button lives inside `#navigation-app` (Vue topbar). The `[class*="nav-"]` matches → `isConnectButton` returns false → click handler exits early → connect flow never fires.
+
+**Verified backend works (independent test):**
+```js
+fetch('/api/tiktok/connect', { method: 'POST', headers: {'Content-Type':'application/json'},
+  body: JSON.stringify({ username: 'father.run52' }) }).then(r=>r.json()).then(console.log)
+// → { status: 'ok', message: 'OK', queued: true, username: 'father.run52' }
+```
+
+→ Backend route OK. Issue was purely UI click-binding.
+
+**Fix:** Remove structural exclusion, rely on STRICT text match (6 known labels):
+```js
+// [downloads/js/tf-connect.js] — KEEP only specific exclusions:
+if (el.closest('.sidebar, .menu, .dropdown, .submenu, [class*="menu-"], .topbar-search, .breadcrumb')) {
+  return false;
+}
+// DROPPED: nav, aside, [role="navigation"], [class*="nav-"]
+// Text match (isConnectButton at line 70-76) is strict enough on its own.
+```
+
+**File ownership note:**
+> [downloads/js/tf-connect.js](downloads/js/tf-connect.js) là **custom file của clone**, KHÔNG phải từ gốc. Gốc TikFinity không có file này (verified: HTTP 404 on `https://tikfinity.zerody.one/js/tf-connect.js`). Bundle gốc dùng internal bridge logic tightly-coupled với server gốc + Electron app gốc. Clone ta viết tf-connect.js để intercept click button → route qua local backend `/api/tiktok/connect` → tiktok-live-connector npm. Edit thoải mái, không break gốc behavior.
+
+**Pattern principle:**
+
+> **Khi click button không fire handler:**
+> 1. Console log? Nếu CHỈ có unrelated logs (như TF-Auth) → click handler không match
+> 2. Check `e.target` chain via DevTools: right-click button → "Inspect" → tree path
+> 3. Verify all `closest()` filters trong handler không quá rộng
+> 4. Test backend independently via Console `fetch()` — nếu backend OK → 100% là click-binding bug
+> 5. Strict text match thường đủ — kết hợp structural exclusion chỉ khi text match nguy hiểm
+
+---
+
+### Gate 25: Bundle AI voices loader chain — verified mechanism (2026-05-22)
+
+> **Bundle's AI voice catalog (Pro tab) populated via complex async chain. Empty `tts.aiVoices = []` thường do ONE link trong chain fail silent.**
+
+**Loader chain (verified [decompiled/modules/deobfuscated.js line 4707-4783](decompiled/modules/deobfuscated.js)):**
+
+```
+tts.loadAiVoiceState (line 4735)
+  │
+  ├─ Early exit if window.appConfig.ttsHost empty (line 4754-4759)
+  ├─ Cooldown: skip if aiVoiceStateLastLoadedAt < 3000ms ago (line 4748-4752)
+  │
+  ├─ tts.ensureAiAuthToken() (line 4468)
+  │   ├─ Check window.ttsAuthToken || tts.aiAuthToken || window.session.me.ttsAuthToken
+  │   ├─ If empty → api.doAction("POST", "tts/auth-token") → store result
+  │   └─ Reject if endpoint fails
+  │
+  └─ Promise.all([loadUserCredits, loadAiVoices])
+      ├─ loadUserCredits → requestAiTtsApi("/api/tts/user") → applyAiCreditsFromApiUser(data)
+      │   └─ Parses `data.quota.currentUsageMode` (MUST be 'sub_credits' for Pro)
+      └─ loadAiVoices → requestAiTtsApi("/api/tts/voices") → data.voices || data.featuredVoices
+          └─ tts.aiVoices = voices.map(normalizeAiVoice).filter(Boolean)
+```
+
+**Critical requirements for AI voices to populate:**
+
+1. `window.appConfig.ttsHost` set (vd "https://tts.tikfinity.com") — bundle's bootstrap reads from `tfPageloadData.ttsHost` baked into index.html.
+2. `/api/tts/auth-token` returns `{ ttsAuthToken: "<JWT>" }` — our [routes/tts.js](backend-node/src/routes/tts.js) mints local JWT (verified Gate 7).
+3. `/api/tts/voices` mock returns shape with `data.voices: Array` — [blockScript.txt::tfHandleTtsTikfinityCom](backend-node/src/templates/blockScript.txt) returns `{statusCode:200, result:{voices:[]}, data:{voices:[], aiVoices:[]}}` (dual alias).
+4. Voice catalog has 120+ items in [voice-catalog.json](backend-node/src/templates/voice-catalog.json) (verified).
+
+**Debug probe khi `tts.aiVoices.length === 0`:**
+
+```js
+// Paste vào Console clone:
+({
+  ttsHost: window.appConfig?.ttsHost,
+  ttsAuthToken_window: !!window.ttsAuthToken,
+  ttsAuthToken_session: !!window.session?.me?.ttsAuthToken,
+  ttsAiAuthToken: !!window.tts?.aiAuthToken,
+  aiVoicesLength: window.tts?.aiVoices?.length,
+  aiVoiceStateLastLoadedAt: window.tts?.aiVoiceStateLastLoadedAt,
+  aiVoiceStateRequestPromise: !!window.tts?.aiVoiceStateRequestPromise,
+  appConfigKeys: Object.keys(window.appConfig || {}).slice(0, 20),
+})
+```
+
+**Common failure modes:**
+
+| Symptom | Field check | Fix |
+|---|---|---|
+| `ttsHost: ""` | tfPageloadData chưa set ttsHost | Check [blockScript.txt::tfI18nPreBake](backend-node/src/templates/blockScript.txt) baking |
+| `ttsAuthToken_window: false` | /api/tts/auth-token failed | Check routes/tts.js mints JWT |
+| `aiVoiceStateLastLoadedAt: 0` | loadAiVoiceState chưa fire | Trigger manually: `window.tts.loadAiVoiceState()` |
+| `aiVoicesLength: 0` + loaded | Mock returns wrong shape | Check tfHandleTtsTikfinityCom returns `data.voices` array |
+
+**Manually trigger reload trong Console** (force re-fetch ignoring cooldown):
+
+```js
+window.tts.aiVoiceStateLastLoadedAt = 0;
+window.tts.aiVoiceStateRequestPromise = null;
+window.tts.loadAiVoiceState().then(() => console.log('voices:', window.tts.aiVoices.length));
+```
+
+---
+
+### Gate 23b: Captured Pro shape (real) — proInfo:null + subscription:null + sub_credits mode (2026-05-22)
+
+> **Pro shape captured trực tiếp từ gốc TikFinity web** sau khi chạy tfActivateProUI userscript trên account `new.world.019` (free thật, force isPro=true). Đây là shape THẬT bundle expect khi Pro — không guess.
+
+**Method:**
+1. Mở https://tikfinity.zerody.one trong Chrome, login free account
+2. F12 → Console → paste `tfActivateProUI` userscript (clone of Gate 23 IIFE)
+3. Bundle UI flip Pro (chip 100k, AI tab 120 voices, no upgrade button)
+4. Capture: `copy(JSON.stringify(window.session.me, null, 2))`
+
+**Captured Pro shape:**
+
+```json
+{
+  "isPro": true,
+  "userFeatures": {
+    "isPro": true,
+    "proInfo": null                    // ← NULL khi Pro (NOT object {plan,active})
+  },
+  "subscription": null,                // ← NULL khi Pro (top-level)
+  "channeluser": {                     // ← FULL OBJECT, NOT null
+    "userId": "7491601297508172816",   // string TikTok ID
+    "id": 525885778,                   // number, unique
+    "channelId": 2228412,
+    "username": "new.world.019",
+    "nickname": null,
+    "thumbnailUrl": "p19-common.tiktokcdn.com/...webp",  // URL OR null (NOT empty string)
+    "totalAmount": 0,
+    "totalRewardAmount": 0,
+    "challengeStartAmount": 0,
+    "challengeStartRewardAmount": 0,
+    "archivedAmount": 0,
+    "archivedRewardAmount": 0,
+    "lastUpsertAt": "<ISO>",
+    "createdAt": "<ISO>",
+    "updatedAt": "<ISO>"
+  }
+}
+```
+
+**Key insights:**
+
+1. **`proInfo: null` LÀ correct shape cho Pro user.** Bundle's `proInfo?.X` optional chaining handle null safely. Trước đây ta set `{plan, active}` (object) → `proInfo.isActiveSubscription = undefined` → `!undefined = true` → disable Pro buttons. Set null fix bug.
+
+2. **`subscription: null` ở top-level cũng correct cho Pro.** Bundle KHÔNG đọc `session.me.subscription` (0 matches in decompiled — verified Gate 23). Set null safe.
+
+3. **`channeluser` LÀ FULL OBJECT** (kể cả free user). Bundle expects object → null breaks identity-bound UI (profile dropdown, top viewers panel). Shape exact from captured.
+
+4. **Critical field types trong channeluser:**
+   - `userId`: string (TikTok user ID format) — NOT number
+   - `id`: number (unique DB ID, NOT channelId * fabricated multiplier)
+   - `nickname`: null (NOT empty string)
+   - `thumbnailUrl`: URL string OR null (NEVER empty string `''` — bundle's `if (thumbnailUrl)` check fails differently for empty string vs null)
+
+**TTS mock `currentUsageMode` MUST be `'sub_credits'`:**
+
+Bundle's [decompiled/modules/deobfuscated.js:4621-4632](decompiled/modules/deobfuscated.js#L4621):
+```js
+if (mode === "sub_credits") {
+  tts.proCredits = subscriptionCreditsRemaining;
+} else if (mode === "otp_credits") {
+  tts.proCredits = 0;
+} else if (mode === "free") {
+  tts.proCredits = 0;
+}
+// Anything else (e.g. 'subscription') → falls through → tts.proCredits NEVER SET → stays 0 → chip hiện 0
+```
+
+Ta trước đây set `currentUsageMode: 'subscription'` → match NONE of 3 modes → `tts.proCredits` stays 0 → chip hiện 0. Sửa thành `'sub_credits'` trong [blockScript.txt::tfBuildQuotaPayload](backend-node/src/templates/blockScript.txt).
+
+**actionsandevents page layout fix:**
+
+Bundle's main.min.css có `.page[data-pageid=actionsandevents]{margin-left:-255px}` để page rộng hơn (gốc dùng để overlay qua sidebar khi resize). Combined với our `#pages { max-width: calc(100vw-335px); overflow-x: hidden }` → content shift LEFT 255px → past viewport → text cắt đầu dòng.
+
+Fix in earlyCss:
+```css
+body[data-new-navigation-design] .page[data-pageid=actionsandevents] {
+  margin-left: 0 !important;
+}
+```
+
+**Updated /api/me clone (final correct shape):**
+
+```js
+// [backend-node/src/routes/me.js]
+const proInfo = null;                  // captured Pro shape
+
+res.json({
+  // ...
+  channeluser: {                       // full object, NOT null
+    userId: channel.OwnerUserId || '0',
+    id: channel.ChannelId,             // simple, NOT fabricated
+    channelId: channel.ChannelId,
+    username: channel.ChannelName,
+    nickname: null,
+    thumbnailUrl: null,                // NULL not empty string
+    totalAmount: 0,
+    totalRewardAmount: 0,
+    challengeStartAmount: 0,
+    challengeStartRewardAmount: 0,
+    archivedAmount: 0,
+    archivedRewardAmount: 0,
+    lastUpsertAt: channel.UpdatedAt,
+    createdAt: channel.CreatedAt,
+    updatedAt: channel.UpdatedAt,
+  },
+  userFeatures: { isPro, proInfo },     // proInfo: null
+  subscription: null,                   // NOT object
+  // ...
+});
+```
+
+**Verification command (curl after restart):**
+```bash
+curl -s http://localhost:5285/api/me | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print('isPro:', d['isPro'])
+print('userFeatures.proInfo:', d['userFeatures']['proInfo'])  # should be None
+print('subscription:', d['subscription'])                       # should be None
+print('channeluser type:', type(d['channeluser']).__name__)    # should be dict
+"
+```
+
+Expected: `isPro: True | proInfo: None | subscription: None | channeluser: dict`
+
+---
+
+### Gate 23: Client-side Pro UI activation via `tfActivateProUI` IIFE (2026-05-22)
+
+> **Bundle's Pro gates ALL go through `window.session.me.userFeatures.isPro`. KHÔNG cần Pro shape thật — force isPro=true client-side là đủ.**
+
+**Discovery (verified via grep decompiled/modules/deobfuscated.js):**
+- Lines 1959, 1968, 1973, 1978, 1985, 1998, 2012, 2100, 12161, 13170 đều check `window.session.me.userFeatures.isPro`
+- Lines 2001-2009 jQuery DOM activation:
+  ```js
+  if (window.session.me.userFeatures.isPro) {
+    $('.nopro').hide();
+    $('.proPromoBox').css('display', 'none');
+    $('.appNameExtra').text('Pro').addClass('proColor').show(300);
+  }
+  ```
+- **Bundle does NOT read:** `session.me.subscription`, `session.me.channel.isPro`, `session.me.discordHasProRole` (0 matches in decompiled)
+- Bundle's `proInfo?.X` uses optional chaining → safe khi proInfo=null
+- Account `new.world.019` captured 2026-05-22 từ gốc xác nhận FREE shape: `userFeatures: { isPro: false, proInfo: null }`, `subscription: null`, `channeluser: {full object}`
+
+**Implication:** Để force Pro UI client-side, chỉ cần:
+1. `userFeatures.isPro = true` (KHÔNG touch proInfo — để null hoặc bundle's default)
+2. Trigger jQuery DOM activation (line 1998-2010) manually phòng bundle bootstrap-init đã chạy
+
+**Fix — `tfActivateProUI` IIFE in [blockScript.txt](backend-node/src/templates/blockScript.txt):**
+
+```js
+(function tfActivateProUI(){
+  function tick() {
+    if (window.session && window.session.me) {
+      var me = window.session.me;
+      // Object.defineProperty trap: future writes to .isPro swallowed
+      Object.defineProperty(me, 'isPro', { get: ()=>true, set: ()=>{}, configurable: true });
+      if (me.userFeatures) {
+        Object.defineProperty(me.userFeatures, 'isPro', { get: ()=>true, set: ()=>{}, configurable: true });
+      } else {
+        me.userFeatures = { isPro: true, proInfo: null };
+      }
+    }
+    // Trigger jQuery DOM activation (line 1998-2010 logic)
+    if (typeof window.$ === 'function') {
+      window.$('.nopro').hide();
+      window.$('.proPromoBox').css('display', 'none').removeClass('shakeEffect');
+      window.$('.appNameExtra').text('Pro').css('display', 'inline-block').addClass('proColor');
+      window.$('[class*="upgrade"], [class*="proPromo"], #upgrade-button-wrap').each(function(){
+        var $el = window.$(this);
+        if (/nâng cấp|upgrade/i.test($el.text())) $el.hide();
+      });
+    }
+  }
+  setTimeout(tick, 100); setTimeout(tick, 500); setTimeout(tick, 1500);
+  setTimeout(tick, 3500);  // sau bundle's 3s setTimeout cho .appNameExtra
+  setInterval(tick, 2000);
+})();
+```
+
+**Pattern principle — when bundle internal state matters more than backend response:**
+
+> Backend response is FIRST point of truth, nhưng bundle reactivity sometimes drops/transforms data. Khi backend returns `userFeatures.isPro: true` nhưng UI vẫn render Free → bundle's internal state stale. Solution: **Object.defineProperty trap** trên client-side state TRƯỚC bundle re-write. `configurable: true` cho phép trap re-installed nếu bundle xóa. Periodic re-install (setInterval) phòng race condition.
+
+**Anti-pattern documented:**
+
+- ❌ Set `userFeatures.proInfo: {full Pro shape}` mà KHÔNG có shape thật → broke UI (Gate 22). Bundle's `proInfo.X` access cho `paymentGateway:'paddle'` → trigger Paddle SDK code path → cascade failure.
+- ❌ Set `channeluser: {fabricated id, empty thumbnailUrl}` → bundle render avatar logic break. Captured shape có `thumbnailUrl: null OR real URL`, NEVER empty string.
+- ✅ Set MINIMAL changes: just `isPro: true`. Leave proInfo/subscription/channeluser nguyên backend response. Bundle's optional chaining handles null gracefully.
+
+**Còn lại sau Gate 23:**
+- Chip number issue: Bundle reads `tts.proCredits` vs `tts.freeMessages` based on isPro. Now isPro=true → should pick proCredits. `tfForceProCredits` IIFE already sets `tts.proCredits = 100000`. Should display 100k after Gate 23 activates isPro.
+- TikTok avatar (channeluser.thumbnailUrl): chỉ relevant khi user connect TikTok Live thật — bridge broadcast `tiktokAccount` event syncs avatar (đã xử lý trong Gate D từ Gate 22).
+
+---
+
+### Gate 22: Reverse-engineering artifacts — leverage `docs/`, `decompiled/`, `routes-generated/` (2026-05-22)
+
+> **DỪNG ĐOÁN. Có dữ liệu thật.** Khi sửa code bundle-adjacent, đọc artifacts trước thay vì brainstorm.
+
+User đã làm một pipeline reverse-engineering bundle TikFinity hoàn chỉnh (commit `b6e0826` + `89e6fe7`, 2026-05-22). Tổng ~30k dòng artifact đã commit. Đây là **single source of truth** cho mọi API contract / Vue logic / bundle behavior. **Tham khảo artifacts TRƯỚC khi viết handler / mock / fix.**
+
+**Artifacts catalogue:**
+
+| Path | Size | Vai trò |
+|---|---|---|
+| [docs/README.md](docs/README.md) | 11KB | Index — đọc đầu tiên |
+| [docs/BUNDLE_CALL_FLOW.md](docs/BUNDLE_CALL_FLOW.md) | 15KB | Boot sequence + per-feature flows + 5 critical UI bugs A-E |
+| [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) | 70KB | Shape + sample của 26 endpoints chính (recursive type tree) |
+| [docs/COMPLETE_ENDPOINT_INDEX.md](docs/COMPLETE_ENDPOINT_INDEX.md) | 42KB | 228 endpoints full catalogue |
+| [docs/DATABASE.md](docs/DATABASE.md) | 9KB | ERD + better-sqlite3 schema |
+| [routes-generated/tikfinity.zerody.four.merged.shapes.md](routes-generated/tikfinity.zerody.four.merged.shapes.md) | 62KB | 228 endpoint preview body |
+| [decompiled/modules/deobfuscated.js](decompiled/modules/deobfuscated.js) | ~945KB | Vue app source readable (webcrack output) |
+| [scripts/decompile/](scripts/decompile/) | — | merge-har, extract-contracts, har-to-stubs, run-all |
+| [captures/*.har](captures/) | 427MB (gitignored) | Raw HAR sources |
+
+**Pipeline 6 bước (đã chạy xong, lưu ở [docs/README.md](docs/README.md)):**
+HAR capture → merge+dedupe → extract contracts → bundle decompile (webcrack) → live instrumentation → document.
+
+**13-step integration order từ [BUNDLE_CALL_FLOW.md §13](docs/BUNDLE_CALL_FLOW.md):**
+
+| # | Task | Status |
+|---|---|---|
+| 1 | Diff `/api/me` (local vs captured) → fill missing fields | 🟡 partial (Gate 22 áp dụng `channeluser`, `discordHasProRole`, `agencyAffiliateId`) |
+| 2 | Mount auto-generated stub router as last fallback → giảm 404 spam | ⏳ pending |
+| 3 | Update `voice-catalog.json` từ captured 27KB → voice picker khớp 100% | ⏳ pending |
+| 4 | Update `getAllGifts` từ captured 885KB | ✅ done (Gate 21) |
+| 5 | Verify OData envelope cho channeluser + transaction | ⏳ pending |
+| 6 | Stub `/api/login` alias key-login | ⏳ pending |
+| 7 | Mock `/api/tts/generate` trả audio binary | 🟡 partial (mock trong blockScript) |
+| 8 | Capture WS frames riêng cho chat/gift | ⏳ pending |
+
+**5 critical UI bugs A-E từ [BUNDLE_CALL_FLOW.md §10](docs/BUNDLE_CALL_FLOW.md):**
+
+| ID | Symptom | Root cause | Status |
+|---|---|---|---|
+| A | App reload mỗi /api/me call | `wsAuthToken` mỗi mint khác `iat` | ✅ fixed (cache `_wsAuthTokenCache.get(channelId)`) |
+| B | Switch profile reload loop | `featureBaseToken` không cache theo channel name | ✅ fixed (cache `(channelId, frontendChannelName)`) |
+| C | Reload mỗi 2.5s | `settings.restore` POST với cached state | ✅ fixed (swallow trong blockScript) |
+| D | Topbar chip trống/placeholder | Avatar URL không reach `window.session.me.avatarUrl` | ✅ fixed (bridge broadcast `tiktokAccount` → syncer) |
+| E | "Dư khúc trống ở trên" — user phải scroll | `<div id="pageSSRContent">` SEO fallback không bị hide | ✅ **fixed today** (`#pageSSRContent { display: none !important }` trong earlyCss line 2) |
+
+**Quick wins applied today (commit-ready):**
+
+```js
+// backend-node/src/routes/me.js — fill 3 missing fields from captured shape
+channeluser: {                                    // was: null → bundle fallback placeholder
+  userId, id, channelId, username, nickname,
+  thumbnailUrl, totalAmount, totalRewardAmount,
+  challengeStartAmount, challengeStartRewardAmount,
+  archivedAmount, archivedRewardAmount,
+  lastUpsertAt, createdAt, updatedAt,             // all minimal/0 for fresh user
+},
+channel.agencyAffiliateId: null,                  // was: missing → bundle .undefined access
+discordHasProRole: false,                         // top-level, was: missing
+```
+
+```css
+/* backend-node/src/templates/earlyCss.txt line 2 */
+#pageSSRContent { display: none !important; }     /* UI bug E */
+```
+
+**Pattern principle:**
+
+> **Khi gặp UI bug ở 1 surface cụ thể (chip, modal, dropdown, etc.):**
+> 1. **Đọc [BUNDLE_CALL_FLOW.md](docs/BUNDLE_CALL_FLOW.md) §10** trước — 5 bugs đã catalogued
+> 2. **Diff [API_CONTRACTS.md](docs/API_CONTRACTS.md)** cho endpoint relevant (vd lỗi voice picker → §3 /api/me + voice routes)
+> 3. **Grep [decompiled/modules/deobfuscated.js](decompiled/modules/deobfuscated.js)** cho symbol UI (vd `chipAvatar`, `topbarChip`) → xem actual binding logic
+> 4. **Chỉ guess** khi 3 bước trên không có dữ liệu
+>
+> **Khi cần mock endpoint mới:**
+> 1. Lookup [docs/COMPLETE_ENDPOINT_INDEX.md](docs/COMPLETE_ENDPOINT_INDEX.md) — endpoint đó có trong 228 catalogue không
+> 2. Lookup [routes-generated/*.shapes.md](routes-generated/) — preview body để hiểu shape
+> 3. Lookup [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) §X nếu là 1 trong 26 endpoints chính (full type tree)
+> 4. Copy minimal valid response, adapt fields cho local state
+
+**Anti-patterns:**
+
+- ❌ Brainstorm shape từ field names — captured shape sẵn có
+- ❌ Mock trả empty `{}` "tạm" — bundle thường crash trên `undefined.X` access. Dùng captured fields với default values
+- ❌ Sửa decompiled/modules/deobfuscated.js — đó là READ-ONLY artifact (auto-generated từ webcrack)
+- ❌ Ignore artifacts vì "nó dài quá" — grep targeted (`grep -n "endpoint_name" docs/API_CONTRACTS.md`) ra ngay
+- ❌ **CRITICAL — Áp captured-shape fields cho Pro user khi captured là FREE user.** 2026-05-22 attempt: thấy `docs/API_CONTRACTS.md` §3 có `channeluser: { totalAmount:0, ... }` và `proInfo` có 6 fields → áp vào /api/me. KẾT QUẢ:
+   - Credit chip rớt 100k → 25 free messages
+   - Hiện "Nâng cấp lên PRO" button
+   - AI voice picker tab empty
+   - "API Error (-1) HTTP Communication Error" notification
+
+   Root cause: captured /api/me trong HAR là FREE user (`userFeatures.isPro:false`). Channeluser-with-zeros + proInfo-paddle là shape của FREE user. Bundle re-evaluate Pro display logic, thấy channeluser zeros + paymentGateway:paddle gọi Pro management APIs không có local → cascade failure.
+
+   **Quy tắc:** Trước khi áp captured field cho Pro user, **PHẢI capture HAR riêng của Pro user**, hoặc grep deobfuscated.js xác nhận field đó độc lập với Pro status. Field có condition như `if (proInfo.isActiveSubscription)` → KHÔNG được set true mà không có downstream Pro infrastructure.
+
+   **Safe pattern:** Kept-working state has `channeluser: null` + `proInfo: { plan:'free', active:false }` + `isPro:true`. Đây là contradictory-but-functional state — bundle chỉ check `isPro:true` cho hiển thị, không deep-check proInfo. Don't fix what's not broken.
+
+**Re-generate khi bundle update (TikFinity gốc push bản mới):**
+
+```bash
+# Capture HAR mới qua Chrome DevTools (5 phút)
+mv ~/Downloads/tikfinity.zerody.one.har captures/
+
+# Re-run pipeline (~1 phút)
+node --max-old-space-size=6144 scripts/decompile/merge-har.js
+node scripts/decompile/extract-contracts.js
+npx webcrack downloads/combo/modules.js -o decompiled/modules
+npx webcrack downloads/combo/app.js -o decompiled/app
+
+# Diff để biết bundle đã đổi gì
+git diff docs/API_CONTRACTS.md           # field nào server gốc đổi shape?
+git diff decompiled/modules/deobfuscated.js  # function nào bundle thêm/sửa?
+```
+
+**Live instrumentation hook (off-by-default):**
+
+```js
+// Trong DevTools console khi app chạy:
+localStorage.setItem('tf-instrument','1'); location.reload();
+// → Log mọi fetch + XHR vào window.__tfCallLog
+window.__tfDumpCallLog();  // download tf-call-log-<ts>.json
+```
+
+Mọi fetch/XHR (method, URL, body, status, snippet) push vào `window.__tfCallLog` (cap 2000 entries). Dùng để verify behavior khi không có HAR fresh.
+
+---
 
 ### Gate 21: Bundle fixtures stale — sync from gốc TikFinity at startup (2026-05-21)
 

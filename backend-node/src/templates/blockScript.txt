@@ -385,6 +385,227 @@
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
+   tfPiniaProTrap — MINIMAL Pro UI activation via Pinia.
+   Verified 2026-05-22: Vue chip + Pro UI bind vào Pinia store "navigation"
+   (NOT window.session.me). Pinia.navigation has fields:
+     isPro: false           ← chip's switch picks ttsFreeMessages → "25"
+     ttsProCredits: 0       ← bundle's syncNavigationStoreCredits broken
+     ttsFreeMessages: 25
+   Direct write `nav.isPro = true` fails (Pinia may use computed() ref).
+   Use Object.defineProperty trap → ANY read returns true regardless.
+   ttsProCredits/Max → direct write works (plain refs).
+
+   SCOPE: ONLY patch Pinia.navigation. KHÔNG touch:
+     - window.session.me (Vue may need to write — defineProperty traps
+       blocked switch profile feature)
+     - inline button injection (use existing topbar CTA only)
+     - createPaymentUi triggers (bundle Vue lifecycle, not ours)
+*/
+(function tfPiniaProTrap(){
+  function patchPiniaNav() {
+    var apps = document.querySelectorAll('[data-v-app]');
+    for (var i = 0; i < apps.length; i++) {
+      var app = apps[i].__vue_app__;
+      if (!app) continue;
+      var pinia = app.config && app.config.globalProperties && app.config.globalProperties.$pinia;
+      if (!pinia || !pinia.state) continue;
+      var nav = pinia.state.value.navigation;
+      if (!nav || typeof nav !== 'object') continue;
+
+      // isPro → plain assignment (Object.defineProperty doesn't trigger Vue 3
+      // reactive proxy's `set` trap; chip's setup reads isPro=false at mount
+      // and stays subscribed to that initial value. Only plain assignment via
+      // the reactive proxy fires the dependency notifier → chip re-renders.
+      // Re-applied each tick in case Vue or session reload writes it back.
+      if (nav.isPro !== true) {
+        try { nav.isPro = true; } catch(_){}
+      }
+
+      // Plain ref writes — also trigger Vue reactivity
+      var fields = {
+        ttsProCredits: 100000,
+        ttsProCreditsMax: 100000,
+        trialBannerDismissed: true,
+      };
+      for (var k in fields) {
+        if (k in nav && nav[k] !== fields[k]) nav[k] = fields[k];
+      }
+
+      // Populate streamProfiles from window.session.me.channel.profiles
+      // if Pinia hasn't mapped it. Vue Pinia store init is []; bundle's
+      // Vue layer doesn't auto-map (migration gap). Populate directly.
+      if (Array.isArray(nav.streamProfiles) && nav.streamProfiles.length === 0) {
+        var profs = window.session && window.session.me && window.session.me.channel
+          && window.session.me.channel.profiles;
+        if (Array.isArray(profs) && profs.length > 0) {
+          nav.streamProfiles = profs.slice();
+        } else if (!_streamProfilesFetchInFlight) {
+          // session.me not ready — fetch /api/me ourselves to get profiles.
+          _streamProfilesFetchInFlight = true;
+          fetch('/api/me').then(function(r){ return r.ok ? r.json() : null; }).then(function(d) {
+            _streamProfilesFetchInFlight = false;
+            if (d && d.channel && Array.isArray(d.channel.profiles) && d.channel.profiles.length > 0) {
+              if (nav.streamProfiles && nav.streamProfiles.length === 0) {
+                nav.streamProfiles = d.channel.profiles.slice();
+              }
+              // Also seed window.session.me as side effect
+              if (!window.session) window.session = {};
+              if (!window.session.me) window.session.me = d;
+            }
+          }).catch(function(){ _streamProfilesFetchInFlight = false; });
+        }
+      }
+    }
+  }
+  var _streamProfilesFetchInFlight = false;
+  setTimeout(patchPiniaNav, 500);
+  setTimeout(patchPiniaNav, 1500);
+  setTimeout(patchPiniaNav, 3000);
+  setInterval(patchPiniaNav, 2000);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfBridgeSessionMe — populate `window.session.me` từ /api/me (Gate 28).
+   Bundle có 2 state systems:
+     - Pinia (Vue 3): populated bởi Vue parser ✓
+     - window.session.me (legacy modules.js): UNDEFINED ❌
+   Modules.js code (setup.createPaymentUi, sounds.init, tts.loadAiVoices...)
+   đọc `window.session.me.channel.X`. Khi undefined → early exit → các UI
+   surface (inline button, AI voices loader) không init.
+   FIX: intercept fetch /api/me, set window.session.me = data. PLAIN write,
+   no defineProperty trap (last attempt with trap blocked Vue from updating
+   on switch profile). Vue có thể overwrite — setInterval re-apply IF missing
+   (không trump Vue's write). */
+(function tfBridgeSessionMe(){
+  if (window.__tfMeBridgeInstalled) return;
+  window.__tfMeBridgeInstalled = true;
+  var _cachedMe = null;
+
+  function applyMe(data) {
+    if (!data || typeof data !== 'object' || !data.channel) return;
+    _cachedMe = data;
+    if (!window.session) window.session = {};
+    window.session.me = data;
+    if (data.channelId && (!window.session.channelId || window.session.channelId <= 0)) {
+      window.session.channelId = data.channelId;
+    }
+    if (typeof window.session.isElectron === 'undefined') {
+      window.session.isElectron = !!(window.process && window.process.versions && window.process.versions.electron)
+        || /Electron\//i.test(navigator.userAgent || '');
+    }
+  }
+
+  // Intercept fetch /api/me responses
+  var origFetch = window.fetch;
+  window.fetch = function() {
+    var args = arguments;
+    var url = (typeof args[0] === 'string' ? args[0] : args[0]?.url) || '';
+    var p = origFetch.apply(this, args);
+    if (/\/api\/me(\?|$)/.test(url)) {
+      p.then(function(resp) {
+        if (!resp || !resp.ok) return;
+        resp.clone().json().then(applyMe).catch(function(){});
+      }).catch(function(){});
+    }
+    return p;
+  };
+
+  // Initial seed — fire IMMEDIATELY (not setTimeout) so session.me is
+  // populated before bundle's setup-init reads it.
+  origFetch('/api/me', { credentials: 'include' })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(applyMe).catch(function(){});
+
+  // Safety net: re-fetch if session.me still missing after 1s. Handles
+  // case where initial fetch racing with bundle bootstrap that resets
+  // window.session.
+  setTimeout(function() {
+    if (window.session && window.session.me && window.session.me.channel) return;
+    origFetch('/api/me', { credentials: 'include' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(applyMe).catch(function(){});
+  }, 1000);
+
+  setTimeout(function() {
+    if (window.session && window.session.me && window.session.me.channel) return;
+    origFetch('/api/me', { credentials: 'include' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(applyMe).catch(function(){});
+  }, 3000);
+
+  // Long-term defender: if session.me ever goes missing AGAIN after 5s
+  // (e.g. Vue bootstrap completed but cleared session), re-apply cached.
+  // 8s interval is gentle — not aggressive enough to break switch profile
+  // reload chain (which finishes well under 8s).
+  setInterval(function() {
+    if (!_cachedMe) return;
+    if (window.session && window.session.me && window.session.me.channel) return;
+    applyMe(_cachedMe);
+  }, 8000);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfActivateProUI — Layer 2 trap on window.session.me.isPro (Gate 23).
+   Backend (/api/me) returns isPro:true (clone is ALL-PRO by design via SQL
+   local + Serial Key gate). But tfBridgeSessionMe writes session.me via
+   PLAIN assignment — bundle's Vue layer / settings.restore can overwrite.
+   This IIFE installs Object.defineProperty trap on:
+     - window.session.me.isPro
+     - window.session.me.userFeatures.isPro
+   Both traps return true regardless of who writes. setInterval 2s re-installs
+   on the NEW me object (tfBridgeSessionMe may swap session.me reference).
+   Plus jQuery DOM activation matching bundle line 1998-2010 logic (.nopro
+   hide, .appNameExtra "Pro", upgrade buttons hide).
+   Pattern principle: backend is L1, but L2 client-side trap defends against
+   Vue/bundle internal state divergence. See CLAUDE.md §1.00 priority L1→L5.
+*/
+(function tfActivateProUI(){
+  function installTrap(obj, key) {
+    if (!obj || typeof obj !== 'object') return false;
+    try {
+      var desc = Object.getOwnPropertyDescriptor(obj, key);
+      if (desc && desc.get && desc.get() === true) return true; // already trapped
+      Object.defineProperty(obj, key, {
+        get: function(){ return true; },
+        set: function(){ /* swallow */ },
+        configurable: true,
+        enumerable: true,
+      });
+      return true;
+    } catch (_) {
+      try { obj[key] = true; return true; } catch (__) { return false; }
+    }
+  }
+  function tick() {
+    var me = window.session && window.session.me;
+    if (me) {
+      installTrap(me, 'isPro');
+      if (!me.userFeatures) {
+        me.userFeatures = { isPro: true, proInfo: null };
+      } else {
+        installTrap(me.userFeatures, 'isPro');
+      }
+    }
+    if (typeof window.$ === 'function') {
+      try {
+        window.$('.nopro').hide();
+        window.$('.proPromoBox').css('display', 'none').removeClass('shakeEffect');
+        window.$('.appNameExtra').text('Pro').css('display', 'inline-block').addClass('proColor');
+        window.$('[class*="upgrade"], [class*="proPromo"], #upgrade-button-wrap').each(function(){
+          var $el = window.$(this);
+          if (/nâng cấp|upgrade/i.test($el.text()) && $el.is(':visible')) $el.hide();
+        });
+      } catch(_){}
+    }
+  }
+  setTimeout(tick, 100);
+  setTimeout(tick, 500);
+  setTimeout(tick, 1500);
+  setTimeout(tick, 3500);
+  setInterval(tick, 2000);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
    Live-badge accuracy patch.
    Bundle's user-profile dropdown renders a "LIVE" badge under the username
    whenever the TikTok bridge has a session (`connected: true`), regardless
@@ -2407,7 +2628,19 @@
   // The real /api/tts/preview endpoint is intercepted below to return
   // 503 "feature in development" since we have no Pro JWT to call the
   // real TTS service for playback.
-  var TF_MOCK_VOICES = [
+  // 2026-05-22: Load FULL catalog from templates/voice-catalog.json (120
+  // voices: 20 ttsm + 100 polly) via voiceCatalogJson interpolation
+  // (placeholder in template — DO NOT put literal placeholder in comment).
+  // Hardcoded fallback list below kept as ultimate fallback.
+  var TF_MOCK_VOICES = null;
+  try {
+    TF_MOCK_VOICES = ({{voiceCatalogJson}}).data.voices;
+  } catch (e) {
+    TF_MOCK_VOICES = null;
+  }
+  if (!TF_MOCK_VOICES || !TF_MOCK_VOICES.length) {
+    // Fallback: 66-voice hardcoded list (subset of full catalog)
+    TF_MOCK_VOICES = [
     // ttsm vendor (TikFinity's premium AI voices)
     {vendorId:'ttsm', voiceId:'98800f7e-05bf-4064-a8d2-cd12ee18496c', voiceName:'Alpha', languageCode:'en-us', gender:'male', displayName:'Alpha', vendorSpecificAttributes:{metadata:'EN-US|Male'}},
     {vendorId:'ttsm', voiceId:'d1179775-d73d-46f4-ab12-bced0baf9cd2', voiceName:'Breaker', languageCode:'en-us', gender:'male', displayName:'Breaker', vendorSpecificAttributes:{metadata:'EN-US|Male'}},
@@ -2476,7 +2709,8 @@
     {vendorId:'polly', voiceId:'neural_Arlet', voiceName:'Arlet', languageCode:'ca-es', gender:'female', displayName:'Arlet', vendorSpecificAttributes:{supportedEngines:['neural'], preferredEngine:'neural'}},
     {vendorId:'polly', voiceId:'neural_Hala', voiceName:'Hala', languageCode:'ar-ae', gender:'female', displayName:'Hala', vendorSpecificAttributes:{supportedEngines:['neural'], preferredEngine:'neural'}},
     {vendorId:'polly', voiceId:'generative_Ewa', voiceName:'Ewa', languageCode:'pl-pl', gender:'female', displayName:'Ewa', vendorSpecificAttributes:{supportedEngines:['generative','standard'], preferredEngine:'generative'}},
-  ];
+    ];
+  }
   function tfBuildMockJsonResponse(obj, status) {
     return new Response(JSON.stringify(obj), {
       status: status || 200,
@@ -2544,14 +2778,18 @@
     var nextSec = Math.floor((nextMonth.getTime() - nowDate.getTime()) / 1000);
     return {
       exceeded: false, // Pro never exceeded — always has 100k
-      currentUsageMode: 'subscription',
+      // CRITICAL: must be 'sub_credits' (NOT 'subscription'). Bundle's
+      // applyAiCreditsFromApiUser (decompiled/modules/deobfuscated.js:4621)
+      // only sets tts.proCredits when mode === 'sub_credits'. 'subscription'
+      // falls through → tts.proCredits stays 0 → chip shows 25 freeMessages.
+      currentUsageMode: 'sub_credits',
       currentUsageCurrency: 'characters',
       subscriptionCreditsRemaining: remaining,
       subscriptionCreditsTotal: 100000,
       purchasedCreditsRemaining: 0,
       purchasedCreditsTotal: 0,
-      freeRequestsRemaining: 25,
-      freeRequestsTotal: 25,
+      freeRequestsRemaining: 0,
+      freeRequestsTotal: 0,
       nextResetAt: nextMonth.toISOString(),
       nextResetSeconds: nextSec,
     };

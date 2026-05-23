@@ -384,7 +384,27 @@ function handleMe(req, res) {
       userFeatures: { isPro, proInfo: { plan, active } },
       profiles: profs.map((p) => ({ id: p.Id, name: p.Name, sort: p.Sort })),
     },
-    channeluser: null,
+    // channeluser: per Gate 23b captured Pro shape — bundle expects OBJECT
+    // (not null). Profile dropdown + topbar avatar bind to channeluser.id and
+    // channeluser.thumbnailUrl. Setting null breaks identity-bound UI surfaces
+    // (icons missing, dropdown empty).
+    channeluser: {
+      userId: String(channel.OwnerUserId || '0'),
+      id: channel.ChannelId,
+      channelId: channel.ChannelId,
+      username: channel.ChannelName,
+      nickname: null,
+      thumbnailUrl: null,
+      totalAmount: 0,
+      totalRewardAmount: 0,
+      challengeStartAmount: 0,
+      challengeStartRewardAmount: 0,
+      archivedAmount: 0,
+      archivedRewardAmount: 0,
+      lastUpsertAt: channel.UpdatedAt,
+      createdAt: channel.CreatedAt,
+      updatedAt: channel.UpdatedAt,
+    },
     userFeatures: { isPro, proInfo: { plan, active } },
     profile: null,
     cookieAuth: false,

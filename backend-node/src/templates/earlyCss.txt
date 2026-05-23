@@ -1,4 +1,27 @@
 <style id="tf-nav-early">
+  /* UI bug E (Gate 22): #pageSSRContent là SEO prerendered HTML, sit ở top
+     của body push real .page content xuống ~2000px. Probe 2026-05-22:
+     pageId=actionsandevents có y=2105 → user phải scroll mới thấy nội dung.
+     Hide nó hoàn toàn — Vue mount #pages thay thế nội dung này. */
+  #pageSSRContent { display: none !important; }
+
+  /* Gate 20 (actionsandevents page text cut-off):
+     Bundle có rule `.page[data-pageid=actionsandevents]{margin-left:-255px}`
+     để page extend qua vùng sub-sidebar (gốc auto-hide sub-sidebar cho
+     pageid này). Combined với #pages max-width + overflow-x:hidden, page
+     extend LEFT 255px bị CLIP → text cắt đầu dòng (vd "ành động" thay vì
+     "Hành động"). Override -255 về 0 — page sit at standard x=335, cards
+     bên trong render OK (chỉ mất ~255px breathing room bên trái so với
+     gốc, không break gì). */
+  body[data-new-navigation-design] .page[data-pageid=actionsandevents] {
+    margin-left: 0 !important;
+  }
+  body[data-new-navigation-design] #pages:has(.page.pageenabled[data-pageid=actionsandevents]) #trial-banner-wrap,
+  body[data-new-navigation-design] #pages:has(.page.pageenabled[data-pageid=actionsandevents]) #yearly-upgrade-banner-wrap {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+
   /* Paint a dark canvas from the very first frame so the multiple
      bootstrap reloads (and switchProfile-triggered location.reload())
      don't flash white between renders. Matches Electron's

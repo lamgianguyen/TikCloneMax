@@ -440,6 +440,51 @@ app.get(SPA_HTML_ROUTES, (req, res, next) => {
   return indexHtmlMiddleware()(req, res, next);
 });
 
+// CDN proxy helper — used by /flag-icons + /widget/streambuddies routes.
+// Caches upstream responses in memory 24h. Mounted BEFORE express.static
+// so route-specific match wins over static 404 fallback.
+const _cdnProxyCache = new Map();
+const CDN_PROXY_TTL_MS = 24 * 60 * 60 * 1000;
+async function cdnProxyFetch(_req, res, cacheKey, upstreamUrl) {
+  const cached = _cdnProxyCache.get(cacheKey);
+  if (cached && (Date.now() - cached.fetchedAt) < CDN_PROXY_TTL_MS) {
+    res.setHeader('Content-Type', cached.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(cached.body);
+  }
+  try {
+    const r = await fetch(upstreamUrl, { headers: { 'User-Agent': 'TikMax-clone/1.0' } });
+    if (!r.ok) return res.status(r.status).end();
+    const contentType = r.headers.get('content-type') ||
+      (cacheKey.endsWith('.css') ? 'text/css' :
+       cacheKey.endsWith('.svg') ? 'image/svg+xml' :
+       cacheKey.endsWith('.js') ? 'application/javascript' :
+       cacheKey.endsWith('.json') ? 'application/json' :
+       'application/octet-stream');
+    const body = Buffer.from(await r.arrayBuffer());
+    _cdnProxyCache.set(cacheKey, { body, contentType, fetchedAt: Date.now() });
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(body);
+  } catch (err) {
+    logger.warn({ upstreamUrl, err: err.message }, '[cdn-proxy] fetch failed');
+    return res.status(502).end();
+  }
+}
+
+// /flag-icons/* → jsdelivr CDN. CSS + ~200 country SVG flags.
+app.get(/^\/flag-icons\/(.+)$/, async (req, res) => {
+  return cdnProxyFetch(req, res, 'flag-icons/' + req.params[0],
+    'https://cdn.jsdelivr.net/gh/lipis/flag-icons@7/' + req.params[0]);
+});
+
+// /widget/streambuddies/{assets,images,sounds}/* → gốc TikFinity. Vite hash
+// assets + sprite/sound files don't exist locally → 404. Proxy fetches.
+app.get(/^\/widget\/streambuddies\/(assets\/.+|images\/.+|sounds\/.+|buddiestester\.js)$/, async (req, res) => {
+  return cdnProxyFetch(req, res, 'streambuddies/' + req.params[0],
+    'https://tikfinity.zerody.one/widget/streambuddies/' + req.params[0]);
+});
+
 // Static bundle assets + the `downloads/api/*` JSON fixtures TikFinity ships.
 // Mounted AFTER our real /api handlers so the fixtures only fire for endpoints
 // we haven't ported yet (Phase 2 progressively shrinks that surface).

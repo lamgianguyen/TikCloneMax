@@ -110,10 +110,28 @@ function ensureWelcomeNotifications(channelId) {
   logger.info(`[SEED] seeded ${items.length} welcome notifications for channel ${channelId}`);
 }
 
+function ensureProProfiles(channelId) {
+  // TikClone is ALL-PRO (CLAUDE.md §1.0). Pro tier supports up to 10
+  // stream profiles. Seed 10 profiles on first boot so switch profile
+  // dropdown shows all 10 (matches gốc Pro behavior).
+  const existing = models.profiles.listByChannel(channelId);
+  if (existing.length >= 10) return;
+  const startCount = existing.length;
+  for (let i = startCount; i < 10; i++) {
+    models.profiles.create({
+      channelId,
+      name: `Stream Profile ${i + 1}`,
+      sort: i,
+    });
+  }
+  logger.info(`[SEED] seeded ${10 - startCount} additional profiles for Pro tier (channel ${channelId})`);
+}
+
 function run() {
   const ch = ensureDefaultChannel();
   ensureDefaultSubscription(ch.ChannelId);
   models.profiles.ensureDefault(ch.ChannelId);
+  ensureProProfiles(ch.ChannelId);
   models.channelModules.ensureDefaults(ch.ChannelId);
   ensureWelcomeNotifications(ch.ChannelId);
   return ch;

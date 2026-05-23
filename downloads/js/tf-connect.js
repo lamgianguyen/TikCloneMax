@@ -58,7 +58,12 @@
 
     // Skip navigation / sidebar / menu items so we don't overwrite their labels.
     // Sidebar links also have role="button" but are not connect buttons.
-    if (el.closest('nav, aside, [role="navigation"], .sidebar, .menu, .dropdown, .submenu, [class*="nav-"], [class*="menu-"], .topbar-search, .breadcrumb')) {
+    // 2026-05-22: REMOVED `nav, aside, [class*="nav-"]` from exclusion.
+    // Bundle's topbar CTA "Kết nối với TikTok LIVE" lives inside
+    // `#navigation-app` (Vue topbar) — `closest('nav')` matched it →
+    // handler bailed → connect flow never fired. Text match (strict
+    // 6 labels in isConnectButton) is sufficient on its own.
+    if (el.closest('.sidebar, .menu, .dropdown, .submenu, [class*="menu-"], .topbar-search, .breadcrumb')) {
       return false;
     }
 
@@ -315,7 +320,38 @@
     }, 100);
   }, true);
 
-  // ── Input listener — keep _currentUsername in sync ──
+  // ── Input listener — keep _currentUsername in sync + auto-reconnect ──
+  // Gốc behavior: đổi username trong setup field → bundle auto disconnect old
+  // + connect new. Debounce 800ms.
+
+  var _autoReconnectTimer = null;
+  function isUsernameInput(el) {
+    if (!el || el.tagName !== 'INPUT' || el.type === 'hidden') return false;
+    if (el.dataset && el.dataset.tfTikTokInput === '1') return true;
+    var val = (el.value || '').trim();
+    var aria = (el.getAttribute('aria-label') || '').toLowerCase();
+    var ph = (el.getAttribute('placeholder') || '').toLowerCase();
+    if (/tiktok|@user|kênh|channel|tên/.test(aria + ' ' + ph)) {
+      el.dataset.tfTikTokInput = '1'; return true;
+    }
+    var node = el, combinedText = '';
+    for (var i = 0; i < 8 && node && node !== document.body; i++) {
+      var sibs = node.parentElement ? Array.from(node.parentElement.children) : [];
+      for (var j = 0; j < sibs.length && j < 5; j++) {
+        if (sibs[j] === node) continue;
+        combinedText += ' ' + (sibs[j].textContent || '').toLowerCase().slice(0, 60);
+      }
+      node = node.parentElement;
+    }
+    if (/tiktok|kênh|channel|tên\s+(tiktok|của bạn|kênh)/.test(combinedText)) {
+      el.dataset.tfTikTokInput = '1'; return true;
+    }
+    if (val.startsWith('@')) {
+      el.dataset.tfTikTokInput = '1'; return true;
+    }
+    el.dataset.tfTikTokInput = '0';
+    return false;
+  }
 
   document.addEventListener('input', function(e) {
     if (!e.target || e.target.tagName !== 'INPUT' || e.target.type === 'hidden') return;
@@ -324,8 +360,101 @@
       _currentUsername = val;
       localStorage.setItem('setting_tiktokname', val);
       try { if (window.session) window.session.tiktokUsername = val; } catch(ex) {}
+
+      // Auto-reconnect when username changes while connected
+      if (_connected && isUsernameInput(e.target)) {
+        if (_autoReconnectTimer) clearTimeout(_autoReconnectTimer);
+        _autoReconnectTimer = setTimeout(function() {
+          var current = normalize(e.target.value);
+          if (_connected && current && current.length >= 2) {
+            console.log('[TF] Auto-reconnect detected username change → @' + current);
+            doDisconnect();
+            setTimeout(function() { doConnect(current, false); }, 500);
+          }
+        }, 800);
+      }
     }
   }, true);
+
+  // ── Native inline button trigger (Gate 28 — bundle's setup.onChannelContext
+  // Changed is shadowed by Vue, so dxButton init at line 1805 never fires.
+  // Call dxButton directly using bundle's native plugin + handler. ──
+
+  function triggerNativeSetupButton() {
+    var btn = document.getElementById('manualConnectButtonSetup');
+    if (!btn) return false;
+    if (btn.classList.contains('dx-button')) return false;
+    if (typeof window.$ !== 'function' || typeof window.$.fn.dxButton !== 'function') return false;
+    if (!window.session || !window.session.me || !window.session.me.channel) return false;
+    try {
+      window.$('#manualConnectButtonSetup').dxButton({
+        text: (window.localization && window.localization.getString)
+          ? window.localization.getString('start_connect_button')
+          : 'Connect to TikTok LIVE',
+        disabled: !window.session.me.channel.channelName,
+        onClick: function() {
+          if (window.isTosViolation) {
+            return window.showTosViolationWarning && window.showTosViolationWarning();
+          }
+          if (window.broadcastlistener && window.broadcastlistener.tryConnect) {
+            window.broadcastlistener.tryConnect(true, true, true);
+          } else {
+            var u = (window.session.me.channel.channelName || '').replace(/^@+/, '');
+            fetch('/api/tiktok/connect', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ username: u })
+            }).catch(function(){});
+          }
+          try {
+            var inst = window.$('#manualConnectButtonSetup').dxButton('instance');
+            inst.option('disabled', true);
+            setTimeout(function(){
+              try { inst.option('disabled', false); } catch(_){}
+            }, 2000);
+          } catch(_){}
+        }
+      }).css('margin-top', '15px');
+      console.log('[TF] Native inline button initialized via direct dxButton call');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  setTimeout(triggerNativeSetupButton, 1500);
+  setTimeout(triggerNativeSetupButton, 4000);
+  setInterval(triggerNativeSetupButton, 5000);
+
+  // ── Trigger AI voices loader chain ──
+  // Bundle's `tts.onChannelContextChanged` (line 6028 decompiled) fires
+  // `tts.loadAiVoiceState()` which: ensureAiAuthToken → loadUserCredits +
+  // loadAiVoices. In our clone, Vue layer doesn't fire onChannelContextChanged
+  // when /api/me parses, so the chain never starts → aiVoices stays [].
+  // Manually kick it once session.me + appConfig.ttsHost both ready.
+  var _aiVoicesTriggered = false;
+  function triggerAiVoicesLoad() {
+    if (_aiVoicesTriggered) return;
+    if (!window.tts || typeof window.tts.loadAiVoiceState !== 'function') return;
+    if (!window.appConfig || !window.appConfig.ttsHost) return;
+    if (!window.session || !window.session.me || !window.session.me.channel) return;
+    if (window.tts.aiVoices && window.tts.aiVoices.length > 0) {
+      _aiVoicesTriggered = true; return;
+    }
+    _aiVoicesTriggered = true;
+    try {
+      window.tts.loadAiVoiceState().then(function() {
+        var count = (window.tts.aiVoices && window.tts.aiVoices.length) || 0;
+        console.log('[TF] AI voices loaded: ' + count);
+      }).catch(function(e) {
+        console.warn('[TF] loadAiVoiceState failed:', e.message);
+        _aiVoicesTriggered = false;  // allow retry
+      });
+    } catch (e) {
+      _aiVoicesTriggered = false;
+    }
+  }
+  setTimeout(triggerAiVoicesLoad, 2500);
+  setTimeout(triggerAiVoicesLoad, 5000);
+  setInterval(triggerAiVoicesLoad, 8000);
 
   // ── Periodic: hook browserbridge + sync buttons + sync Pinia store ──
 
