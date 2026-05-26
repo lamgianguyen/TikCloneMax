@@ -838,6 +838,67 @@
   }, 30);
 })();
 
+/* ─────────────────────────────────────────────────────────────────────
+   tfPatchSwitchLanguage — wrap localization.switchLanguage to also set
+   the backend's tf_locale cookie before window.location.reload().
+
+   Bundle's language picker (Vue) calls `await localization.switchLanguage(lang)`
+   then `window.location.reload()`. The original switchLanguage only:
+     - updates localization.languageCode + settings.set('language', lang)
+     - fetches /config/localization/<lang>.json (or uses inline data)
+   It does NOT set any cookie/header that survives reload AT THE BACKEND.
+   On reload, our backend's detectLang() reads tf_locale cookie → maps to
+   served HTML variant. Without the cookie, backend keeps serving the same
+   `downloads/<lang>` file, so tfPageloadData.localization only has the OLD
+   locale's bucket. Bundle init + tfI18nPreBake fall back to copying that
+   bucket into the en slot, so vue-i18n's English messages contain VN text
+   → UI stays Vietnamese even though languageCode='en'.
+
+   Fix: intercept switchLanguage to set tf_locale + tf_lang cookies. After
+   reload, backend serves the correct localized HTML and the bundle picks up
+   the right localization bucket on init.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfPatchSwitchLanguage(){
+  // Must cover ALL 12 langs bundle's picker offers — backend's TF_LOCALE_TO_LANG
+  // accepts the inverse mapping. If a lang code isn't in this table, default to
+  // 'EN' would make backend serve the English HTML (wrong locale) even though
+  // bundle's internal languageCode is correct.
+  var LANG_TO_LOCALE = {
+    vi: 'VN', de: 'DE', es: 'ES', en: 'EN',
+    id: 'ID', ja: 'JA', ko: 'KO', ms: 'MS',
+    th: 'TH', tl: 'TL', tr: 'TR', 'pt-br': 'BR'
+  };
+  function tryInstall() {
+    var loc = window.localization;
+    if (!loc || typeof loc.switchLanguage !== 'function') return false;
+    if (loc.__tfSwitchPatched) return true;
+    var origSwitch = loc.switchLanguage;
+    loc.switchLanguage = function tfSwitchLanguageWrapped(langCode) {
+      try {
+        var code = String(langCode || '').toLowerCase();
+        var locale = LANG_TO_LOCALE[code] || 'EN';
+        var maxAge = 31536000;
+        // tf_lang preserves the original code (including 'pt-BR' casing), not
+        // the lowercased one — backend's regex accepts hyphenated codes.
+        document.cookie = 'tf_locale=' + locale + '; Path=/; Max-Age=' + maxAge + '; SameSite=Lax';
+        document.cookie = 'tf_lang=' + langCode + '; Path=/; Max-Age=' + maxAge + '; SameSite=Lax';
+        try { console.log('[TF-i18n-switch] set tf_locale=' + locale + ' tf_lang=' + langCode); } catch(_){}
+      } catch (_) {}
+      return origSwitch.call(loc, langCode);
+    };
+    loc.__tfSwitchPatched = true;
+    try { console.log('[TF-i18n-switch] localization.switchLanguage patched'); } catch(_){}
+    return true;
+  }
+  if (tryInstall()) return;
+  var t0 = Date.now();
+  var iv = setInterval(function(){
+    if (tryInstall() || Date.now() - t0 > 30000) {
+      try { clearInterval(iv); } catch(_){}
+    }
+  }, 100);
+})();
+
 (function(){
   // While the bundle's #splashScreen ("Getting things ready for you...")
   // is visible, set body.tf-splash-active so CSS hides the partially
@@ -2788,8 +2849,10 @@
       subscriptionCreditsTotal: 100000,
       purchasedCreditsRemaining: 0,
       purchasedCreditsTotal: 0,
-      freeRequestsRemaining: 0,
-      freeRequestsTotal: 0,
+      // Keep free quota non-zero so bundle does not auto-open the
+      // "daily limit exceeded" modal during Pro AI voice initialization.
+      freeRequestsRemaining: 25,
+      freeRequestsTotal: 25,
       nextResetAt: nextMonth.toISOString(),
       nextResetSeconds: nextSec,
     };

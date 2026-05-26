@@ -99,13 +99,19 @@ function buildIndexHtml({ channelId, channelName, lang = '' }) {
 
   // Map lang code → physical filename under downloads/. Bundle gốc ships
   // each locale as an extensionless HTML next to index.html (`downloads/vi`,
-  // `downloads/de`, `downloads/es`). Fallback to default index.html when
-  // lang is empty or the lang file is missing.
+  // `downloads/de`, `downloads/es`). For languages WITHOUT a dedicated HTML
+  // file (id, ja, ko, ms, th, tl, tr, pt-BR), serve index.html (English base)
+  // and inject the corresponding bucket from `downloads/config/localization/
+  // <lang>.json` into the inline `tfPageloadData.localization` object — that
+  // way vue-i18n's messages contain the target language at INIT (no async
+  // fetch race, no first-paint flicker in the wrong locale).
   const baseFile = lang ? lang : 'index.html';
   let indexPath = path.join(FRONTEND_PATH, baseFile);
+  let usedFallback = false;
   if (lang && !fs.existsSync(indexPath)) {
-    logger.warn(`[BUILD-HTML] lang file '${baseFile}' missing — falling back to index.html`);
+    logger.info(`[BUILD-HTML] lang file '${baseFile}' missing — using index.html + JSON injection for '${lang}'`);
     indexPath = path.join(FRONTEND_PATH, 'index.html');
+    usedFallback = true;
   }
   if (!fs.existsSync(indexPath)) {
     logger.warn(`[BUILD-HTML] index.html missing at ${indexPath}`);
@@ -113,6 +119,46 @@ function buildIndexHtml({ channelId, channelName, lang = '' }) {
   }
 
   let html = fs.readFileSync(indexPath, 'utf8');
+
+  // Inject lang JSON into tfPageloadData.localization for HTML-less locales.
+  // Bundle's vue-i18n initializes from `tfPageloadData.localization` at script
+  // load. Without this bucket present, the bundle's switchLanguage runtime
+  // fetch lands AFTER vue-i18n has snapshotted English → UI stays English
+  // even though localization.languageCode='th'.
+  if (usedFallback && lang) {
+    const jsonPath = path.join(FRONTEND_PATH, 'config', 'localization', `${lang}.json`);
+    if (fs.existsSync(jsonPath)) {
+      try {
+        const jsonContent = fs.readFileSync(jsonPath, 'utf8').trim();
+        // Validate JSON parses (defensive — bad JSON would corrupt the inline
+        // tfPageloadData literal and crash the bundle at script-parse time).
+        JSON.parse(jsonContent);
+        // Insert `<langKey>:<jsonContent>,` right after `localization:{` so the
+        // bundle reads our bucket alongside the default `en:{...}` bucket.
+        // The marker must be the REAL tfPageloadData assignment, NOT the same
+        // string inside our blockScript.txt comments. Anchor the search to
+        // `tfPageloadData=` first to skip any prior occurrences in injected
+        // <head> scripts.
+        const langKey = lang.includes('-') ? `"${lang}"` : lang;
+        const anchor = 'tfPageloadData=';
+        const marker = 'localization:{';
+        const anchorIdx = html.indexOf(anchor);
+        const idx = anchorIdx >= 0 ? html.indexOf(marker, anchorIdx) : -1;
+        if (idx >= 0) {
+          html = html.slice(0, idx + marker.length)
+               + `${langKey}:${jsonContent},`
+               + html.slice(idx + marker.length);
+          logger.info(`[BUILD-HTML] injected ${lang}.json (${jsonContent.length} bytes) into tfPageloadData.localization`);
+        } else {
+          logger.warn(`[BUILD-HTML] could not find tfPageloadData.localization marker — '${lang}' bucket not injected`);
+        }
+      } catch (err) {
+        logger.warn(`[BUILD-HTML] failed to inject ${lang}.json: ${err.message}`);
+      }
+    } else {
+      logger.warn(`[BUILD-HTML] no JSON at ${jsonPath} — '${lang}' will fall back to English`);
+    }
+  }
 
   // Strip third-party telemetry script tags — same regexes as the C# version.
   html = html.replace(/<script src="https:\/\/t\.contentsquare\.net\/uxa\/19b56fd959e33\.js"><\/script>/gi, '');
@@ -202,28 +248,43 @@ function invalidateCache() {
  */
 // Detect language code from request — URL prefix wins, then cookie, then
 // Accept-Language. Returns '' (empty = English/default) if no match.
-const SUPPORTED_LANGS = new Set(['vi', 'de', 'es']);
-// Bundle's language picker writes its own cookie `tf_locale=VN|DE|ES|EN` using
-// the locale (NOT the lang code) — uppercase, two letters, country-style. We
-// honor that mapping so the picker's choice survives navigation and the
+// All 12 langs that bundle's picker offers — even those without a dedicated
+// `downloads/<lang>` HTML are honored via runtime JSON injection below.
+const SUPPORTED_LANGS = new Set(['vi', 'de', 'es', 'id', 'ja', 'ko', 'ms', 'th', 'tl', 'tr', 'pt-BR']);
+// Bundle's language picker writes its own cookie `tf_locale=VN|DE|ES|EN|TH|...`
+// using the locale (NOT the lang code) — uppercase, two letters, country-style.
+// We honor that mapping so the picker's choice survives navigation and the
 // browser hits the right localized HTML even when on `/tiktok/...` URLs that
-// don't carry a `/vi/` prefix. Without this, the picker sets tf_locale=VN,
-// page reloads, middleware misses it, serves index.html (EN), bundle's
-// runtime locale is still VN, looks up `localization.VN[key]` → undefined →
-// renders the raw key (e.g. tabs show `tts.voice_picker.ai_tab`).
-const TF_LOCALE_TO_LANG = { VN: 'vi', DE: 'de', ES: 'es', EN: '' };
+// don't carry a `/vi/` prefix.
+// EN / US → '' (empty = serve default index.html which already has English).
+const TF_LOCALE_TO_LANG = {
+  VN: 'vi', VI: 'vi',
+  DE: 'de',
+  ES: 'es',
+  ID: 'id',
+  JA: 'ja', JP: 'ja',
+  KO: 'ko', KR: 'ko',
+  MS: 'ms', MY: 'ms',
+  TH: 'th',
+  TL: 'tl', PH: 'tl',
+  TR: 'tr',
+  BR: 'pt-BR', 'PT-BR': 'pt-BR',
+  EN: '', US: '',
+};
 function detectLang(req) {
   // URL prefix: /vi/..., /de/..., /es/...
   const m = String(req.path || '').match(/^\/([a-z]{2})(\/|$)/);
   if (m && SUPPORTED_LANGS.has(m[1])) return m[1];
   const cookieStr = String(req.headers.cookie || '');
   // Bundle-set cookie (`tf_locale=VN`) — uppercase, locale code, not lang.
-  const cookieLocale = cookieStr.match(/(?:^|;\s*)tf_locale=([A-Z]{2})/);
-  if (cookieLocale && TF_LOCALE_TO_LANG[cookieLocale[1]]) {
-    return TF_LOCALE_TO_LANG[cookieLocale[1]];
+  const cookieLocale = cookieStr.match(/(?:^|;\s*)tf_locale=([A-Za-z]{2})/);
+  const localeKey = cookieLocale ? String(cookieLocale[1]).toUpperCase() : '';
+  if (localeKey && Object.prototype.hasOwnProperty.call(TF_LOCALE_TO_LANG, localeKey)) {
+    return TF_LOCALE_TO_LANG[localeKey];
   }
-  // Our own cookie (`tf_lang=vi`) — lowercase, lang code.
-  const cookieLang = cookieStr.match(/(?:^|;\s*)tf_lang=([a-z]{2})/);
+  // Our own cookie (`tf_lang=vi` or `tf_lang=pt-BR`) — lowercase + optional
+  // hyphenated suffix (e.g. pt-BR). Match longer codes first.
+  const cookieLang = cookieStr.match(/(?:^|;\s*)tf_lang=([a-zA-Z]{2,3}(?:-[A-Za-z]{2,3})?)/);
   if (cookieLang && SUPPORTED_LANGS.has(cookieLang[1])) return cookieLang[1];
   // Accept-Language fallback (browser preference).
   const al = String(req.headers['accept-language'] || '').toLowerCase();

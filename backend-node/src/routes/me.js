@@ -33,6 +33,18 @@ const { DATA_DIR } = require('../config');
 const logger = require('../logger');
 
 const router = express.Router();
+const DEFAULT_PROFILE_ICONS = [
+  '\u{1F339}', // rose
+  '\u{1F525}', // fire
+  '\u{1F970}', // smiling face with hearts
+  '\u{1F92F}', // exploding head
+  '\u{1F5E8}\uFE0F', // speech balloon
+  '\u{1F381}', // wrapped gift
+  '\u{1F643}', // upside-down face
+  '\u{1F3B5}', // musical note
+  '\u{1F4DE}', // telephone receiver
+  '\u2705', // check mark button
+];
 
 // Per-channel JWT cache, persisted to disk so backend restart does NOT mint
 // fresh tokens with new `iat`. The bundle's settings.restore compares iat
@@ -100,6 +112,26 @@ function resolveChannelId(req) {
   if (req.auth && req.auth.channelId > 0) return req.auth.channelId;
   const def = channels.findDefault();
   return def ? def.ChannelId : 0;
+}
+
+function readCookie(req, name) {
+  const escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = String(req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${escaped}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+function normalizeLocale(value) {
+  const v = String(value || '').trim().toUpperCase();
+  if (!v) return '';
+  const code = v.includes('-') ? v.split('-').pop() : v;
+  if (code === 'VI') return 'VN';
+  if (code === 'EN') return 'US';
+  if (['VN', 'US', 'DE', 'ES'].includes(code)) return code;
+  return code;
+}
+
+function resolveRequestLocale(req, fallback) {
+  return normalizeLocale(readCookie(req, 'tf_locale')) || normalizeLocale(fallback) || 'VN';
 }
 
 function readRequestedProfileId(req) {
@@ -187,6 +219,46 @@ function buildDynamicSettings(source, frontendChannelName, featureBaseToken, own
   return result;
 }
 
+function defaultProfileIcon(profileId) {
+  const idx = Math.max(0, Math.min(DEFAULT_PROFILE_ICONS.length - 1, (Number(profileId) || 1) - 1));
+  return DEFAULT_PROFILE_ICONS[idx];
+}
+
+function buildProfilePayload(profile) {
+  const id = Number(profile.Id) || 1;
+  const name = profile.Name || (id === 1 ? 'Default' : `Stream Profile ${id}`);
+  const icon = profile.Icon || profile.ProfileIcon || defaultProfileIcon(id);
+  return {
+    id,
+    profileId: id,
+    name,
+    profileName: name,
+    sort: Number(profile.Sort) || 0,
+    icon,
+    profileIcon: icon,
+  };
+}
+
+function buildDynamicProfileSettings(profs) {
+  const out = [];
+  for (const profile of profs) {
+    const p = buildProfilePayload(profile);
+    out[p.id] = {
+      id: p.id,
+      profileId: p.profileId,
+      name: p.name,
+      profileName: p.profileName,
+      icon: p.icon,
+      profileIcon: p.profileIcon,
+    };
+  }
+  return out;
+}
+
+function hasChannelProfile(profs, profileId) {
+  return profs.some((p) => Number(p.Id) === Number(profileId));
+}
+
 function getOrMintWsToken(channel, isPro) {
   let token = _wsAuthTokenCache.get(channel.ChannelId);
   if (token) {
@@ -232,28 +304,33 @@ function handleMe(req, res) {
 
   const channel = channels.findById(channelId);
   if (!channel) return res.json(guestResponse());
+  const profs = profiles.listByChannel(channelId);
 
   // Bundle switchProfile() POSTs to /api/me with body { profileId }. Honor it
   // here too — otherwise the response carries stale profileId and the UI
   // reverts the click.
   const requested = readRequestedProfileId(req);
   if (requested && requested > 0 && requested !== channel.ProfileId) {
-    channels.updateProfileId(channelId, requested);
-    channel.ProfileId = requested;
-    widgetSettings.rebuildAndBroadcast(channelId);
-    chatBot.refresh(channelId);
-    tiktokBridge.refreshGoals(channelId);
-    sockets.broadcast('actionsChanged', {});
-    sockets.broadcast('profileChanged', { profileId: requested, channelId });
+    if (hasChannelProfile(profs, requested)) {
+      channels.updateProfileId(channelId, requested);
+      channel.ProfileId = requested;
+      widgetSettings.rebuildAndBroadcast(channelId);
+      chatBot.refresh(channelId);
+      tiktokBridge.refreshGoals(channelId);
+      sockets.broadcast('actionsChanged', {});
+      sockets.broadcast('profileChanged', { profileId: requested, channelId });
+    } else {
+      logger.warn(`[me] ignoring invalid profileId=${requested} for channel ${channelId}`);
+    }
   }
 
   // Clamp ProfileId to an existing Profiles row. Earlier the bundle (or a race
   // in switchProfile) wrote ProfileId=2 even though only profile Id=1 existed
   // → bundle tried to restore settings for the missing profile → settings.restore()
   // triggered location.reload() → reload-guard kill switch → app stuck.
-  const existingProfile = profiles.findById(channel.ProfileId);
+  const existingProfile = profs.find((p) => Number(p.Id) === Number(channel.ProfileId));
   if (!existingProfile) {
-    const fallback = profiles.findById(1) ? 1 : 0;
+    const fallback = profs[0] ? Number(profs[0].Id) : 0;
     if (fallback > 0 && fallback !== channel.ProfileId) {
       logger.warn(`[me] clamping orphan ProfileId=${channel.ProfileId} → ${fallback} for channel ${channelId}`);
       channels.updateProfileId(channelId, fallback);
@@ -287,10 +364,10 @@ function handleMe(req, res) {
   const dsOut = buildDynamicSettings(ds, frontendChannelName, featureBaseToken, channel.OwnerUserId);
 
   const sub = subscriptions.findByChannel(channelId);
-  const profs = profiles.listByChannel(channelId);
   const plan = (sub && sub.Plan) || 'free';
   const active = !!(sub && sub.Active);
   const remoteIp = req.ip || req.socket?.remoteAddress || null;
+  const locale = resolveRequestLocale(req, channel.Locale);
 
   res.json({
     status: 200,
@@ -314,7 +391,8 @@ function handleMe(req, res) {
       profileId: channel.ProfileId,
       proExpireAt: sub ? sub.ProExpireAt : null,
       proExpireSetBy: sub ? sub.ProExpireSetBy : null,
-      locale: channel.Locale,
+      locale,
+      countryCode: locale,
       isChatbotApproved: !!channel.IsChatbotApproved,
       challengeRunning: !!channel.ChallengeRunning,
       challengeName: channel.ChallengeName,
@@ -322,7 +400,7 @@ function handleMe(req, res) {
       challengeStartAt: channel.ChallengeStartAt,
       tiktokUsername: preferredTikTokName || '',
       dynamicSettings: dsOut,
-      dynamicProfileSettings: [],
+      dynamicProfileSettings: buildDynamicProfileSettings(profs),
       halvingLastExecutionAt: null,
       catchApplied: false,
       catchEnabled: false,
@@ -382,7 +460,7 @@ function handleMe(req, res) {
       isPro,
       subscription: { isPro, plan, active },
       userFeatures: { isPro, proInfo: { plan, active } },
-      profiles: profs.map((p) => ({ id: p.Id, name: p.Name, sort: p.Sort })),
+      profiles: profs.map(buildProfilePayload),
     },
     // channeluser: per Gate 23b captured Pro shape — bundle expects OBJECT
     // (not null). Profile dropdown + topbar avatar bind to channeluser.id and
@@ -411,7 +489,7 @@ function handleMe(req, res) {
     wsAuthToken,
     discordVerifyToken: channel.ChannelSignature,
     channelId: channel.ChannelId,
-    countryCode: channel.Locale || 'VN',
+    countryCode: locale,
     overloadSettings: {
       enabled: false,
       suffixIds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
@@ -442,6 +520,11 @@ function handleSwitchProfile(req, res) {
 
   const channel = channels.findById(channelId);
   if (!channel) return res.json({ status: 200, message: 'OK' });
+  const profs = profiles.listByChannel(channelId);
+  if (!hasChannelProfile(profs, profileId)) {
+    logger.warn(`[me] switchProfile ignored invalid profileId=${profileId} for channel ${channelId}`);
+    return res.json({ status: 200, message: 'OK', profileId: channel.ProfileId });
+  }
 
   const previous = channel.ProfileId;
   if (previous !== profileId) {

@@ -138,7 +138,15 @@ function authSuccess(data, user) {
   persistUiValue('setting_channelid', String(data.channelId || '1'));
   persistUiValue('setting_channelname', data.channelName || user);
   persistUiValue('setting_ispro', data && data.isPro === false ? 'false' : 'true');
-  persistUiValue('setting_locale', 'VN');
+  var preservedLocale = '';
+  try {
+    if (window.__tfReadPersistedValue) {
+      preservedLocale = window.__tfReadPersistedValue('setting_locale', '') || '';
+    } else {
+      preservedLocale = localStorage.getItem('setting_locale') || '';
+    }
+  } catch (e) {}
+  persistUiValue('setting_locale', preservedLocale || 'VN');
   var finish = function() {
     // Clear pending login flag before reload to prevent loop
     try { localStorage.removeItem('setting_pendinglogin'); } catch(e) {}

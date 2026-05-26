@@ -36,18 +36,21 @@ function spaFallback() {
     // lang) via the in-app language picker — honor that too, otherwise the
     // picker's choice doesn't survive once the user navigates back to a
     // `/tiktok/...` deep-link.
-    const TF_LOCALE_TO_LANG = { VN: 'vi', DE: 'de', ES: 'es', EN: '' };
+    const TF_LOCALE_TO_LANG = { VN: 'vi', VI: 'vi', DE: 'de', ES: 'es', EN: '', US: '' };
     const m = String(req.path || '').match(/^\/([a-z]{2})(\/|$)/);
     const urlLang = (m && ['vi', 'de', 'es'].includes(m[1])) ? m[1] : '';
     let lang = urlLang;
+    let hasBundleLocaleChoice = false;
     const cookieStr = String(req.headers.cookie || '');
     if (!lang) {
-      const bundleLocale = cookieStr.match(/(?:^|;\s*)tf_locale=([A-Z]{2})/);
-      if (bundleLocale && TF_LOCALE_TO_LANG[bundleLocale[1]]) {
-        lang = TF_LOCALE_TO_LANG[bundleLocale[1]];
+      const bundleLocale = cookieStr.match(/(?:^|;\s*)tf_locale=([A-Za-z]{2})/);
+      const localeKey = bundleLocale ? String(bundleLocale[1]).toUpperCase() : '';
+      if (localeKey && Object.prototype.hasOwnProperty.call(TF_LOCALE_TO_LANG, localeKey)) {
+        lang = TF_LOCALE_TO_LANG[localeKey];
+        hasBundleLocaleChoice = true;
       }
     }
-    if (!lang) {
+    if (!lang && !hasBundleLocaleChoice) {
       const cookieMatch = cookieStr.match(/(?:^|;\s*)tf_lang=([a-z]{2})/);
       if (cookieMatch && ['vi', 'de', 'es'].includes(cookieMatch[1])) lang = cookieMatch[1];
     }

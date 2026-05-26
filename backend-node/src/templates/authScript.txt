@@ -95,6 +95,25 @@
   function readStorage(key, fallbackValue) {
     return readPersistedValue(key, fallbackValue);
   }
+
+  function normalizeLocale(value) {
+    var v = String(value || '').trim().toUpperCase();
+    if (!v) return '';
+    if (v.indexOf('-') > 0) {
+      var parts = v.split('-');
+      v = parts[parts.length - 1] || parts[0];
+    }
+    if (v === 'VI') return 'VN';
+    if (v === 'EN') return 'US';
+    if (v === 'VN' || v === 'US' || v === 'DE' || v === 'ES') return v;
+    return v;
+  }
+
+  function readSelectedLocale(fallbackValue) {
+    var cookieLocale = readCookie(authCookieMap.setting_locale);
+    var selected = cookieLocale || readStorage('setting_locale', '');
+    return normalizeLocale(selected) || normalizeLocale(fallbackValue) || 'VN';
+  }
   window.__tfReadPersistedValue = readPersistedValue;
   window.__tfPersistValue = persistValue;
 
@@ -205,7 +224,7 @@
     var profileId = parsePositiveInt(readStorage('setting_profileid', '1'), 1);
     var accountChannelName = readStorage('setting_channelname', defaultChannelName || 'user');
     var tiktokName = readStorage('setting_tiktokname', '');
-    var locale = readStorage('setting_locale', 'VN');
+    var locale = readSelectedLocale('VN');
     var signature = readStorage('setting_channelsignature', '');
     var email = readStorage('setting_email', '');
     var isPro = readStorage('setting_ispro', 'true') !== 'false';
@@ -244,6 +263,8 @@
         email: email,
         Locale: locale,
         locale: locale,
+        CountryCode: locale,
+        countryCode: locale,
         dynamicSettings: dynamicSettings,
         dynamicProfileSettings: [],
         challengeRunning: false,
@@ -344,7 +365,7 @@
       1
     );
     var signature = channel.channelSignature || channel.ChannelSignature || readStorage('setting_channelsignature', '');
-    var locale = channel.locale || channel.Locale || payload.countryCode || readStorage('setting_locale', 'VN');
+    var locale = readSelectedLocale(channel.locale || channel.Locale || payload.countryCode || 'VN');
     var isPro = typeof payload.isPro === 'boolean'
       ? payload.isPro
       : !!(payload.subscription && payload.subscription.isPro) ||
@@ -404,6 +425,8 @@
       channelSignature: signature,
       Locale: locale,
       locale: locale,
+      CountryCode: locale,
+      countryCode: locale,
       dynamicSettings: dynamicSettings,
       profiles: channel.profiles || []
     });
@@ -495,7 +518,7 @@
       persistValue('setting_channelid', String(defaultChannelId || '1'));
       persistValue('setting_channelname', defaultChannelName || 'user');
       persistValue('setting_ispro', 'true');
-      persistValue('setting_locale', 'VN');
+      persistValue('setting_locale', readSelectedLocale('VN'));
     }
   } catch (e) {}
 
@@ -509,7 +532,7 @@
       persistValue('setting_channelname', (data && data.channelName) || user || readStorage('setting_channelname', defaultChannelName || 'user'));
       if (data && data.email) persistValue('setting_email', data.email);
       persistValue('setting_ispro', data && data.isPro === false ? 'false' : 'true');
-      persistValue('setting_locale', 'VN');
+      persistValue('setting_locale', readSelectedLocale('VN'));
     } catch (e) {}
 
     applySessionPayload(buildFallbackPayload());
