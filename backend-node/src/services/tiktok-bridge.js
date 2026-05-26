@@ -21,6 +21,7 @@ const chatBot = require('./chat-bot');
 const points = require('./points');
 const goalsModel = require('../db/models/goals');
 const channels = require('../db/models/channels');
+const db = require('../db/conn');
 const config = require('../config');
 const logger = require('../logger');
 
@@ -176,6 +177,52 @@ function bumpGoals(channelId, type, delta = 1) {
 function refreshGoals(channelId) {
   _goalsCache.delete(channelId);
 }
+
+// ── Points batching ────────────────────────────────────────────────────────
+//
+// Naive path was getBalance + setBalance per chat event = 2 SQLite ops/event.
+// At 200 msg/s burst that's 400 ops/sec — better-sqlite3 handles it, but the
+// WAL writes dominate the hot path and starve other queries.
+//
+// Accumulate deltas in memory keyed by channelId+username (lowercased). Every
+// PENDING_POINTS_FLUSH_MS, run a single transaction that reads the current
+// balance per key, applies the accumulated delta, writes it back, and clears
+// the map. Order semantics within a single key are preserved because deltas
+// are additive — points from chat events only ever sum, never overwrite.
+const _pendingPoints = new Map();          // key = `${channelId}|${username}` → delta number
+const PENDING_POINTS_FLUSH_MS = 3000;
+
+function queuePointsDelta(channelId, username, delta) {
+  if (!username || !delta) return;
+  const key = `${channelId}|${String(username).trim().toLowerCase()}`;
+  _pendingPoints.set(key, (_pendingPoints.get(key) || 0) + delta);
+}
+
+function flushPendingPoints() {
+  if (_pendingPoints.size === 0) return;
+  // Snapshot + clear up-front so events arriving mid-flush queue cleanly
+  // into the next window instead of being included and double-counted on
+  // any partial-failure path.
+  const snapshot = Array.from(_pendingPoints.entries());
+  _pendingPoints.clear();
+  try {
+    const apply = db.transaction((entries) => {
+      for (const [key, delta] of entries) {
+        const sep = key.indexOf('|');
+        if (sep < 0) continue;
+        const channelId = Number(key.slice(0, sep));
+        const username = key.slice(sep + 1);
+        const current = points.getBalance(channelId, username);
+        points.setBalance(channelId, username, current + delta);
+      }
+    });
+    apply(snapshot);
+  } catch (err) {
+    logger.warn({ err: err?.message || err }, '[TikTokBridge] points flush failed');
+  }
+}
+
+setInterval(flushPendingPoints, PENDING_POINTS_FLUSH_MS).unref?.();
 
 // ── Connection orchestration ───────────────────────────────────────────────
 
@@ -473,17 +520,17 @@ function wireEvents(conn, channelId, username) {
     // viewer all live on main bundle). Widget-only would starve TTS module.
     broadcastAll(channelId, 'chat', payload);
     aggregates.recordChat(channelId, { userId: u.userId, username: u.uniqueId, nickname: u.nickname, profilePictureUrl: u.profilePictureUrl });
-    points.setBalance(
-      channelId, u.uniqueId,
-      points.getBalance(channelId, u.uniqueId) + 1
-    );
+    // Batched flush every PENDING_POINTS_FLUSH_MS — see _pendingPoints above.
+    queuePointsDelta(channelId, u.uniqueId, 1);
     bumpGoals(channelId, 'chats', 1);
     chatBot.onChat({
       channelId,
       username: u.uniqueId, nickname: u.nickname, userId: u.userId,
       comment: data.comment,
     });
-    webhooks.dispatch(channelId, 'chat', payload).catch(() => {});
+    webhooks.dispatch(channelId, 'chat', payload).catch((err) => {
+      logger.warn({ err, event: 'chat' }, 'webhook dispatch failed');
+    });
   });
 
   conn.on('gift', (data) => {
@@ -538,7 +585,9 @@ function wireEvents(conn, channelId, username) {
     aggregates.setTopGiftPicture(giftPicUrl);
     bumpGoals(channelId, 'gifts', payload.repeatCount);
     bumpGoals(channelId, 'diamonds', diamondCount * payload.repeatCount);
-    webhooks.dispatch(channelId, 'gift', payload).catch(() => {});
+    webhooks.dispatch(channelId, 'gift', payload).catch((err) => {
+      logger.warn({ err, event: 'gift' }, 'webhook dispatch failed');
+    });
   });
 
   conn.on('like', (data) => {
@@ -568,7 +617,9 @@ function wireEvents(conn, channelId, username) {
       totalLikeCount: payload.totalLikeCount,
     });
     bumpGoals(channelId, 'likes', payload.likeCount);
-    webhooks.dispatch(channelId, 'like', payload).catch(() => {});
+    webhooks.dispatch(channelId, 'like', payload).catch((err) => {
+      logger.warn({ err, event: 'like' }, 'webhook dispatch failed');
+    });
   });
 
   conn.on('share', (data) => {
@@ -579,7 +630,9 @@ function wireEvents(conn, channelId, username) {
     broadcast(channelId, 'share', payload);
     aggregates.recordShare(channelId, { userId: u.userId, username: u.uniqueId, nickname: u.nickname, profilePictureUrl: u.profilePictureUrl });
     bumpGoals(channelId, 'shares', 1);
-    webhooks.dispatch(channelId, 'share', payload).catch(() => {});
+    webhooks.dispatch(channelId, 'share', payload).catch((err) => {
+      logger.warn({ err, event: 'share' }, 'webhook dispatch failed');
+    });
   });
 
   conn.on('follow', (data) => {
@@ -590,7 +643,9 @@ function wireEvents(conn, channelId, username) {
     broadcast(channelId, 'follow', payload);
     aggregates.recordFollow(channelId, { userId: u.userId, username: u.uniqueId, nickname: u.nickname, profilePictureUrl: u.profilePictureUrl });
     bumpGoals(channelId, 'follows', 1);
-    webhooks.dispatch(channelId, 'follow', payload).catch(() => {});
+    webhooks.dispatch(channelId, 'follow', payload).catch((err) => {
+      logger.warn({ err, event: 'follow' }, 'webhook dispatch failed');
+    });
   });
 
   conn.on('member', (data) => {
@@ -617,7 +672,9 @@ function wireEvents(conn, channelId, username) {
     broadcast(channelId, 'subscribe', payload);
     aggregates.recordSubscribe(channelId, { userId: u.userId, username: u.uniqueId, nickname: u.nickname, profilePictureUrl: u.profilePictureUrl });
     bumpGoals(channelId, 'subscribers', 1);
-    webhooks.dispatch(channelId, 'subscribe', payload).catch(() => {});
+    webhooks.dispatch(channelId, 'subscribe', payload).catch((err) => {
+      logger.warn({ err, event: 'subscribe' }, 'webhook dispatch failed');
+    });
   });
 
   conn.on('emote', (data) => {

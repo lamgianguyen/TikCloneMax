@@ -744,14 +744,17 @@ function tfsRequest(method, path, body, extraHeaders) {
     return new Promise((resolve, reject) => {
         const url = AUTH_HOST.replace(/\/+$/, '') + path;
         const lib = url.startsWith('https:') ? https : http;
+        const isDev = process.env.NODE_ENV !== 'production';
+        const isLocalhostHost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(AUTH_HOST);
         const opts = {
             method,
             headers: {
                 'Accept': 'application/json',
                 ...(extraHeaders || {})
             },
-            // Self-signed certs are common on dev TikfinityServer.
-            rejectUnauthorized: false
+            // Only bypass TLS validation in dev against a local TikfinityServer
+            // with self-signed certs. Production HTTPS hosts must validate.
+            rejectUnauthorized: !(isDev && isLocalhostHost)
         };
         const payload = body ? JSON.stringify(body) : null;
         if (payload) {

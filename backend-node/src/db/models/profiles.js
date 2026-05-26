@@ -29,8 +29,29 @@ function rename(profileId, name) {
   return stmt('rename', `UPDATE "Profiles" SET "Name" = ? WHERE "Id" = ?`).run(name, profileId);
 }
 
-function remove(profileId) {
+// Profile deletion must cascade manually: dependent tables (Actions, Sounds,
+// Goals, ChatCommands, DynamicSettings) only have an FK on ChannelId, so
+// SQLite's ON DELETE CASCADE does not reach them via ProfileId. Wrap the
+// per-profile cleanup + the Profile row delete in a single transaction so a
+// failure midway leaves no orphaned rows.
+const _cascadeRemove = db.transaction((profileId) => {
+  const row = stmt('findChannelForProfile', `SELECT "ChannelId" FROM "Profiles" WHERE "Id" = ? LIMIT 1`).get(profileId);
+  if (!row) return { changes: 0 };
+  const channelId = row.ChannelId;
+  // Lazy-require to avoid a circular dep at module load time (these models
+  // pull in ../conn which is the same singleton, but the barrel index.js
+  // requires this file too).
+  const { actions, sounds, goals, chatCommands, dynamicSettings } = require('./index');
+  actions.removeForChannelProfile(channelId, profileId);
+  sounds.removeForChannelProfile(channelId, profileId);
+  goals.removeForChannelProfile(channelId, profileId);
+  chatCommands.removeForChannelProfile(channelId, profileId);
+  dynamicSettings.deleteAllForProfile(channelId, profileId);
   return stmt('remove', `DELETE FROM "Profiles" WHERE "Id" = ?`).run(profileId);
+});
+
+function remove(profileId) {
+  return _cascadeRemove(profileId);
 }
 
 /**

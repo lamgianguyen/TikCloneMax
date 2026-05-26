@@ -663,67 +663,13 @@ window.aiTts.resolveVoiceConfigFromId('tts_api__ttsm__abc-123')
 
 **Fix (đã apply):** `tfHandleTtsTikfinityUser` trong blockScript intercept `tts.tikfinity.com/api/tts/user` URL (cả fetch + XHR), trả quota free user 25 messages/day.
 
-### Gate 23c: Pinia navigation store — Object.defineProperty trap for isPro + flag-icons proxy + AI voices loader (2026-05-22)
+### Gate 23c: Pinia navigation store discovery [ARCHIVED — see docs/GATES_ARCHIVED.md]
 
-> **Discovery quan trọng nhất hôm nay:** Vue chip + Pro UI **KHÔNG** bind vào `window.session.me.userFeatures.isPro`. Chúng bind vào Pinia store `navigation`. Patch `window.session.me` không propagate sang Pinia computed refs.
-
-**Probe runtime (verified):**
-
-```js
-// Vue Pinia state structure (verified via probe in DevTools Console):
-document.querySelector('[data-v-app]').__vue_app__.config.globalProperties.$pinia.state.value.navigation
-// {
-//   isPro: false,                     ← Vue chip checks THIS, not window.session.me
-//   ttsProCredits: 0,                 ← bundle's syncNavigationStoreCredits()
-//                                      writes to window.navigationStore (which
-//                                      doesn't exist) → Pinia stays at default
-//   ttsFreeMessages: 25,
-//   ttsFreeMessagesMax: 25,
-//   trialBannerDismissed: true,
-// }
-```
-
-**Bundle dead code:** [modules/deobfuscated.js line 4789-4795](decompiled/modules/deobfuscated.js):
-```js
-window.navigationStore.set("ttsFreeMessages", tts.freeMessages || 0);
-window.navigationStore.set("ttsProCredits", tts.proCredits || 0);
-```
-**`window.navigationStore` không tồn tại** (renamed/moved to Pinia trong Vue refactor) → entire sync function silently fails. Pinia store stays default.
-
-**Critical fix — Object.defineProperty trap on Pinia store:**
-
-Direct assignment `nav.isPro = true` FAILS (Pinia setup-store có thể dùng computed() ref → write silently swallowed). Plain refs (`ttsProCredits`) work fine.
-
-```js
-// [blockScript.txt] tfActivateProUI IIFE — patchPiniaNavigation()
-Object.defineProperty(nav, 'isPro', {
-  get: function(){ return true; },     // chip's isPro check always true
-  set: function(){ /* swallow */ },    // any future write blocked
-  configurable: true,
-  enumerable: true,
-});
-
-// Direct assignment OK for non-computed refs:
-nav.ttsProCredits = 100000;
-nav.ttsProCreditsMax = 100000;
-nav.trialBannerDismissed = true;
-```
-
-**Result:**
-- Chip flips 25 → 100k ✅
-- PRO badge appears under app title ✅
-- Sidebar "Nâng cấp lên PRO" hidden ✅
-
-**Anti-pattern documented:**
-
-- ❌ Patch ONLY `window.session.me.userFeatures.isPro` — Pinia computed reads from somewhere else, doesn't propagate
-- ❌ Direct `nav.isPro = true` — silently fails if Pinia uses computed()
-- ❌ Patch ONLY `window.tts.proCredits` — bundle's dead sync code doesn't propagate to Pinia
-- ✅ Direct mutation for plain refs + defineProperty trap for computed refs
-
-**Pattern principle — Vue Pinia state vs vanilla window:**
-
-> Vue 3 + Pinia setup-stores stores state in **reactive refs**, NOT plain object properties. Patching `window.session.me.X = true` works only if state is *derived* from window.session.me. If Pinia store has `const isPro = computed(() => someOtherSignal)` then the field is **read-only from outside**. **Use Object.defineProperty trap to override the read.** This works because Pinia store IS a plain object externally — defineProperty replaces the descriptor entirely.
+> ⚠️ **PARTIALLY SUPERSEDED by [Gate 30](#gate-30-chip-100k-real-fix--i18n-12-lang--stream-profile-sync-2026-05-26)**:
+> - ❌ `Object.defineProperty` trap cho `nav.isPro` là **SAI** (Vue 3 reactivity bypass).
+> - ✅ Discovery: chip binds Pinia `navigation` store, KHÔNG `window.session.me`. Patch plain `nav.isPro = true` qua reactive proxy `set` trap.
+>
+> Full body, anti-pattern list, và pattern principle đã move sang [`docs/GATES_ARCHIVED.md#gate-23c`](docs/GATES_ARCHIVED.md). Đọc Gate 30 trước khi sửa code liên quan chip / Pro.
 
 ---
 
@@ -1389,51 +1335,9 @@ Nếu `page.x = 343, page.width = 1915` → ĐÚNG Gate 20 pattern → fix `#pag
 
 ---
 
-### Gate 19: Layout overflow khi window resize (responsive) [SUPERSEDED by Gate 20]
+### Gate 19: Layout overflow khi window resize (responsive) [ARCHIVED — see docs/GATES_ARCHIVED.md]
 
-> ⚠️ **Diagnosed sai root cause.** Vẫn giữ để reference các pattern responsive grid (cho các trang Tailwind grid-cols-*), nhưng cho **overlay library page** dùng Gate 20.
-
-**Triệu chứng:** Khi maximize, các card 2-column (Ghép xu PRO + Hũ đựng tiền xu PRO, etc.) extend ra ngoài viewport. Body scrollWidth (2250px) > viewport (1920px).
-
-**Root cause (sai):** Bundle dùng **LEGACY class `.obsOverlayContainer`** (NOT Tailwind grid-cols-*). Container `display: flex` không wrap. Cards có `min-width: 560px` (cũ) fix-width → 2 cards = ~1900px → overflow.
-
-Cards classes verified từ probe:
-- `.obsOverlayOnPage.greyBackgroundSection.greyBackgroundSectionOverlayFix` (Ghép xu)
-- `.greyBackgroundSection.greyBackgroundSectionOverlayFix` (Hũ đựng tiền xu)
-- `.graphicSection` (legacy)
-
-Anti-pattern (đã từng có):
-- ❌ CSS chỉ target `.graphicSection` → miss `.obsOverlayOnPage` và `.greyBackgroundSection` → fix không apply
-
-**Fix (CSS responsive grid override):**
-
-```css
-/* Override fixed columns với auto-fit + minmax */
-[class*="grid-cols-2"]:not([class*="md:grid-cols-2"]):not([class*="lg:grid-cols-2"]) {
-  grid-template-columns: repeat(auto-fit, minmax(min(450px, 100%), 1fr)) !important;
-}
-[class*="grid-cols-3"]:not([class*="md:grid-cols-3"]):not([class*="lg:grid-cols-3"]) {
-  grid-template-columns: repeat(auto-fit, minmax(min(350px, 100%), 1fr)) !important;
-}
-/* Card grid children không push content ra ngoài */
-div[class*="grid"] > div {
-  min-width: 0 !important;
-  overflow: hidden !important;
-}
-/* Input + buttons trong card shrink-friendly */
-div[class*="grid"] input[type="text"] {
-  min-width: 0 !important;
-  max-width: 100% !important;
-  box-sizing: border-box !important;
-}
-```
-
-**Pattern principle:**
-> Bundle's grid layouts thường fixed-columns. Khi cần responsive, override với `auto-fit` + `minmax(min(IDEAL_WIDTH, 100%), 1fr)`. Đặt `min-width: 0` cho grid children để khắc phục flexbox/grid default `min-width: auto` đẩy nội dung ra. Selector loại trừ `:not([class*="md:..."])` / `:not([class*="lg:..."])` để không phá responsive breakpoints bundle đã set sẵn.
-
-**Anti-pattern:**
-- ❌ Đặt `overflow-x: auto` ở body — tạo scroll bar horizontal không đẹp
-- ❌ Set max-width fixed (e.g., `max-width: 1200px`) — bị white space ở screens lớn
+> ⚠️ **SUPERSEDED by Gate 20** (root cause cho overlay library page là `#pages` width, không phải card widths). Body của Gate 19 đã move sang [`docs/GATES_ARCHIVED.md#gate-19`](docs/GATES_ARCHIVED.md) — vẫn còn pattern responsive `grid-cols-*` hữu ích cho các page khác.
 
 ### Gate 18: Pro credit chip — bg color khác Free + image src vẫn TikTok avatar
 
@@ -1649,3 +1553,183 @@ window.aiTts?.voiceIdPrefix  // expect 'tts_api__'
 9. Mock response shape with `data.voices` + `data.aiVoices` + `result.voices` ✓
 
 Bỏ bất kỳ bước nào trong list này → AI tab empty hoặc app crash.
+
+---
+
+### Gate 30: Chip 100k real fix + i18n 12-lang + Stream Profile sync (2026-05-26)
+
+> Bộ 4 bug được fix trong cùng session. SUPERSEDES phần defineProperty của [Gate 23c](#gate-23c-pinia-navigation-store--objectdefineproperty-trap-for-ispro--flag-icons-proxy--ai-voices-loader-2026-05-22). Xem các sub-gate dưới đây.
+
+#### Gate 30a: Chip hiển thị "0" thay vì "100k" — Pro chip không render
+
+**Triệu chứng:** Sau khi fix Pro flag mọi nơi (session.me.isPro=true, ttsProCredits=100000), chip topbar vẫn render **Free chip** với số "0" hoặc "25" thay vì Pro chip "100k".
+
+**Discovery (verified via app.js offset analysis):**
+
+Topbar có **2 chip component riêng biệt** — không phải 1 chip switch giữa Free/Pro mode:
+
+- `TTSProDropdown` (`__name` @1957836) — props: `proCredits, proCreditsMax, topUpCredits, ...`
+- `TTSFreeDropdown` (`__name` @1990295) — props: `freeMessages, freeMessagesMax`
+
+Parent topbar component (`__name` @2000485) render conditional:
+```js
+unref(isLoggedIn) && unref(isPro)   ? createBlock(ProChipWrapper, {key:5})  : v-if-false
+unref(isLoggedIn) && !unref(isPro)  ? createBlock(FreeChipWrapper, {key:6}) : v-if-false
+```
+
+`isPro` = `_0x3ee0d9[_0x224d3b(0x3c6c)]` = `navigationStore.isPro` (storeToRefs).
+
+**Pro chip wrapper** (`__name` @1985552) đọc `ttsProCredits + ttsTopUpCredits` từ nav store → format → "100k".
+
+**Free chip wrapper** (`__name` @1997133) đọc `ttsFreeMessages` → raw number "0".
+
+**Root cause của bug:** [Gate 23c](#gate-23c)'s `Object.defineProperty(nav, 'isPro', {get: ()=>true})` thay descriptor nhưng **KHÔNG fire Vue 3 reactive proxy's `set` trap** → chip's setup() đã track dep với `isPro=false` ban đầu, không bao giờ nhận notification → forever render Free chip.
+
+**Fix:** [`backend-node/src/templates/blockScript.txt::tfPiniaProTrap`](backend-node/src/templates/blockScript.txt) — đổi defineProperty → plain assignment, re-apply mỗi 2s qua setInterval:
+```js
+if (nav.isPro !== true) {
+  try { nav.isPro = true; } catch(_){}    // trigger reactive set → chip re-render
+}
+```
+
+**Anti-pattern documented:**
+
+- ❌ `Object.defineProperty(reactiveTarget, key, {get,set})` — Vue 3's `mutableHandlers` không có `defineProperty` trap, fall qua default `Reflect.defineProperty` → dep notifier không fire
+- ✅ `reactiveTarget[key] = value` — qua proxy `set` trap → dep notifier fire → effects re-run
+
+**Related bug fixed in same patch:** `tfBuildQuotaPayload` returns `freeRequestsRemaining: 25` → `tts.freeMessages = 25` → khi chip có thể dùng Free wrapper, render "25". Đổi thành `0` để force fall through ttsProCredits path. After isPro fix, FreeDropdown không còn render nên giá trị này không matter, nhưng giữ `0` cho consistent (Pro user không có daily free quota).
+
+#### Gate 30b: Language switcher đổi cờ nhưng UI không đổi locale
+
+**Triệu chứng:** Profile dropdown → click flag (English/Thai/Japanese) → page reload → UI vẫn locale cũ.
+
+**Root cause (3 layers):**
+
+1. **Bundle's `localization.switchLanguage`** (app.js @3522500) chỉ set `localization.languageCode` + `settings.set('language', code)` (localStorage) + reload. **KHÔNG set cookie** mà backend dùng để route.
+
+2. **Backend `detectLang`** ([`index-html.js:215`](backend-node/src/middleware/index-html.js#L215)) cũ chỉ hỗ trợ `vi/de/es` qua `tf_locale` cookie hoặc URL prefix. Mọi locale khác → fallback `''` (English HTML).
+
+3. **`tfPageloadData.localization`** trong HTML chỉ chứa bucket của lang đó (vi.html → `localization:{vi:{...}}`). Vue-i18n init từ object này. Khi `tfI18nPreBake` fallback copy `vi → en` làm baseline, vue-i18n's "en" messages chứa Vietnamese strings.
+
+**Fix (3 layer):**
+
+**Layer 1 — Frontend wrapper** ([`blockScript.txt::tfPatchSwitchLanguage`](backend-node/src/templates/blockScript.txt)):
+```js
+var LANG_TO_LOCALE = {
+  vi:'VN', de:'DE', es:'ES', en:'EN',
+  id:'ID', ja:'JA', ko:'KO', ms:'MS',
+  th:'TH', tl:'TL', tr:'TR', 'pt-br':'BR'
+};
+loc.switchLanguage = function tfSwitchLanguageWrapped(langCode) {
+  var locale = LANG_TO_LOCALE[String(langCode||'').toLowerCase()] || 'EN';
+  document.cookie = 'tf_locale=' + locale + '; Path=/; Max-Age=31536000; SameSite=Lax';
+  document.cookie = 'tf_lang=' + langCode + '; Path=/; Max-Age=31536000; SameSite=Lax';
+  return origSwitch.call(loc, langCode);
+};
+```
+
+⚠️ **Critical:** `LANG_TO_LOCALE` PHẢI có đủ 12 keys. Thiếu key nào → defaults `'EN'` → cookie sai → backend serve English HTML.
+
+**Layer 2 — Backend** ([`index-html.js`](backend-node/src/middleware/index-html.js)):
+```js
+const SUPPORTED_LANGS = new Set(['vi','de','es','id','ja','ko','ms','th','tl','tr','pt-BR']);
+const TF_LOCALE_TO_LANG = {
+  VN:'vi', VI:'vi', DE:'de', ES:'es',
+  ID:'id', JA:'ja', JP:'ja', KO:'ko', KR:'ko',
+  MS:'ms', MY:'ms', TH:'th', TL:'tl', PH:'tl',
+  TR:'tr', BR:'pt-BR', 'PT-BR':'pt-BR',
+  EN:'', US:'',
+};
+// Regex cookie: accept hyphenated codes (pt-BR)
+const cookieLang = cookieStr.match(/(?:^|;\s*)tf_lang=([a-zA-Z]{2,3}(?:-[A-Za-z]{2,3})?)/);
+```
+
+**Layer 3 — Backend HTML JSON injection** ([`buildIndexHtml`](backend-node/src/middleware/index-html.js)):
+Lang không có dedicated HTML file (id/ja/ko/ms/th/tl/tr/pt-BR) → serve `index.html` + inject `<langKey>:<jsonContent>,` vào sau `localization:{` của inline `tfPageloadData`. Vue-i18n init với đủ messages → no async fetch race.
+
+```js
+const langKey = lang.includes('-') ? `"${lang}"` : lang;
+const anchor = 'tfPageloadData=';
+const idx = html.indexOf('localization:{', html.indexOf(anchor));
+html = html.slice(0, idx + marker.length) + `${langKey}:${jsonContent},` + html.slice(idx + marker.length);
+```
+
+⚠️ **Anchor `tfPageloadData=` BẮT BUỘC** — nếu chỉ search `localization:{`, match đầu tiên hit comment trong blockScript.txt → corrupt comment.
+
+**Language packs:** 10 JSONs (de/es/id/ja/ko/ms/pt-BR/th/tl/tr) tải từ `https://tikfinity.zerody.one/config/localization/<lang>.json` về `downloads/config/localization/`. Plus en.json + vi.json đã có → đủ 12/12 lang.
+
+**Hot reload limitation:** Backend changes (`index-html.js`) **KHÔNG hot reload** qua `/api/_dev/reload-html` (endpoint đó chỉ clear HTML cache, không reload JS module). **Phải kill + restart Electron** để pick up middleware changes. Template changes (blockScript.txt) thì OK reload-html.
+
+#### Gate 30c: Stream Profile switching — backend update nhưng UI revert về Default sau reload
+
+**Triệu chứng:** Click profile khác trong dropdown → UI flash sang profile mới → reload → revert về "Default" Active dù backend đã persist `channel.ProfileId = N`.
+
+**Root cause:** [Bundle's nav store state def](decompiled) hardcode `streamProfileId: 1` trong `state()` function (verified app.js @1584059). Bundle KHÔNG đọc `/api/me` response để restore. Sau reload, nav store re-init với hardcoded `1` → dropdown render "Default" Active (dù backend.channel.profileId = 2).
+
+**Fix:** [`blockScript.txt::tfPiniaProTrap`](backend-node/src/templates/blockScript.txt) — bổ sung sync từ `session.me.channel.profileId` (đã được seed bởi `tfBridgeSessionMe`):
+```js
+var srvProfileId = window.session && window.session.me && window.session.me.channel
+  && window.session.me.channel.profileId;
+if (Number.isFinite(srvProfileId) && srvProfileId > 0 && nav.streamProfileId !== srvProfileId) {
+  nav.streamProfileId = srvProfileId;
+}
+```
+
+Chạy mỗi tick qua setInterval (cùng patchPiniaNav). Plain assignment → Vue reactive → dropdown re-render với đúng profile Active.
+
+**Bundle's click handler** (`StreamProfileDropdown` component @1853000+):
+```js
+_0xecf1aa.set('streamProfileId', _0x291349['id']);  // navigationStore.set, optimistic UI
+window.switchProfile && window.switchProfile(_0x291349['id']);  // legacy jQuery fn → POST /api/me {profileId}
+```
+
+`window.switchProfile` (app.js @3762792) là top-level `function` declaration → exposed lên `window`. POST `/api/me` với `{profileId}` → backend `handleMe` ([`me.js:309`](backend-node/src/routes/me.js#L309)) validate qua `hasChannelProfile` + persist `channels.updateProfileId(channelId, requested)`.
+
+**DB location:** `%APPDATA%\tikfinity-desktop\tikfinity.db` (SQLite via better-sqlite3). Tables `Profiles` (10 rows seed sẵn) + `Channels.ProfileId` column tracks active.
+
+#### Gate 30d: Overlay Library iframes — let bundle's native `stretchIframe` run, KHÔNG override height bằng CSS (2026-05-26)
+
+**Triệu chứng:** Trên Overlay Library page (pageid=obsoverlays), card iframes (CoinMatch, CoinJar, Wheel, Cannon, FallingSnow, …) bị crop hoặc render với height sai (cụt ngắn / dài vô tận / lệch hàng). Một số card đè lên nhau, một số bị flex-grow nuốt mất viewport.
+
+**Root cause (giả thuyết ban đầu, SAI):** Tưởng bundle quên set iframe height → thử các fix CSS như `iframe { height: 100% }`, `flex-grow: 1`, hoặc fixed pixel height per card. Kết quả: phá gốc-native layout, mỗi widget cần một height riêng (CoinMatch 655px, CoinJar 660px, Wheel 455px, Cannon 480px, etc.) — không thể hardcode trong CSS.
+
+**Root cause (thật):**
+- Gốc TikFinity: cards là **plain block div**, mỗi iframe có inline `style="width:867px; height:Xpx"` per widget. `main.min.css` set `iframe { width:100% !important }` để iframe co theo card width nhưng **không override height**.
+- Bundle's `modules.js` định nghĩa `obsoverlays.show()` → gọi `stretchIframe()` → loop qua tất cả `.lazy-frame` iframes, grow height cho đến khi `iframe.scrollHeight` ổn định.
+- Trong gốc, navigation hook fire `show()` mỗi khi user enter page. Trong bundle của ta (Vue refactor + reload chain), page mount **không trigger** `obsoverlays.show()` → iframes giữ height inline gốc, không stretch theo content → ngắn cụt.
+
+**Fix (2-part — KHÔNG CSS override):**
+
+1. **`earlyCss.txt`** — chỉ giữ `.obsOverlayContainer { zoom: 1 !important; max-width: 100% !important }` để nuke bundle's broken zoom curve. **REVERT** mọi iframe height / flex-grow override (đã thử v1-v4, đều phá gốc). Comment block đầy đủ tại `earlyCss.txt:131` ("Card iframe height — REVERT to gốc-native behavior (Gate 30d v5)").
+
+2. **`blockScript.txt::tfTriggerOverlaysShow`** — MutationObserver theo dõi `.page[data-pageid=obsoverlays|goals|graphicoverlays]` cho class change `pageenabled` → fire `window.obsoverlays.show()` + `window.goals.show()` + `window.graphicoverlays.show()` tương ứng. Belt-and-braces: cũng gọi trực tiếp `window.obsoverlays.stretchIframe()` để loop qua mọi `.lazy-frame` trong DOM (regardless of which page active).
+
+**Anti-pattern documented:**
+- ❌ `iframe { height: 100% !important }` → iframe nuốt toàn bộ parent height, đè card khác
+- ❌ `iframe { flex-grow: 1 }` → cards thành flex children → bundle's gốc block layout vỡ
+- ❌ Hardcode height per widget trong CSS → cần ~15 selectors, một widget mới = update CSS
+- ✅ Trigger bundle's native `stretchIframe()` → mỗi iframe tự stretch theo `scrollHeight`, đúng gốc behavior, không cần biết widget nào có height bao nhiêu
+
+**Pattern principle — "Trigger gốc-native function, đừng tự reimplement":**
+
+> Khi bundle có sẵn function (e.g., `stretchIframe`, `localize`, `setTheme`) mà chỉ thiếu navigation hook để fire, **trigger function gốc** thay vì reimplement logic bằng CSS / JS observer. Reimplementation thường bỏ sót edge case (mỗi widget khác height, async iframe load, scroll containers nested) mà bundle gốc đã handle đúng.
+
+**Verify:** Open DevTools Console trên Overlay Library page → check `document.querySelectorAll('.lazy-frame').forEach(f => console.log(f.style.height))` → các height phải match gốc reference (CoinMatch 655px, CoinJar 660px, ...).
+
+#### Order of fixes (cập nhật cho Gate 30, supersedes phần defineProperty của Gate 23c)
+
+1. ProfileId clamp ✓
+2. `tf_locale=<CODE>` cookie → middleware language map (12 langs) ✓
+3. Prebake create `en` bucket if missing ✓
+4. Prebake target top-level `pld.localization` ✓
+5. ~~Object.defineProperty interceptor for early patch~~ → **plain `nav.isPro = true` + setInterval re-apply** ✓
+6. Bootstrap `window.token` from cookie ✓
+7. `tts_api__` prefix on AI voice IDs ✓
+8. Backend `/api/tts/auth-token` route ✓
+9. Mock response shape with `data.voices` + `data.aiVoices` + `result.voices` ✓
+10. **NEW** `tfPatchSwitchLanguage` wrapper set tf_locale cookie ✓
+11. **NEW** Backend `buildIndexHtml` JSON injection for HTML-less locales ✓
+12. **NEW** `nav.streamProfileId` sync từ `session.me.channel.profileId` mỗi tick ✓
+13. **NEW** `tfTriggerOverlaysShow` MutationObserver fire `obsoverlays.show()` / `goals.show()` / `graphicoverlays.show()` khi page mount → bundle's gốc `stretchIframe` chạy tự nhiên ✓
+
+Bỏ bất kỳ bước nào → chip stuck "0" / "25", language switcher silently fail, profile dropdown revert về Default sau reload, hoặc overlay iframes render với height sai.

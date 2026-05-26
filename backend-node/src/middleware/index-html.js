@@ -132,8 +132,15 @@ function buildIndexHtml({ channelId, channelName, lang = '' }) {
         const jsonContent = fs.readFileSync(jsonPath, 'utf8').trim();
         // Validate JSON parses (defensive — bad JSON would corrupt the inline
         // tfPageloadData literal and crash the bundle at script-parse time).
-        JSON.parse(jsonContent);
-        // Insert `<langKey>:<jsonContent>,` right after `localization:{` so the
+        const parsed = JSON.parse(jsonContent);
+        // Re-serialize via JSON.stringify(parsed) so we own the textual output
+        // (no whitespace surprises, no trailing junk). Then escape any
+        // `</script>` sequence to `<\/script>` — JSON.stringify does NOT do this
+        // by itself, and an unescaped `</script>` inside the inline literal
+        // would break out of the surrounding <script> tag, enabling HTML
+        // injection from a malicious/poisoned localization JSON file.
+        const serialized = JSON.stringify(parsed).replace(/<\/script>/gi, '<\\/script>');
+        // Insert `<langKey>:<serialized>,` right after `localization:{` so the
         // bundle reads our bucket alongside the default `en:{...}` bucket.
         // The marker must be the REAL tfPageloadData assignment, NOT the same
         // string inside our blockScript.txt comments. Anchor the search to
@@ -146,9 +153,9 @@ function buildIndexHtml({ channelId, channelName, lang = '' }) {
         const idx = anchorIdx >= 0 ? html.indexOf(marker, anchorIdx) : -1;
         if (idx >= 0) {
           html = html.slice(0, idx + marker.length)
-               + `${langKey}:${jsonContent},`
+               + `${langKey}:${serialized},`
                + html.slice(idx + marker.length);
-          logger.info(`[BUILD-HTML] injected ${lang}.json (${jsonContent.length} bytes) into tfPageloadData.localization`);
+          logger.info(`[BUILD-HTML] injected ${lang}.json (${serialized.length} bytes) into tfPageloadData.localization`);
         } else {
           logger.warn(`[BUILD-HTML] could not find tfPageloadData.localization marker — '${lang}' bucket not injected`);
         }

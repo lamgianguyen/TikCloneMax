@@ -61,7 +61,7 @@ backend-node/
 | 3 | TikTok bridge in-process via tiktok-live-connector + aggregates + chat-bot | 3h | ✅ done |
 | 4 | Migrate Electron main.js (spawn node instead of dotnet) | 2h | ✅ done |
 | 5 | End-to-end testing + stabilization (26/26 integration routes green) | 4h | ✅ done |
-| 6 | Packaging (electron-builder NSIS) | 3h | 🚧 in progress |
+| 6 | Packaging (electron-builder NSIS) | 3h | ✅ done (2026-05-26 C# fully retired, dist artifacts purged) |
 | | **Total** | **30h** | |
 
 ## Ports & processes after migration
@@ -95,6 +95,7 @@ backend-node/
 - **2026-05-15** — Folder: `backend-node/` alongside `backend/`. Branch `node-js-backend`. Bundle/Electron unchanged.
 - **2026-05-15** — Phases 0–5 complete. 26-route integration smoke green. All 23 C# controllers ported to 17 Node routers (some merged: `data.js` covers `Data`, `auth.js` covers `Auth` stubs, etc.). TikTok bridge embedded via `tiktok-live-connector` — no subprocess.
 - **2026-05-15** — Electron `main.js` now spawns Node backend via `ELECTRON_RUN_AS_NODE` when packaged, plain `node` in dev. `build.bat` runs `@electron/rebuild` on `better-sqlite3` so the native binding matches Electron's Node ABI. `extraResources` ships `backend-node/` + `downloads/` to `resources/`.
+- **2026-05-26** — Phase 6 closed. C# backend fully retired. `electron/dist/` artifacts (~595 MB containing stale `appsettings.json` with hardcoded JWT secret) purged — see security task #2. Packaging now produces NSIS + portable from Node-only sources. `.gitignore` line 11 (`electron/dist/`) confirmed in place to prevent regressions.
 
 ## Build flow (Node backend)
 

@@ -34,6 +34,31 @@ function resolveDataDir() {
 const DATA_DIR = resolveDataDir();
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch { /* exists */ }
 
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// JWT secret resolution. Production MUST set TIKMAX_JWT_SECRET — a predictable
+// dev fallback would let anyone forge tokens. Dev keeps the legacy fallback so
+// existing local sessions stay valid, but logs a loud warning.
+function resolveJwtSecret() {
+  const fromEnv = process.env.TIKMAX_JWT_SECRET;
+  if (fromEnv) return fromEnv;
+
+  if (NODE_ENV === 'production') {
+    throw new Error(
+      'TIKMAX_JWT_SECRET environment variable is required in production. ' +
+      'Refusing to start with an insecure hardcoded fallback.'
+    );
+  }
+
+  console.warn(
+    '[config] TIKMAX_JWT_SECRET not set — using dev-only fallback secret. ' +
+    'DO NOT use this in production.'
+  );
+  return 'tikfinity-clone-dev-secret-do-not-use-in-prod';
+}
+
+const JWT_SECRET = resolveJwtSecret();
+
 module.exports = {
   PORT: BACKEND_PORT,
   HOST: process.env.HOST || '127.0.0.1',
@@ -44,10 +69,7 @@ module.exports = {
   // Cloud auth gate. Local-only by default; renderer overrides via env if needed.
   AUTH_HOST: process.env.TIKFINITY_AUTH_HOST || 'http://127.0.0.1:5194',
 
-  // JWT secret used for bundle's wsAuthToken + featurebase token. Match the C#
-  // backend's hardcoded dev secret so existing sessions stay valid across the
-  // migration. In prod this should come from env.
-  JWT_SECRET: process.env.TIKMAX_JWT_SECRET || 'tikfinity-clone-dev-secret-do-not-use-in-prod',
+  JWT_SECRET,
   JWT_ISSUER: 'tikfinity-local',
   JWT_AUDIENCE: 'tikfinity-bundle',
 
@@ -61,5 +83,5 @@ module.exports = {
   DEFAULT_CHANNEL_NAME: 'user',
 
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
-  NODE_ENV: process.env.NODE_ENV || 'development',
+  NODE_ENV,
 };

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script
+            src="https://code.jquery.com/jquery-3.5.1.min.js"
+            crossorigin="anonymous"
+    ></script>
+
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"
+      crossorigin="anonymous"
+    ></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <script
+      type="module"
+      crossorigin
+      src="/vue/dist/widgets/christmas-event-widget/christmas-event-widget.js"
+    ></script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      window.addEventListener("load", () => {
+        if (window.mountChristmasEventWidget) {
+          window.mountChristmasEventWidget("#app");
+        }
+      });
+
+      const isPreview = window.location.search.includes("preview");
+
+      if (isPreview) {
+        setTimeout(() => {
+          window.handleUpdateState?.("READY");
+        }, 200);
+
+        setTimeout(() => {
+          window.handleGift?.({
+            profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_1080x1080.jpeg",
+            username: "TikFinity",
+            value: 10,
+            repeatCount: 10,
+            giftPictureUrl: 'https://p19-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648eaf88d7189~tplv-obj.png',
+            giftName: "Rose",
+          });
+        }, 3_000);
+
+        setTimeout(() => {
+          window.handleGift?.({
+            profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_1080x1080.jpeg",
+            username: "TikFinity",
+            value: 100,
+            repeatCount: 100,
+            giftPictureUrl: 'https://p19-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648eaf88d7189~tplv-obj.png',
+            giftName: "Rose",
+          });
+        }, 8_000);
+
+        setTimeout(() => {
+          window.handleGift?.({
+            profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_1080x1080.jpeg",
+            username: "TikFinity",
+            value: 150,
+            repeatCount: 150,
+            giftPictureUrl: 'https://p19-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648eaf88d7189~tplv-obj.png',
+            giftName: "Rose",
+          });
+        }, 15_000);
+
+        setTimeout(() => {
+          window.handleGift?.({
+            profilePictureUrl: "https://p16-useast2a.tiktokcdn.com/tos-useast2a-avt-0068-giso/4ec174248f94de26938f73874962469b~c5_1080x1080.jpeg",
+            username: "TikFinity",
+            value: 40,
+            repeatCount: 40,
+            giftPictureUrl: 'https://p19-webcast.tiktokcdn.com/img/maliva/webcast-va/eba3a9bb85c33e017f3648eaf88d7189~tplv-obj.png',
+            giftName: "Rose",
+          });
+        }, 22_000);
+      }
+
+      io.on("christmas-event:gift", (data) => {
+        if(isPreview) return;
+        window.handleGift?.(data);
+      });
+
+      io.on("christmas-event:update", (data) => {
+        if(isPreview) return;
+        window.handleUpdate?.(data);
+      });
+
+      io.on("christmas-event:state", (data) => {
+        if(isPreview) return;
+        window.handleUpdateState?.(data);
+      });
+    </script>
+  </body>
+</html>

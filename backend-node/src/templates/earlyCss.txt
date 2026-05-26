@@ -127,6 +127,30 @@
     zoom: 1 !important;                   /* nuke bundle's broken zoom curve */
     max-width: 100% !important;
   }
+
+  /* === Card iframe height — REVERT to gốc-native behavior (Gate 30d v5) ===
+     GỐC REFERENCE (user-provided DOM dump 2026-05-26):
+       CoinMatch  iframe height: 655px (grew from 550 via stretchIframe +105)
+       CoinJar    iframe height: 660px (grew from 650 via stretchIframe +10)
+       Wheel      iframe height: 455px (grew from 450 +5)
+       Cannon     iframe height: 480px (grew from 300 +180)
+       FallingSnow 450, SocialMediaRotator 450, Firework 410, Emojify 345
+       Chat 305, GiftFeed 305, PointsAnim 375, UserInfo 175, CmdInfo 155, etc.
+
+     KEY INSIGHTS from gốc HTML:
+     - Cards are PLAIN block divs (no flex, no display override)
+     - iframe has inline `style="width:867px; height:Xpx"` per widget
+     - main.min.css `iframe { width:100% !important }` shrinks visual width
+       to card width; heights stay as inline values (no CSS override)
+     - Bundle's stretchIframe grows .lazy-frame iframe heights via its
+       `iframe.querySelector(SOMETHING).style.height` loop until iframe
+       scrollHeight stabilizes
+     - Cards in same row appear similar because flex `align-items:stretch`
+       (default) equalizes them to row's tallest
+
+     OUR ROLE: just trigger bundle's stretchIframe on page mount (already
+     wired in blockScript.txt::tfTriggerOverlaysShow). DO NOT override
+     iframe height with CSS — that destroys the gốc layout. */
   /* Page container — let `.page.pageenabled` fit parent (#pages) naturally.
      #pages itself is now capped via `max-width: calc(100vw - 335px)`
      above, so the page inherits the correct available width. */

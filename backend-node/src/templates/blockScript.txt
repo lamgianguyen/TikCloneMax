@@ -170,6 +170,7 @@
    IIFE can be removed.
    ───────────────────────────────────────────────────────────────────── */
 (function tfInstrumentVoiceLoader(){
+  try { if (localStorage.getItem('tf-debug') !== '1') return; } catch(_) { return; }
   function hook(){
     if (!window.tts || typeof window.tts.loadAiVoiceState !== 'function' || window.tts.__tfLoaderHooked) return false;
     // Hook loadAiVoices (the REAL catalog loader — separate from loadAiVoiceState
@@ -301,6 +302,10 @@
    ───────────────────────────────────────────────────────────────────── */
 (function tfTrimTtsLogs(){
   var MAX_LINES = 15;
+  // Trim does actual work whenever logs append, so this timer stays
+  // permanent by design (cheap DOM read + occasional textContent rewrite).
+  // Documented exception to the "stabilize then clearInterval" pattern used
+  // by the other long-running loops below.
   function trim(){
     try {
       var pre = document.getElementById('ttsLogs');
@@ -377,11 +382,102 @@
     if (totalTouched > 0) {
       try { console.log('[TF-credit-force] patched', totalTouched, 'store(s) → 100k Pro'); } catch(_){}
     }
+    return totalTouched;
   }
-  // Run after Vue mounts + periodic refresh
-  setInterval(patchAllStores, 2000);
+  // Run after Vue mounts + periodic refresh.
+  // Self-clearing: once 30 consecutive ticks make zero changes (~60s of
+  // store stability), stop the interval. Re-arming requires a page reload —
+  // accepted tradeoff to avoid 1 Pinia walk/2s indefinitely. Function stays
+  // referenceable on window for future re-arm hooks if needed.
+  var _stableTicks = 0;
+  var STABLE_THRESHOLD = 30;
+  var _handle = setInterval(function tick(){
+    var touched = patchAllStores();
+    if (touched === 0) {
+      _stableTicks++;
+      if (_stableTicks >= STABLE_THRESHOLD) {
+        try { clearInterval(_handle); } catch(_){}
+        try { console.log('[TF-credit-force] stabilized after', _stableTicks, 'quiet ticks → clearInterval'); } catch(_){}
+      }
+    } else {
+      _stableTicks = 0;
+    }
+  }, 2000);
+  window.__tfForceProCredits = patchAllStores;
   setTimeout(patchAllStores, 500);
   setTimeout(patchAllStores, 1500);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfTriggerOverlaysShow — fire obsoverlays.show() when overlay pages mount.
+   Bundle's modules.js defines obsoverlays.show() which calls stretchIframe()
+   to grow iframe content via .lazy-frame class until scrollHeight stabilizes.
+   In gốc TikFinity, page navigation hooks fire show() on page mount. In our
+   Vue-based clone, that hook chain doesn't fire — iframes stay at hardcoded
+   heights (CoinJar 650, CoinMatch 550, Wheel 450, Cannon 300) → cards uneven.
+
+   Fix: MutationObserver on .page[data-pageid=obsoverlays|goals|graphicoverlays]
+   for class change "pageenabled" → call obsoverlays.show() and goals.show() /
+   graphicoverlays.show() as needed. Each iframe's stretchIframe runs naturally.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfTriggerOverlaysShow(){
+  var PAGE_TO_HANDLER = {
+    'obsoverlays': function(){ window.obsoverlays && window.obsoverlays.show && window.obsoverlays.show(); },
+    'goals': function(){ window.goals && window.goals.show && window.goals.show(); },
+    'graphicoverlays': function(){ window.graphicoverlays && window.graphicoverlays.show && window.graphicoverlays.show(); }
+  };
+  function tryShow(pageId) {
+    try {
+      var fn = PAGE_TO_HANDLER[pageId];
+      if (fn) {
+        fn();
+        // Also call stretchIframe directly as belt-and-braces — runs through
+        // all .lazy-frame iframes in DOM regardless of which page is active.
+        if (window.obsoverlays && typeof window.obsoverlays.stretchIframe === 'function') {
+          window.obsoverlays.stretchIframe();
+        }
+        try { console.log('[TF-overlay-show] fired show() for', pageId); } catch(_){}
+      }
+    } catch (e) {
+      try { console.warn('[TF-overlay-show] error:', e && e.message); } catch(_){}
+    }
+  }
+  function checkPageVisible() {
+    var pages = document.querySelectorAll('.page[data-pageid].pageenabled');
+    for (var i = 0; i < pages.length; i++) {
+      var pageId = pages[i].getAttribute('data-pageid');
+      if (PAGE_TO_HANDLER[pageId]) tryShow(pageId);
+    }
+  }
+  // Observe pageenabled class toggles via MutationObserver on attribute
+  // changes. Bundle's router adds/removes .pageenabled when navigating.
+  var observer = new MutationObserver(function(mutations) {
+    var pageChanged = false;
+    for (var i = 0; i < mutations.length; i++) {
+      var m = mutations[i];
+      if (m.type === 'attributes' && m.target && m.target.matches &&
+          m.target.matches('.page[data-pageid]')) {
+        pageChanged = true;
+        break;
+      }
+    }
+    if (pageChanged) setTimeout(checkPageVisible, 100);
+  });
+  function startObserver() {
+    var root = document.querySelector('#pages') || document.body;
+    if (!root) {
+      setTimeout(startObserver, 200);
+      return;
+    }
+    observer.observe(root, { attributes: true, subtree: true, attributeFilter: ['class'] });
+    // Initial check (page may already be active)
+    setTimeout(checkPageVisible, 500);
+    setTimeout(checkPageVisible, 1500);
+    setTimeout(checkPageVisible, 3000);
+  }
+  startObserver();
+  // Re-fire on every Vue route navigation as fallback
+  setInterval(checkPageVisible, 5000);
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -403,6 +499,7 @@
 */
 (function tfPiniaProTrap(){
   function patchPiniaNav() {
+    var touched = 0;
     var apps = document.querySelectorAll('[data-v-app]');
     for (var i = 0; i < apps.length; i++) {
       var app = apps[i].__vue_app__;
@@ -418,7 +515,7 @@
       // the reactive proxy fires the dependency notifier → chip re-renders.
       // Re-applied each tick in case Vue or session reload writes it back.
       if (nav.isPro !== true) {
-        try { nav.isPro = true; } catch(_){}
+        try { nav.isPro = true; touched++; } catch(_){}
       }
 
       // Plain ref writes — also trigger Vue reactivity
@@ -428,7 +525,7 @@
         trialBannerDismissed: true,
       };
       for (var k in fields) {
-        if (k in nav && nav[k] !== fields[k]) nav[k] = fields[k];
+        if (k in nav && nav[k] !== fields[k]) { nav[k] = fields[k]; touched++; }
       }
 
       // Populate streamProfiles from window.session.me.channel.profiles
@@ -439,6 +536,7 @@
           && window.session.me.channel.profiles;
         if (Array.isArray(profs) && profs.length > 0) {
           nav.streamProfiles = profs.slice();
+          touched++;
         } else if (!_streamProfilesFetchInFlight) {
           // session.me not ready — fetch /api/me ourselves to get profiles.
           _streamProfilesFetchInFlight = true;
@@ -455,13 +553,46 @@
           }).catch(function(){ _streamProfilesFetchInFlight = false; });
         }
       }
+
+      // Sync `nav.streamProfileId` from backend's persisted `channel.profileId`.
+      // Bundle's nav store hardcodes initial state `streamProfileId: 1` — it
+      // never reads /api/me to restore the user's last-selected profile. After
+      // user picks Stream Profile 3 + reload, backend persists profileId=3 but
+      // nav store re-inits to 1 → dropdown shows "Default" as Active despite
+      // the actual active profile being 3 server-side. Mirror backend's value
+      // into nav store so the dropdown's "Active" badge matches the truth.
+      var srvProfileId = window.session && window.session.me && window.session.me.channel
+        && window.session.me.channel.profileId;
+      if (Number.isFinite(srvProfileId) && srvProfileId > 0 && nav.streamProfileId !== srvProfileId) {
+        nav.streamProfileId = srvProfileId;
+        touched++;
+      }
     }
+    return touched;
   }
   var _streamProfilesFetchInFlight = false;
   setTimeout(patchPiniaNav, 500);
   setTimeout(patchPiniaNav, 1500);
   setTimeout(patchPiniaNav, 3000);
-  setInterval(patchPiniaNav, 2000);
+  // Self-clearing: stop after 30 consecutive ticks (~60s) with zero changes.
+  // Tradeoff: future Pinia state divergence (e.g. Vue overwriting isPro
+  // after stabilization) won't be re-corrected automatically. Function is
+  // exposed on window for manual re-arm if needed.
+  var _stableTicks = 0;
+  var STABLE_THRESHOLD = 30;
+  var _handle = setInterval(function tick(){
+    var t = patchPiniaNav();
+    if (t === 0) {
+      _stableTicks++;
+      if (_stableTicks >= STABLE_THRESHOLD) {
+        try { clearInterval(_handle); } catch(_){}
+        try { console.log('[TF-pinia-pro-trap] stabilized after', _stableTicks, 'quiet ticks → clearInterval'); } catch(_){}
+      }
+    } else {
+      _stableTicks = 0;
+    }
+  }, 2000);
+  window.__tfPiniaProTrap = patchPiniaNav;
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -537,9 +668,23 @@
   // (e.g. Vue bootstrap completed but cleared session), re-apply cached.
   // 8s interval is gentle — not aggressive enough to break switch profile
   // reload chain (which finishes well under 8s).
-  setInterval(function() {
+  // Self-clearing: stop after 30 consecutive ticks (~4min) with no missing
+  // session.me. Tradeoff: if session.me is wiped after stabilization, it
+  // won't be re-applied automatically — but the fetch interceptor above
+  // still re-populates it whenever /api/me is queried by the bundle.
+  var _stableTicks = 0;
+  var STABLE_THRESHOLD = 30;
+  var _handle = setInterval(function() {
     if (!_cachedMe) return;
-    if (window.session && window.session.me && window.session.me.channel) return;
+    if (window.session && window.session.me && window.session.me.channel) {
+      _stableTicks++;
+      if (_stableTicks >= STABLE_THRESHOLD) {
+        try { clearInterval(_handle); } catch(_){}
+        try { console.log('[TF-bridge-session-me] stabilized after', _stableTicks, 'quiet ticks → clearInterval'); } catch(_){}
+      }
+      return;
+    }
+    _stableTicks = 0;
     applyMe(_cachedMe);
   }, 8000);
 })();
@@ -561,48 +706,83 @@
 */
 (function tfActivateProUI(){
   function installTrap(obj, key) {
-    if (!obj || typeof obj !== 'object') return false;
+    if (!obj || typeof obj !== 'object') return 0;
     try {
       var desc = Object.getOwnPropertyDescriptor(obj, key);
-      if (desc && desc.get && desc.get() === true) return true; // already trapped
+      if (desc && desc.get && desc.get() === true) return 0; // already trapped
       Object.defineProperty(obj, key, {
         get: function(){ return true; },
         set: function(){ /* swallow */ },
         configurable: true,
         enumerable: true,
       });
-      return true;
+      return 1;
     } catch (_) {
-      try { obj[key] = true; return true; } catch (__) { return false; }
+      try {
+        if (obj[key] === true) return 0;
+        obj[key] = true;
+        return 1;
+      } catch (__) { return 0; }
     }
   }
   function tick() {
+    var touched = 0;
     var me = window.session && window.session.me;
     if (me) {
-      installTrap(me, 'isPro');
+      touched += installTrap(me, 'isPro');
       if (!me.userFeatures) {
         me.userFeatures = { isPro: true, proInfo: null };
+        touched++;
       } else {
-        installTrap(me.userFeatures, 'isPro');
+        touched += installTrap(me.userFeatures, 'isPro');
       }
     }
     if (typeof window.$ === 'function') {
       try {
-        window.$('.nopro').hide();
-        window.$('.proPromoBox').css('display', 'none').removeClass('shakeEffect');
-        window.$('.appNameExtra').text('Pro').css('display', 'inline-block').addClass('proColor');
+        var $nopro = window.$('.nopro:visible');
+        if ($nopro.length) { $nopro.hide(); touched++; }
+        var $promo = window.$('.proPromoBox:visible');
+        if ($promo.length) { $promo.css('display', 'none').removeClass('shakeEffect'); touched++; }
+        var $ext = window.$('.appNameExtra');
+        if ($ext.length && $ext.text() !== 'Pro') {
+          $ext.text('Pro').css('display', 'inline-block').addClass('proColor');
+          touched++;
+        }
         window.$('[class*="upgrade"], [class*="proPromo"], #upgrade-button-wrap').each(function(){
           var $el = window.$(this);
-          if (/nâng cấp|upgrade/i.test($el.text()) && $el.is(':visible')) $el.hide();
+          if (/nâng cấp|upgrade/i.test($el.text()) && $el.is(':visible')) {
+            $el.hide();
+            touched++;
+          }
         });
       } catch(_){}
     }
+    return touched;
   }
   setTimeout(tick, 100);
   setTimeout(tick, 500);
   setTimeout(tick, 1500);
   setTimeout(tick, 3500);
-  setInterval(tick, 2000);
+  // Self-clearing: stop after 30 consecutive ticks (~60s) with no DOM or
+  // trap changes. Tradeoff: if Vue later swaps window.session.me reference
+  // after stabilization, the new object's isPro won't be re-trapped. Accepted
+  // because the bridge interceptor + Pinia trap already cover most cases.
+  // Function exposed on window for manual re-arm if needed.
+  var _stableTicks = 0;
+  var STABLE_THRESHOLD = 30;
+  var _handle = setInterval(function(){
+    var t = tick();
+    if (t === 0) {
+      _stableTicks++;
+      if (_stableTicks >= STABLE_THRESHOLD) {
+        try { clearInterval(_handle); } catch(_){}
+        try { console.log('[TF-activate-pro-ui] stabilized after', _stableTicks, 'quiet ticks → clearInterval'); } catch(_){}
+      }
+    } else {
+      _stableTicks = 0;
+    }
+  }, 2000);
+  window.__tfActivateProUI = tick;
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -876,13 +1056,20 @@
     loc.switchLanguage = function tfSwitchLanguageWrapped(langCode) {
       try {
         var code = String(langCode || '').toLowerCase();
-        var locale = LANG_TO_LOCALE[code] || 'EN';
+        // Allowlist check: only write cookies if code is a known LANG_TO_LOCALE
+        // key. Reject + log otherwise to prevent cookie-injection via crafted
+        // langCode containing ';' or attribute breakouts.
+        if (!Object.prototype.hasOwnProperty.call(LANG_TO_LOCALE, code)) {
+          try { console.warn('[TF-i18n-switch] rejected unknown langCode:', langCode); } catch(_){}
+          return origSwitch.call(loc, langCode);
+        }
+        var locale = LANG_TO_LOCALE[code];
         var maxAge = 31536000;
-        // tf_lang preserves the original code (including 'pt-BR' casing), not
-        // the lowercased one — backend's regex accepts hyphenated codes.
+        // tf_lang uses the validated lowercase allowlist key. Backend's regex
+        // accepts hyphenated codes like 'pt-br'.
         document.cookie = 'tf_locale=' + locale + '; Path=/; Max-Age=' + maxAge + '; SameSite=Lax';
-        document.cookie = 'tf_lang=' + langCode + '; Path=/; Max-Age=' + maxAge + '; SameSite=Lax';
-        try { console.log('[TF-i18n-switch] set tf_locale=' + locale + ' tf_lang=' + langCode); } catch(_){}
+        document.cookie = 'tf_lang=' + code + '; Path=/; Max-Age=' + maxAge + '; SameSite=Lax';
+        try { console.log('[TF-i18n-switch] set tf_locale=' + locale + ' tf_lang=' + code); } catch(_){}
       } catch (_) {}
       return origSwitch.call(loc, langCode);
     };
@@ -1091,6 +1278,7 @@
   // Diagnostic: log every speechSynthesis.speak() invocation so we see if
   // bundle's TTS module fires (even if it doesn't log to its own UI panel).
   (function tfTTSSpeakLogger(){
+    try { if (localStorage.getItem('tf-debug') !== '1') return; } catch(_) { return; }
     if (!window.speechSynthesis) return;
     var orig = speechSynthesis.speak.bind(speechSynthesis);
     var count = 0;
@@ -1110,6 +1298,7 @@
   // 'chat' vs 'newChatMessage' vs 'tiktokChat'). Records the call stack
   // line so we know which Vue component subscribed.
   (function tfSocketOnLogger(){
+    try { if (localStorage.getItem('tf-debug') !== '1') return; } catch(_) { return; }
     var attached = false;
     var subs = Object.create(null);
     var poll = setInterval(function() {
@@ -1142,6 +1331,7 @@
   // the bundle's main page socket. Counts per event name exposed via
   // window.__tfSocketStats().
   (function tfSocketEventLogger(){
+    try { if (localStorage.getItem('tf-debug') !== '1') return; } catch(_) { return; }
     // PREVIOUS IMPLEMENTATION BUG: this used to call window.io.onAny(...) where
     // window.io is the io.connect factory function, not a socket instance. The
     // factory has no event system, so onAny silently attached nothing — every
@@ -2097,6 +2287,7 @@
 
   // DEBUG: spy on localStorage to catch who clears the auth token
   (function(){
+    try { if (localStorage.getItem('tf-debug') !== '1') return; } catch(_) { return; }
     var _origRemove = localStorage.removeItem.bind(localStorage);
     var _origSet = localStorage.setItem.bind(localStorage);
     localStorage.removeItem = function(key) {
