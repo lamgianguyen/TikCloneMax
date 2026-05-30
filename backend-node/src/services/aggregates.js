@@ -73,19 +73,35 @@ function topByAmount(map, limit = 20) {
 // bundle's UI lets users assign which event drives which slot. To play
 // safe, expose both numeric AND event-keyed paths.
 function buildLastXPayload() {
+  // The bundle's "Last X Overlays" widget reads `state[myX]` where myX is the
+  // overlay key from the URL (`?x=follower` etc) ∈ {follower, gifter,
+  // subscriber, share, like, chatter}. The widget does `state[myX].testuser`
+  // WITHOUT a null-guard (verified identical in gốc lastx.html:196), so
+  // `state[myX]` MUST always be a defined object — exactly the shape the
+  // main-app emits via `lastx.overlays`. Our internal `lastEvents` keys are the
+  // raw TikTok event names; map each overlay key → its event and ALWAYS emit
+  // all 6 keys (null user when no event yet) so the widget never crashes.
+  // (Our previous flat `{state:{follow:...}}` was the bug: `state['follower']`
+  // was undefined → `undefined.testuser` → Uncaught TypeError → dead preview.)
+  const EVENT_FOR_OVERLAY = {
+    follower: 'follow', gifter: 'gift', subscriber: 'subscribe',
+    share: 'share', like: 'like', chatter: 'chat',
+  };
   const out = {};
-  for (const [key, val] of _state.lastEvents) {
-    out[key] = { user: { name: val.name, profilePictureUrl: val.profilePictureUrl } };
+  for (const overlayKey of Object.keys(EVENT_FOR_OVERLAY)) {
+    const ev = _state.lastEvents.get(EVENT_FOR_OVERLAY[overlayKey]);
+    out[overlayKey] = ev
+      ? { user: { name: ev.name, profilePictureUrl: ev.profilePictureUrl } }
+      : { user: null };
   }
-  // Numeric slot aliases (1..10) all map to the most-recent event of any
-  // type. Bundle UI lets the user pick which slot drives which widget;
-  // without numeric aliases, default-`x=1` widgets stay empty.
+  // Numeric slot aliases (1..10) → most-recent event of any type (default
+  // `?x=1` widgets). Null user when no event yet — still a defined object.
   const events = Array.from(_state.lastEvents.values());
   const latest = events.length ? events[events.length - 1] : null;
-  if (latest) {
-    const slot = { user: { name: latest.name, profilePictureUrl: latest.profilePictureUrl } };
-    for (let i = 1; i <= 10; i++) out[String(i)] = slot;
-  }
+  const latestSlot = latest
+    ? { user: { name: latest.name, profilePictureUrl: latest.profilePictureUrl } }
+    : { user: null };
+  for (let i = 1; i <= 10; i++) out[String(i)] = latestSlot;
   return { state: out };
 }
 

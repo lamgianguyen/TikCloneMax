@@ -585,6 +585,7 @@
   //   obsoverlays      — generateWidget() inserts iframes into .obsOverlayOnPage
   //   goals            — goal overlay cards
   //   graphicoverlays  — graphic overlay cards
+  //   lastx            — Last X Overlays preview cards (follower/gifter/subscriber/share/like/chatter)
   //   sounds           — Sound Alerts grid (Create button + dxDataGrid table)
   //   actionsandevents — Actions & Events table + screens
   //   chatbot          — chat commands table
@@ -592,7 +593,7 @@
   //   setup            — connection wizard
   // Add more here if user reports another page rendering empty.
   // (Verified via runtime probe: each has window[name].onVisible function.)
-  var PAGES = ['start', 'obsoverlays', 'goals', 'graphicoverlays', 'sounds', 'actionsandevents', 'chatbot', 'points', 'setup'];
+  var PAGES = ['start', 'obsoverlays', 'goals', 'graphicoverlays', 'lastx', 'sounds', 'actionsandevents', 'chatbot', 'points', 'setup'];
   function isReady(pageId) {
     if (!window[pageId] || typeof window[pageId].onVisible !== 'function') return false;
     if (!window.session || !window.session.me || !window.session.me.channel) return false;
@@ -657,6 +658,25 @@
           }
         } catch(e) {
           try { console.warn('[TF-overlay-visible] sounds.refreshDataSource error:', e && e.message); } catch(_){}
+        }
+      }
+      // lastx / graphicoverlays: the preview placeholder ("Example User" for
+      // lastx, idle frame for webcam) is driven by obsoverlays' framePreviewPing
+      // interval (modules.js:19266), which ONLY obsoverlays.init() starts. tryFire
+      // calls <page>.init() — never obsoverlays.init — so landing on these gallery
+      // pages without first visiting Overlay Library leaves the ping off and the
+      // preview iframes blank. Start obsoverlays.init() ONCE (reuse the init-once
+      // guard so the Overlay Library page itself won't double-init its
+      // fetchTopGifter interval).
+      if ((pageId === 'lastx' || pageId === 'graphicoverlays')
+          && !window.__tfPageInits['obsoverlays']
+          && window.obsoverlays && typeof window.obsoverlays.init === 'function') {
+        try {
+          window.obsoverlays.init();
+          window.__tfPageInits['obsoverlays'] = true;
+          try { console.log('[TF-overlay-visible] started obsoverlays framePreviewPing via', pageId); } catch(_){}
+        } catch(e) {
+          try { console.warn('[TF-overlay-visible] obsoverlays.init for', pageId, 'error:', e && e.message); } catch(_){}
         }
       }
       setTimeout(function(){

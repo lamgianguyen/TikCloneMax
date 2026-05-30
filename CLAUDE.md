@@ -158,6 +158,15 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
     3. STOP và revert nếu thấy regression
     4. Gate doc only AFTER user confirm fix work
 
+12. **General coding hygiene (adopted 2026-05-31 từ Karpathy skills — full verbatim: [.codex/skills/general-coding-hygiene.md](.codex/skills/general-coding-hygiene.md))**
+
+    4 nguyên tắc generic chống lỗi LLM. BỔ TRỢ, không thay thế các gate trên:
+
+    - **Think before coding** — nêu assumption rõ; nhiều cách hiểu thì trình bày hết, đừng đoán im lặng; thấy cách đơn giản hơn thì nói. (≈ §0.0 grep-trước-khi-đoán, §1.3 Root Cause Before Fix). *Hòa với §2.1:* Commander vẫn AUTONOMY — surface assumptions/tradeoffs vào Mission Report, KHÔNG hỏi user từng bước (chỉ hỏi khi rơi vào 3 exception §2.1).
+    - **Simplicity first** — code tối thiểu giải đúng yêu cầu; không feature/abstraction/config/error-handling thừa; 200 dòng làm được bằng 50 thì viết lại. (≈ §1.2 Minimal Change First).
+    - **Surgical changes** ⭐ *(phần additive nhất — bổ sung §1.10 Protect User Work):* mỗi dòng đổi phải trace thẳng tới yêu cầu user; KHÔNG "cải thiện" code/comment/format lân cận; KHÔNG refactor cái đang chạy ổn; match style hiện có dù mình thích khác; thấy dead code lạ thì NÊU ra, đừng xóa; chỉ remove import/var/func mà CHÍNH thay đổi của mình làm thành orphan.
+    - **Goal-driven** — biến task mơ hồ thành success-criteria verify được rồi loop tới khi đạt: "fix bug"→"viết repro test rồi pass"; "add validation"→"test invalid input rồi pass". (≈ superpowers TDD + verification-before-completion + §1.5 Evidence Before Completion).
+
 ---
 
 ## 2. Superpowers Policy

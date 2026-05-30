@@ -1,8 +1,27 @@
 {
   "schema_version": 1,
-  "last_updated": "2026-05-30",
+  "last_updated": "2026-05-31",
   "compaction_checkpoint": true,
   "active_mission": null,
+  "m008_lastx_overlays_outcome": {
+    "status": "v2 — REAL root cause from runtime logs; 2 deeper fixes applied; pending user RESTART + verify",
+    "v2_runtime_evidence": "5288x 'Uncaught TypeError: Cannot read properties of undefined (reading testuser)' @ widget/lastx:920 — widget crashes when backend setLastX omits the requested overlay key; the PAGES fix correctly made iframes render which EXPOSED this deeper bug",
+    "v2_fixes": [
+      "aggregates.js buildLastXPayload — ALWAYS emit all 6 overlay keys {follower,gifter,subscriber,share,like,chatter} ({user:null} when no event) so widget state[myX].testuser never crashes; gốc-faithful (widget byte-identical to gốc); SUPERSEDES earlier WIDGET_ALIAS edit; NEEDS backend restart",
+      "blockScript tryFire — obsoverlays.init() once for lastx/graphicoverlays so framePreviewPing fires -> 'Example User' placeholder shows"
+    ],
+    "v2_verified_static": "syntax OK both files; node unit-eval proves buildLastXPayload returns 6/6 keys, 0 crash for empty/1/multi event",
+    "root_cause": "'lastx' missing from PAGES array in blockScript.txt::tfTriggerOverlaysOnVisible -> lastx.onVisible->generateOverlays->generateWidget chain never fired -> empty preview cards",
+    "fixes": [
+      "blockScript.txt:596 added 'lastx' to PAGES (cards/iframes/buttons render via gốc-native chain) — hot-reloaded via reload-html",
+      "aggregates.js buildLastXPayload() additive WIDGET_ALIAS {follow->follower,gift->gifter,subscribe->subscriber,chat->chatter} so LIVE last-X data populates (needs backend restart)"
+    ],
+    "workflow": "wf_436c35fc-ad3 (5 agents: 3 scouts + reconciler + adversarial critic; verdict GO/high)",
+    "backups": ["blockScript.txt.bak-2026-05-31-pre-lastx", "aggregates.js.bak-2026-05-31-pre-lastx-keys"],
+    "verified_static": "syntax clean (check-script-syntax only 2 pre-existing ld+json fails); /widget/lastx -> 200 76KB after 301",
+    "pending_runtime": "user restart Electron -> 6 cards + Example User preview + Copy/Test/Customize; live stream -> aggregates alias",
+    "reconciliation": ".codex/team/mission-008-reconciliation.md"
+  },
   "session_2026_05_30_summary": {
     "missions": ["M-005 image-load saga (6 iter)", "M-006 layout LARGE 8-agent (reverted)", "M-007 replicate-gốc 1:1 (img + toProxy)", "settings.json malformed-JSON fix (extra brace)", "org-review workflow (7-agent council + adversarial critique)"],
     "org_review_verdict": "adopt-with-changes — NO domain-squad. Kept tier-by-size + role + model-routing + max-thinking + war-room. Committed 2 kernel changes only.",

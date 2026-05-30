@@ -55,6 +55,7 @@ If skill grows past ~1000 lines, consider splitting — but keep ONE entry-point
 | Doc | Purpose |
 |-----|---------|
 | `../../CLAUDE.md` | Gate system + Risk Tiers + Verification Matrix + Order of fixes |
+| [`general-coding-hygiene.md`](general-coding-hygiene.md) | General LLM coding hygiene (Karpathy skills, 2026-05-31) — verbatim source; distilled into CLAUDE.md §1.12. Reconciles "ask if uncertain" with §2.1 Commander autonomy. |
 | `../../docs/ARCHITECTURE.md` | Process tree + routes + data flow |
 | `../../docs/MIGRATION_PLAN.md` | C# → Node migration history |
 | `../../docs/GATES_ARCHIVED.md` | Superseded gates (historical context) |

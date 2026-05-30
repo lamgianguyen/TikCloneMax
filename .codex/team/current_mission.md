@@ -1,36 +1,26 @@
 # Current Mission
 
 ## Mission ID
-M-2026-05-29-007-match-goc-itemtemplate
+M-2026-05-30-008-lastx-overlays-fix
 
 ## Objective
-Images hiện rồi (M-006) nhưng TEXT lệch khỏi gốc ("chữ lệch lum la"). User: hình 2 (gốc) là target. Gốc dùng structure đơn giản (icon plain div/img width:40px + label span table-cell), KHÔNG có extra table-cell wrapper (M-006 thêm) → text lệch. Cần extract EXACT gốc itemTemplate + dropdown CSS từ obfuscated/decompiled code → replicate 1:1.
+Fix trang **Last X Overlays** (`data-pageid=lastx`, breadcrumb "Overlays / Last X Overlays"): preview iframe của các card (Last Follower, Last Gifter, Last Subscribe/Super Fan, Last Share, Last Like, Last Chatter) đang **TRỐNG**, và "tính năng" (nút Copy URL / Test / Customize) cần verify hoạt động. User: "fix cái giao diện và tính năng của trang này luôn".
 
-## Gốc HTML (user-provided, event item)
-```html
-<div style="display:table-row;height:40px">
-  <div class="fas fa-share" style="font-size:30px;color:rgb(49,181,213);height:40px;width:40px;text-align:center"></div>
-  <span style="display:table-cell;padding-left:20px;vertical-align:top">
-    <div style="font-size:1.2em">Share</div>
-    <div style="font-size:0.8em;margin-top:3px"></div>
-  </span>
-</div>
-```
-Note: gốc icon NOT wrapped in extra table-cell. Gốc gift uses `<img>` (replaced element → 40px intrinsic → anonymous cell works). Our M-005 div-bg (0 intrinsic) broke it; M-006 wrapper fixed size but deviated alignment.
+## Root-cause hypothesis (Commander recon, pre-team)
+- `lastx` page = `type:"nav.gallery"` với sections `type:"Widget"` (giống obsoverlays/Gift Overlays) — gốc def `decompiled/app/deobfuscated.js:34311-34349`.
+- Clone IIFE `tfTriggerOverlaysOnVisible` (blockScript.txt:595) PAGES list **KHÔNG có `lastx`** → page-mount không fire build/stretch iframe.
+- NHƯNG grep cho thấy `window.lastx` không có `.onVisible` (chỉ `emitStatus`) → cơ chế render preview của `nav.gallery` Widget-card CẦN scout xác minh (Vue/jQuery shared renderer? iframe src-only? cần stretch? cần data?).
+- Widget HTML tồn tại: `downloads/widget/lastx.html` (76KB). Route `/widget/lastx?cid=1&x=follower` qua index.js rewrite + static serve.
 
-## Status
-SCOUTING — 2 obfuscated-code agents (per user: 1 Opus + 1 Sonnet).
-
-## Active agents
-1. **Scout-Goc-ItemTemplate** [Opus + max thinking] → read `decompiled/modules/deobfuscated.js` ~13327-13396: extract EXACT triggerId itemTemplate (every element + every CSS prop, event-icon + gift-img branches + label + row). Also check fieldTemplate. Write `.codex/team/m007-goc-itemtemplate.md`.
-2. **Scout-Goc-DropdownCSS** [Sonnet + max thinking] → read `downloads/dx/css/dxdark.css` + bundle CSS: find dropdown/list container CSS affecting text-align + item layout (why gốc aligns left clean). `.dx-list-item-content`, text-align inheritance, `.dx-list` overlay. Write `.codex/team/m007-goc-dropdowncss.md`.
+## Active agents (Workflow M-008 understand-phase)
+1. **Scout-Bundle-Render** [Sonnet, max-think] → gốc render path `nav.gallery`/`Widget` preview iframe + Copy/Test/Customize handlers (deobfuscated app.js).
+2. **Scout-Backend-Widget** [Sonnet, max-think] → `/widget/lastx` route resolve + lastx.html runtime deps (socket/data) + Test/Customize backend.
+3. **Scout-Clone-Wiring** [Sonnet, max-think] → gap clone vs obsoverlays (blockScript onVisible/template-inject + earlyCss iframe height).
+4. **Reconciler** [Opus] → unified root cause + minimal fix spec + regression list.
+5. **Critic-Demolition** [Opus] → adversarial refute fix spec (READ-GỐC-FIRST enforcement, replicate-before-invent).
 
 ## Then
-Commander reconcile → Engineer replicate gốc EXACTLY (revert M-005 div-bg → `<img src=proxy no-onerror>`, revert M-006 wrapper, restore gốc label CSS). Keep proxy rewrite + truncate.
+Commander reconcile → backup blockScript.txt (+ earlyCss.txt nếu touch) → apply minimal fix → `node backend-node/scripts/check-script-syntax.js` → user restart Electron để runtime-verify.
 
-## Context — current deviations from gốc (to revert)
-- M-005: gift `<img>` → `<div background-image>` (0 intrinsic → broke anonymous cell)
-- M-006 change A: extra `<div display:table-cell>` wrapper around icon
-- M-006b: label text-align:left, width:100%, vertical-align:middle, padding-left:12px (gốc: vertical-align:top, padding-left:20px, no text-align/width)
-- M-006 change B (earlyCss): table-layout:auto overrides (may be unneeded if match gốc img structure)
-- KEEP: tfWrapAndPreloadTriggers (truncate 500), tfRewriteGiftImagesToCache (proxy + onerror-clear), toProxy helper
+## Note
+- Previous mission M-007 (gift itemTemplate replicate) PARKED — chưa reconcile chính thức; state ở git + current_state.json session summary. KHÔNG revert M-007 work.
