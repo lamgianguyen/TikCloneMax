@@ -124,4 +124,23 @@ router.post('/stats/reset', (req, res) => {
   res.json({ status: 200, reset: true });
 });
 
+// /api/tiktok/gifts — Gift catalog passthrough. Bundle calls this path
+// (newer code), legacy bundle called `/api/getAllGifts`. Both should serve
+// the same fixture. Without this route, sounds.loadTriggers() fails to
+// populate trigger dropdown → user can't pick gift triggers for sound alerts.
+router.get('/gifts', (_req, res) => {
+  // Delegate to data router's loadBundleFixture by direct file read
+  const path = require('path');
+  const fs = require('fs');
+  const config = require('../config');
+  const giftsPath = path.join(config.FRONTEND_PATH, 'api', 'getAllGifts');
+  try {
+    const raw = fs.readFileSync(giftsPath, 'utf8');
+    res.type('application/json').send(raw);
+  } catch (err) {
+    logger.warn({ err }, '[tiktok/gifts] failed to read getAllGifts fixture');
+    res.status(500).json({ error: 'gifts catalog unavailable' });
+  }
+});
+
 module.exports = router;

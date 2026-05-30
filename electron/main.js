@@ -1118,6 +1118,38 @@ function configureSession() {
         callback({ cancel: true });
     });
 
+    // Redirect *.tiktokcdn.com → local cache proxy. Catches every gift image,
+    // animation, thumbnail used by bundle's obfuscated itemTemplate (native
+    // template fires direct CDN fetch, bypassing our blockScript patch). With
+    // this intercept, every request hits backend /tiktok-img-cache/* route
+    // which serves from _cdnProxyCache Map (pre-warmed 200 popular gifts on
+    // boot via tiktok-image-prewarm service) or falls through to upstream.
+    //
+    // Cache-Control: 86400 from backend → Electron's Chromium HTTP disk cache
+    // persists across restarts. First-time slow, subsequent instant.
+    //
+    // SSRF-safe: regex restricts host to exactly *.tiktokcdn.com (matching
+    // backend proxy's allow-list).
+    const TIKTOK_HOST_RE = /^[a-z0-9-]+\.tiktokcdn\.com$/i;
+    const TIKTOK_CACHE_BASE = `${BACKEND_URL}/tiktok-img-cache`;
+    sess.webRequest.onBeforeRequest(
+        { urls: ['https://*.tiktokcdn.com/*', 'http://*.tiktokcdn.com/*'] },
+        (details, callback) => {
+            try {
+                const u = new URL(details.url);
+                if (!TIKTOK_HOST_RE.test(u.hostname)) {
+                    return callback({});  // not a TikTok CDN host — let it through
+                }
+                const redirectURL = `${TIKTOK_CACHE_BASE}/${u.hostname}${u.pathname}${u.search}`;
+                return callback({ redirectURL });
+            } catch (err) {
+                // URL parse failed — let request through unchanged.
+                return callback({});
+            }
+        }
+    );
+    console.log('[Electron] TikTok CDN intercept installed → ' + TIKTOK_CACHE_BASE + '/*');
+
     // Bundle's overlay-gallery UI links to `/widget/<name>?cid=1&preview=1`
     // using an `<a download>` element. Chromium honours `download` attribute
     // for same-origin URLs and shows a Save dialog INSTEAD of navigating —

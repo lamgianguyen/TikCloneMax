@@ -67,6 +67,20 @@ Khi bundle obfuscated render khác mong đợi, áp dụng theo thứ tự ƯU T
 
 Choose lowest-priority pattern that solves problem. CSS > JS observer.
 
+**⚑ READ-GỐC-FIRST gate (BẮT BUỘC trước khi chọn pattern trên — adopted 2026-05-30 sau M-005→M-007 post-mortem):**
+
+> **TRIGGER:** Bất kỳ thay đổi nào **override cách bundle render** — `itemTemplate` / `fieldTemplate` / `earlyCss` layout / DevExtreme list-dropdown / chip / topbar UI. (Backend route / Electron / non-render code KHÔNG trigger.)
+>
+> **TIER-GATED (không bắt mọi touch):**
+> - **Trivial/Easy** (1 dòng CSS color, sửa text tĩnh, tweak spacing đã biết) → SKIP gate, sửa thẳng.
+> - **Medium/Large** (đổi cấu trúc render, fix layout vỡ, "không hiện / lệch / ép") → gate BẮT BUỘC.
+>
+> **YÊU CẦU khi gate active:** Trước khi viết code, đọc gốc — grep `decompiled/modules/deobfuscated.js` cho render function liên quan, ghi **dải dòng chính xác** + **cấu trúc element/CSS verbatim** vào reconciliation. 1 câu "deviation statement" trong Mission Report: *replicate gốc 1:1* HAY *cố tình lệch vì X*.
+>
+> **LUẬT VÀNG — Replicate-before-invent:** Gốc làm X (vd plain `<img src>`) → fix PHẢI bắt đầu bằng replicate X. Chỉ "phát minh" structure mới (div-background, flex wrapper) SAU khi replicate verbatim đã chứng minh fail, với bằng chứng fail ghi vào war-room.
+>
+> **Bài học gốc:** M-005 đổi `<img>`→`<div background-image>` + M-006 thêm table-cell wrapper — cả hai KHÔNG có trong gốc, bị M-007 ("đọc gốc, replicate") revert. Đốt ~3 mission cho việc 1 mission giải được. Principle này đã có rải rác (§0.0 "grep deobfuscated.js", §1.3, §4 DO, decisions.md "PROBE BEFORE SEED") — gate này là ENFORCEMENT, không phải rule mới.
+
 0. **TikClone là ALL-PRO by design**
    Serial Key gate ở TikfinityServer startup đã unlock TẤT CẢ tính năng Pro của bundle. Mọi response của `/api/me`, `/api/tts/user`, `/api/tts/auth-token` PHẢI emit user state là Pro:
    - `/api/me` → `isPro: true`, `subscription.isPro: true`, `userFeatures.isPro: true`
@@ -159,7 +173,105 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
 | Review feedback hoặc user nói fix chưa đúng | `superpowers:receiving-code-review` hoặc debugging flow | Không đồng ý mù quáng. Xác minh feedback, reproduce lại, rồi mới sửa. |
 | Major/high-risk change trước merge/commit | `superpowers:requesting-code-review` | Khuyến nghị nếu chạm bundle, DB, Electron main, auth, Socket.IO, profile switch, TikTok connection. |
 
-Không dùng subagent/parallel-agent workflow trừ khi user yêu cầu rõ hoặc task có các phần độc lập thật sự. Nếu dùng, phải chia ownership file rõ và không để các agent sửa cùng file.
+### 2.1 Agent Team — ALWAYS ACTIVE, 8-10 AGENTS DEFAULT (updated 2026-05-28)
+
+> **OVERRIDES previous "solo by default" policy.** Project vận hành theo Space Marine Doctrine (xem [`.codex/skills/tikmax/SKILL.md`](.codex/skills/tikmax/SKILL.md) §1). Mọi mission đều có team **8-10 agents** — KHÔNG còn solo trên main thread mặc định. Commander tự quyết định team composition + execution path, không xin phép user.
+
+**Team size = TIERED theo độ khó (updated 2026-05-28, supersedes "always 8-10").** Commander assess task difficulty → right-size team cho linh động + nhanh. KHÔNG gọi full team cho mọi task.
+
+| Tier | Criteria | Team size | Composition |
+|---|---|---|---|
+| **Trivial** | 1 dòng, typo, comment, rename, single config | Commander solo | No mission declare |
+| **Easy** | 1-2 file, scope rõ, low risk, known pattern | 1-2 specialist | Relevant specialist (Engineer/Apothecary/Scout) + optional 1 reviewer |
+| **Medium** | 3-5 file, moderate scope, some unknowns | 3-5 relevant agents | Scout (nếu cần research) + Engineer + Apothecary + optional Demolition. Commander có thể tự plan (skip Strategist). |
+| **Large** | cross-cutting, high risk, scope fuzzy, security/DB/migration, multi-subsystem | 8-10 full team | Full roster per templates dưới |
+
+**Difficulty assessment checklist:** (1) #files touched, (2) scope rõ/fuzzy, (3) risk tier §3, (4) known Gate/novel, (5) reversible? → pick tier.
+
+**Mobilize ONLY relevant specialists:** backend route fix → Engineer + Apothecary (no Scout-DOM/Chaplain). CSS tweak → Engineer + Demolition (no Database/Sec). Bundle RE → Scout × N only. **Security-touching → ALWAYS +Demolition-Sec bất kể size.**
+
+Reference Large mission: M-2026-05-26-bundle3-audit (9 agents, 13/13 done).
+
+**Per-role model assignment (MANDATORY pass `model:` param khi spawn — KHÔNG để default Opus inheritance):**
+
+| Role | Model | Rationale |
+|---|---|---|
+| Commander | Opus (parent) | Main orchestration |
+| Strategist | **Opus** | Plan decomposition, dependency, edge cases |
+| Architect | **Opus** | High-level design tradeoffs |
+| Demolition-Sec | **Opus** | Threat modeling cần deep reasoning |
+| Engineer (complex/multi-file) | **Sonnet** | Implementation theo plan |
+| Engineer (small/scoped, 1-2 file) | **Haiku** | Mechanical edit per spec rõ |
+| Scout (broad RE / multi-file) | **Sonnet** | Research + grep + mapping |
+| Scout (single-file diagnostic) | **Haiku** | Confirm symbol / file count |
+| Demolition (code-reviewer) | **Sonnet** | Code quality + pattern match |
+| Apothecary (build/static check) | **Haiku** | Syntax/lint/file structure mechanical |
+| Apothecary (runtime debug) | **Sonnet** | Bug trace across files |
+| Librarian | **Haiku** | Doc write per template |
+| Perf | **Sonnet** | Profile + optimization patterns |
+| Database | **Sonnet** | Schema + query analysis |
+| Chaplain-E2E | **Sonnet** | Test exec + failure parse |
+
+**Speed/cost impact**: 8 agents all Opus ≈ 30-60 min. Mixed (2 Opus + 4 Sonnet + 2 Haiku) ≈ 10-20 min + 3-4x cheaper. Quality acceptable cho most tasks.
+
+**Override exceptions**:
+- Bump Sonnet → Opus khi novel architectural decision, security-critical, scope unclear
+- Drop Opus → Sonnet khi task scope narrows mid-mission
+- Bump Haiku → Sonnet khi agent reports "need more context"
+
+**MAX thinking budget — MANDATORY (added 2026-05-28)**: Every Agent prompt MUST include thinking-extension preamble. TikMax involves obfuscated bundle RE + multi-layer state — surface reads mislead. Force agents to think thoroughly BEFORE tool calls. Template (insert at top of every Agent prompt):
+
+```
+## Thinking budget
+Use extended thinking LIBERALLY. This project involves obfuscated bundle RE +
+multi-layer state (DOM / bundle / Pinia / backend / Electron). Think through
+3-5 hypotheses, eliminate via evidence, design minimal fix + regression list
+BEFORE first tool call. Prefer 2 min thinking + 1 correct call over 8 calls
+of guessing.
+```
+
+Role-specific augmentations:
+- Strategist: dependency order + race + rollback
+- Scout: hypotheses before grep — guide search not fish
+- Engineer: read full context + trace data flow + draft mentally + verify spec + then Edit
+- Demolition-Sec: 5-10 attack vectors before mitigations
+- Apothecary: think regression first, then design verification
+- Librarian: think future readers' missing context
+
+Cost: extended thinking ~3-5x more tokens nhưng fewer iterations → net cheaper than guess-and-check loop.
+
+**Standard composition templates (Commander tự pick + customize):**
+
+| Mission type | 8-10 agent roster (model in brackets) |
+|---|---|
+| **UI bug fix** | Strategist [O] + Scout-Bundle [S] + Scout-Backend [S] + Scout-DOM [H] + Engineer-Primary [S] + Apothecary [H] + Demolition [S] + Demolition-Sec [O] + Librarian [H] (+ Chaplain-E2E [S] if test exists) |
+| **Feature dev / refactor** | Strategist [O] + Architect [O] + Scout × 2 [S] + Engineer × 2 [S] + Apothecary [H] + Demolition [S] + Demolition-Sec [O] + Chaplain-E2E [S] + Librarian [H] |
+| **Research / RE bundle / audit** | Strategist [O] + Scout × 5-7 [S] + Librarian [H] + Commander synth |
+| **Perf optimization** | Strategist [O] + Perf-Baseline [S] + Scout-Profile [S] + Engineer-Optimize [S] + Apothecary [H] + Demolition [S] + Librarian [H] + Chaplain-E2E [S] |
+| **DB / migration** | Strategist [O] + Database [S] + Engineer [S] + Apothecary [H] + Demolition-Sec [O] + Librarian [H] + Scout-DB-State [S] |
+
+(O = Opus, S = Sonnet, H = Haiku)
+
+**Bắt buộc:**
+
+1. **Mọi mission DECLARE trước** — Commander viết `.codex/team/current_mission.md` với mission ID + objective + 8-10 active agents + ETA TRƯỚC khi spawn.
+2. **Commander autonomy** — Commander tự assess → pick team → spawn → execute → report. KHÔNG hỏi user "Chọn A hay B?", "OK launch?" trừ khi (a) user explicit hỏi options, (b) sắp phá behavior đang work, (c) resource cost lớn (destructive DB migration, huge bundle download).
+3. **File ownership tuyệt đối** — không 2 agent nào edit cùng file. Scout reports / Engineer patches tách rõ. Spawn parallel cho independent scopes, sequential cho dependent.
+4. **Cross-talk qua `.codex/team/*.md` files** — agents link cho nhau bằng markdown anchors `[[other-agent#section]]`. Không gọi `SendMessage` trực tiếp trừ khi cần resume agent đã chạy.
+5. **Commander reconcile** sau khi agents xong — viết `.codex/team/mission-NNN-reconciliation.md` tổng hợp findings + đề xuất follow-up missions. **Khi ≥2 Scout chạy song song mà mâu thuẫn root cause → reconciliation PHẢI có section "Scout conflicts → Commander's chosen resolution + gốc source line" TRƯỚC khi spawn Engineer.** (M-006: 2 Scout mâu thuẫn, không reconcile, Engineer chọn đường thứ 3 → bị revert.)
+6. **Update war-room state — HARD STEP mỗi mission COMPLETE (enforced 2026-05-30):** `.codex/team/current_state.json::active_mission` set về `null` + ghi outcome, `team_roster` cập nhật. Nếu sub-agent không ghi được report `.md` (Bash classifier block) → **Commander tự transcribe inline report → file** trước khi coi mission reconciled. (current_state.json đã từng stale từ 2026-05-27 dù rule này tồn tại — gap là enforcement.)
+
+**True trivial exception (vẫn solo, KHÔNG declare mission):**
+- 1 dòng typo / comment edit / variable rename trong 1 file
+- User explicit nói "tự làm đi, không cần team"
+- Continuation của mission đang chạy — Commander chỉ điều phối + reconcile, không tự spawn thêm
+
+**Anti-pattern:**
+- ❌ Spawn 1-3 agent cho mission lớn → undersized team, miss perspectives
+- ❌ Spawn agent với file ownership chồng chéo → race condition
+- ❌ Skip mission DECLARE → bypass war-room → mất audit trail
+- ❌ Commander tự code feature lớn → không leverage specialization
+- ❌ Hỏi user "Chọn option nào?" → Commander tự decide, report rationale
 
 ---
 
@@ -1733,3 +1845,190 @@ window.switchProfile && window.switchProfile(_0x291349['id']);  // legacy jQuery
 13. **NEW** `tfTriggerOverlaysShow` MutationObserver fire `obsoverlays.show()` / `goals.show()` / `graphicoverlays.show()` khi page mount → bundle's gốc `stretchIframe` chạy tự nhiên ✓
 
 Bỏ bất kỳ bước nào → chip stuck "0" / "25", language switcher silently fail, profile dropdown revert về Default sau reload, hoặc overlay iframes render với height sai.
+
+---
+
+### Gate 32: Pre-warm cross-origin CDN cache on backend boot (M-001, 2026-05-28)
+
+**Symptom:** Gift dropdown (Sound Alerts trigger) appears slow on first open post-boot (~1-2s freeze, WebP decode + network fetch). Subsequent opens instant. User: "tại sao cái quà gì đó chậm lần đầu?"
+
+**Root cause:** Bundle's obfuscated `itemTemplate` (native render function) fires direct cross-origin `https://<N>.tiktokcdn.com/image/<path>.webp` fetches for ~50 gift thumbnails. When backend boots, `/tiktok-img-cache/*` proxy route has empty in-memory Map (`_cdnProxyCache`) — first dropdown open pays upstream network cost. Subsequent opens hit cache hit (24h TTL) → instant.
+
+**Fix:** 
+- **Module:** [`backend-node/src/services/tiktok-image-prewarm.js`](backend-node/src/services/tiktok-image-prewarm.js) (201 lines)
+  - On startup, read `downloads/api/getAllGifts` fixture (3386 gifts, already sorted by `diamond_count` ASC = cheap/popular first)
+  - Extract top 200 TikTok CDN URLs from `gift.image.url_list[0]`
+  - Validate SSRF: must match `*.tiktokcdn.com` hostname regex
+  - Fire 200 parallel fetches with concurrency limiter (10 workers) + 10s timeout per fetch
+  - For each successful fetch: store in `_cdnProxyCache` with key `tiktok-img/<host>/<path>` (MUST match proxy route format exactly)
+  - Fire-and-forget after `server.listen()` — does NOT block backend boot
+  - Cache key format must match [`index.js:500`](backend-node/src/index.js#L500) proxy route `'tiktok-img/' + host + '/' + upstreamPath` exactly
+
+- **Wired in:** [`backend-node/src/index.js:673-677`](backend-node/src/index.js#L673)
+  ```js
+  // Async pre-warm: fire-and-forget after server.listen()
+  const { prewarmTikTokImages } = require('./services/tiktok-image-prewarm');
+  prewarmTikTokImages(config.FRONTEND_PATH, _cdnProxyCache, logger).catch((err) => {
+    logger.error({ err }, '[BOOT] prewarmTikTokImages uncaught');
+  });
+  ```
+
+**Design decisions (mirror Gate 21 pattern — bundle-fixtures-sync):**
+- Fire-and-forget: backend listen immediately, warmup parallel
+- One-shot: no setInterval, no retry. User restart backend to re-warm
+- Per-URL error handling: failed fetch logged but does NOT crash backend or stop batch
+- Cache key format MUST match proxy route exactly (verified via unit test `cacheKeyFor()`)
+- SSRF guard: same host regex `^[a-z0-9-]+\.tiktokcdn\.com$/i` as proxy route
+
+**Verification:** 
+```bash
+# 1. Backend boot — watch logs:
+npm --prefix backend-node start
+# Look for: "[BOOT] tiktok-image-prewarm: starting { requested: 200, candidates: 186, concurrency: 10 }"
+# End log: "[BOOT] tiktok-image-prewarm: warmed 186/186 imgs in 2340ms"
+
+# 2. Verify cache keys format:
+node -e "
+const m = require('./backend-node/src/services/tiktok-image-prewarm.js');
+const url = 'https://p19-sign.tiktokcdn.com/img/musically-malawi-go-live-gift@320x320.webp?x-expires=1719572400&x-signature=abc';
+console.log(m.cacheKeyFor(url));
+// → { cacheKey: 'tiktok-img/p19-sign.tiktokcdn.com/img/musically-malawi-go-live-gift@320x320.webp?x-expires=...', host: 'p19-sign.tiktokcdn.com', upstreamPath: 'img/musically-malawi-go-live-gift@320x320.webp?x-expires=...' }
+"
+
+# 3. DevTools Network tab — open Gift Browser dropdown:
+# First time: CDN request has 'X-Cache: MISS' (fallthrough to upstream)
+# Second time within 24h: 'X-Cache: HIT' from _cdnProxyCache (instant)
+```
+
+**Pattern principle:** 
+> Tính năng obfuscated/native-render bypass our JS-layer patches (timing race, instance rebuild, template re-eval). Pre-populate in-memory caches at boot to eliminate first-hit latency. Cache key format MUST be exact — regex match bằng cách nào đó sẽ lệch giá trị key.
+
+**Related:**
+- Gate 33 — network-layer interception for same CDN (Electron main process)
+- Gate 21 — bundle-fixtures-sync (similar fire-and-forget pattern for getAllGifts)
+
+---
+
+### Gate 33: Electron webRequest intercept for bundle-bypass CDN URLs (M-002, 2026-05-28)
+
+**Symptom:** Even with Gate 32 pre-warm + blockScript URL-rewrite patches, gift image (itemTemplate) sometimes load từ upstream CDN trực tiếp (cross-origin request không bypass local proxy). User click Sound Alert → dropdown open but some images slow (không hit pre-warm cache). Console: `failed to fetch image blob from https://p19-sign.tiktokcdn.com/...` (cross-origin CORS or bypass).
+
+**Root cause:** Bundle's obfuscated `itemTemplate` native render function fires `fetch()` directly to TikTok CDN (hardcoded URL string, không qua window.fetch — direct native code or separate fetch reference snapshot). Our blockScript patches window.fetch nhưng bundle đã capture fetch trong closure TRƯỚC patch load → patches không có hiệu lực. Timing race: Vue grid rebuild triggers template re-eval, obfuscated function snapshot lại fetch → bypass patches.
+
+**Fix:**
+- **Layer:** Electron main process [`electron/main.js:1121-1151`](electron/main.js#L1121)
+  - Install `session.defaultSession.webRequest.onBeforeRequest` handler
+  - Match URLs: `https://*.tiktokcdn.com/*` + `http://*.tiktokcdn.com/*`
+  - For each matching request:
+    - Validate hostname matches `^[a-z0-9-]+\.tiktokcdn\.com$/i` (SSRF guard)
+    - Redirect to local proxy: `callback({ redirectURL: BACKEND_URL + '/tiktok-img-cache/<host><path><search>' })`
+  - URL parse error → let request through (fail-open)
+
+- **Code block** ([`electron/main.js:1133-1150`](electron/main.js#L1133)):
+  ```javascript
+  const TIKTOK_HOST_RE = /^[a-z0-9-]+\.tiktokcdn\.com$/i;
+  const TIKTOK_CACHE_BASE = `${BACKEND_URL}/tiktok-img-cache`;
+  sess.webRequest.onBeforeRequest(
+      { urls: ['https://*.tiktokcdn.com/*', 'http://*.tiktokcdn.com/*'] },
+      (details, callback) => {
+          try {
+              const u = new URL(details.url);
+              if (!TIKTOK_HOST_RE.test(u.hostname)) {
+                  return callback({});  // not a TikTok CDN host — let it through
+              }
+              const redirectURL = `${TIKTOK_CACHE_BASE}/${u.hostname}${u.pathname}${u.search}`;
+              return callback({ redirectURL });
+          } catch (err) {
+              // URL parse failed — let request through unchanged.
+              return callback({});
+          }
+      }
+  );
+  console.log('[Electron] TikTok CDN intercept installed → ' + TIKTOK_CACHE_BASE + '/*');
+  ```
+
+**Design:**
+- Hook runs BEFORE renderer sees request — intercept at browser protocol layer (lower than blockScript patches)
+- 307 redirect to local proxy → browser cache (Chromium HTTP disk cache) + backend Map cache
+- Cache-Control header từ backend (24h TTL) → Electron persist cache across restarts
+- Fail-open: URL parse error → let request through unchanged (graceful degradation)
+- SSRF-safe: hostname regex exact match `*.tiktokcdn.com` — cannot be redirected to internal IPs
+
+**Verification:**
+```bash
+# 1. Check webRequest handler installed at Electron boot:
+# Terminal console: "[Electron] TikTok CDN intercept installed → http://localhost:5285/tiktok-img-cache/*"
+
+# 2. DevTools Network tab (when app running):
+# Filter by "tiktokcdn"
+# Expected: ALL *.tiktokcdn.com requests → 307 Temporary Redirect
+# Location: http://localhost:5285/tiktok-img-cache/p19-sign.tiktokcdn.com/img/...
+# Response status: 307 (from Electron main process layer)
+
+# 3. Restart Electron, re-open Gift dropdown:
+# Images should instant-load from disk cache (Chromium HTTP cache):
+# DevTools Network → Response Headers: "cache-control: max-age=86400, public"
+# "X-Cache: HIT" (from backend _cdnProxyCache if post-recent restart, else from disk cache)
+
+# 4. Verify SSRF guard:
+# Test malformed URL: DevTools Console in Electron → fetch('https://127.0.0.1:5285/...') 
+# If request happens to have tiktokcdn-like URL, verify it still redirects to proxy, NOT to localhost
+# (In practice, bundle only fires tiktokcdn.com domains so this is low-risk, but regex provides defense-in-depth)
+```
+
+**Related to blockScript patches:**
+- Complements (not replaces) [`blockScript.txt::tfHandleTtsTikfinityUser`](backend-node/src/templates/blockScript.txt) + `tfMockFetch` patches for HTTP-layer interception
+- webRequest intercepts at NETWORK layer → catches ALL client requests (native code, fetch snapshot, direct XHR)
+- blockScript patches HTTP layer → fallback if webRequest not available or request already in-flight
+
+**Anti-pattern avoided:**
+- ❌ Patch Electron's fetch API globally — invasive, incompatible with preload script
+- ❌ Install handler in renderer context — Electron webRequest is main-process-only by design
+- ❌ Wildcard redirect without hostname validation — SSRF vector (could redirect to localhost, internal IPs)
+
+**Pattern principle:**
+> Khi bundle obfuscation làm JS-level patches fragile (timing race, snapshot closure, native code), di-chuyển patch DOWN the stack:
+> - blockScript patches HTML-time (DOM render, Vue init)
+> - middleware patches response-time (HTTP headers, body transform)
+> - **Electron webRequest patches network-time (before Chromium socket layer)**
+>
+> Lower layers catch bypass attempts từ obfuscated code. webRequest ở Electron main process là **hard boundary** — không có cách bypass nó từ renderer.
+
+---
+
+### Gate 34: Sound Alerts trigger dropdown freeze — wrap loadTriggers for sticky truncation (M-004, 2026-05-28)
+
+> SUPERSEDES the M-003 page-mount truncate poll (removed). M-003 sliced triggerDataSource AFTER refreshDataSource assigned the full 3850 array, but got CLOBBERED because every page navigation re-calls refreshDataSource → reassigns full array. Probe confirmed: `_tfTriggerTruncated:true` yet `length:3936`.
+
+**Symptom:** Sound Alerts trigger dxSelectBox dropdown freezes ~8s (8816ms) on open.
+
+**Root cause (verified via runtime probe + Scout-Bundle-Boot RE):**
+- dxSelectBox renders ALL `sounds.triggerDataSource` items synchronously via itemTemplate (deobfuscated.js:13335-13363) → 3845 `<img>` DOM nodes + 3845 CDN fetches in ONE frame = freeze.
+- `sounds.refreshDataSource()` (deobfuscated.js:12971) is called on EVERY page navigation (our tfTriggerOverlaysOnVisible + bundle dispatcher). Each call → `loadTriggers()` → reassigns full 3850-item array (deobfuscated.js:12987). Any one-shot truncate gets clobbered by the next refreshDataSource.
+- Probe proof: `slice 50 took 0.00ms` → data access fine, freeze is purely DOM render of N items.
+
+**Fix:** `blockScript.txt::tfWrapAndPreloadTriggers` (line ~1129) — wrap `sounds.loadTriggers` at boot so it ALWAYS returns ≤500 items:
+```js
+var origLoadTriggers = window.sounds.loadTriggers.bind(window.sounds);
+window.sounds.loadTriggers = function () {
+  return origLoadTriggers.apply(null, arguments).then(function (items) {
+    return Array.isArray(items) && items.length > 500 ? items.slice(0, 500) : items;
+  });
+};
+```
+Plus WARM at boot (fire loadTriggers once, pure data, NO loadData/DOM) so triggerDataSource ready before user reaches page.
+
+**Why sticky works:** refreshDataSource → loadTriggers (wrapped) → ≤500 result → triggerDataSource always ≤500, regardless of how many times refreshDataSource fires. The wrap is the single chokepoint.
+
+**Scout-Bundle-Boot key findings (deobfuscated.js cites):**
+- loadTriggers (13036) = pure data, zero DOM, no channel requirement
+- refreshDataSource (12971) calls loadData (13153) which touches DOM → unsafe at boot
+- triggerDataSource read by onEditorPreparing closure (13329) at click time → safe to set without loadData
+
+**Tradeoff:** loses ~3300 rare high-diamond gifts. 5 events + emotes + top 495 popular gifts kept. `TRUNCATE_LIMIT` tunable (lower to 200 if 500 still renders slow; raise if users need more gifts).
+
+**Verify:** Ctrl+R → console `[TF-preload-triggers] warmed triggerDataSource: 500`. Probe: `sounds.triggerDataSource.length === 500` STABLE after `refreshDataSource()` (was 3936 in M-003). Dropdown open ~150ms (was 8816ms — 60x improvement).
+
+**If still slow:** dxSelectBox renders even 500 imgs synchronously. Next lever = lower limit OR proper dxSelectBox virtualization (render only ~15 visible via paginated DataSource — the onEditorPreparing patch that had timing issues).
+
+**Related:** Gate 30j (sounds.refreshDataSource discovery), Gate 32 (pre-warm CDN), Gate 33 (Electron intercept).

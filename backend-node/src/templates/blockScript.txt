@@ -409,59 +409,301 @@
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
-   tfTriggerOverlaysShow — fire obsoverlays.show() when overlay pages mount.
-   Bundle's modules.js defines obsoverlays.show() which calls stretchIframe()
-   to grow iframe content via .lazy-frame class until scrollHeight stabilizes.
-   In gốc TikFinity, page navigation hooks fire show() on page mount. In our
-   Vue-based clone, that hook chain doesn't fire — iframes stay at hardcoded
-   heights (CoinJar 650, CoinMatch 550, Wheel 450, Cannon 300) → cards uneven.
+   tfSeedDefaultSettings (Gate 30i, 2026-05-27).
 
-   Fix: MutationObserver on .page[data-pageid=obsoverlays|goals|graphicoverlays]
-   for class change "pageenabled" → call obsoverlays.show() and goals.show() /
-   graphicoverlays.show() as needed. Each iframe's stretchIframe runs naturally.
+   Bundle's `settings` module reads from localStorage with `setting_<key>`
+   prefix. Several UI grids/forms read JSON arrays from settings and render
+   "No X defined" when empty. Gốc TikFinity (older builds) shipped UI with
+   3 placeholder rows pre-seeded so users see ready-to-fill templates.
+
+   Seed default settings on FIRST PAGE LOAD if key absent. Subsequent loads
+   skip (user data preserved). Currently seeds:
+     - setting_soundsDataSource → 3 empty sound alert rows
+   Add more keys here when user reports a "no data" UX gap on another page.
    ───────────────────────────────────────────────────────────────────── */
-(function tfTriggerOverlaysShow(){
-  var PAGE_TO_HANDLER = {
-    'obsoverlays': function(){ window.obsoverlays && window.obsoverlays.show && window.obsoverlays.show(); },
-    'goals': function(){ window.goals && window.goals.show && window.goals.show(); },
-    'graphicoverlays': function(){ window.graphicoverlays && window.graphicoverlays.show && window.graphicoverlays.show(); }
-  };
-  function tryShow(pageId) {
-    try {
-      var fn = PAGE_TO_HANDLER[pageId];
-      if (fn) {
-        fn();
-        // Also call stretchIframe directly as belt-and-braces — runs through
-        // all .lazy-frame iframes in DOM regardless of which page is active.
-        if (window.obsoverlays && typeof window.obsoverlays.stretchIframe === 'function') {
-          window.obsoverlays.stretchIframe();
-        }
-        try { console.log('[TF-overlay-show] fired show() for', pageId); } catch(_){}
+(function tfSeedDefaultSettings(){
+  try {
+    // IMPORTANT: bundle's `settings.get(key)` does `localStorage.getItem('setting_'
+    // + key.toLowerCase())` — keys are STORED LOWERCASE. Probe confirmed
+    // `setting_soundsdatasource` (lc) holds bundle's read value;
+    // `setting_soundsDataSource` (camelCase) is ignored.
+    var DEFAULTS = {
+      // 3 empty sound alert rows: bundle's dxDataGrid renders them as
+      // ready-to-fill templates with "Select Trigger..." + "Select Sound"
+      // placeholders. User fills + Save persists to localStorage.
+      // Exact schema from bundle's dxDataGrid columns config (runtime probe):
+      //   id         string  (keyExpr; missing → E1046)
+      //   createdAt  date    (ISO string)
+      //   enabled    boolean (Enabled checkbox)
+      //   triggerId  string  (Trigger dropdown value)
+      //   triggerName string (Trigger display label)
+      //   soundUrl   string  (Sound file URL)
+      //   soundName  string  (Sound display name)
+      //   shortcut   string  (Key Shortcut)
+      //   volume     number  (0-100)
+      // Wrong field names (e.g. `isEnabled`, `keyShortcut`) → checkbox shows
+      // indeterminate (filled square) instead of checkmark, dropdowns empty.
+      'setting_soundsdatasource': (function(){
+        var now = new Date().toISOString();
+        return JSON.stringify([
+          { id: '1', createdAt: now, enabled: true,  triggerId: '', triggerName: '', soundUrl: '', soundName: '', shortcut: '', volume: 80 },
+          { id: '2', createdAt: now, enabled: true,  triggerId: '', triggerName: '', soundUrl: '', soundName: '', shortcut: '', volume: 80 },
+          { id: '3', createdAt: now, enabled: true,  triggerId: '', triggerName: '', soundUrl: '', soundName: '', shortcut: '', volume: 80 }
+        ]);
+      })()
+    };
+    // Cleanup stale wrong-cased key from prior incorrect Gate 30i v1 seed.
+    try { localStorage.removeItem('setting_soundsDataSource'); } catch(_){}
+    var seeded = 0;
+    for (var key in DEFAULTS) {
+      var current = localStorage.getItem(key);
+      var needsSeed = current === null || current === '[]';
+      // Schema migration: detect prior seeds with wrong/missing field names.
+      // Gate 30i v2 missed `id` → E1046. v3 had `id` but used `isEnabled`,
+      // `triggerLabel`, `url`, `name`, `keyShortcut` instead of bundle's
+      // actual `enabled`, `triggerName`, `soundUrl`, `soundName`, `shortcut`.
+      if (!needsSeed && key === 'setting_soundsdatasource') {
+        try {
+          var parsed = JSON.parse(current);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            var hasWrongSchema = parsed.some(function(r){
+              if (!r || typeof r !== 'object') return false;
+              // Required canonical fields from runtime probe (column dataFields)
+              return r.id === undefined
+                  || r.enabled === undefined
+                  || r.triggerName === undefined
+                  || r.soundUrl === undefined
+                  || r.soundName === undefined
+                  || r.shortcut === undefined;
+            });
+            if (hasWrongSchema) {
+              needsSeed = true;
+              try { console.log('[TF-seed-defaults] migrating old soundsDataSource (wrong schema)'); } catch(_){}
+            }
+          }
+        } catch(_){}
       }
+      if (needsSeed) {
+        localStorage.setItem(key, DEFAULTS[key]);
+        seeded++;
+      }
+    }
+    if (seeded > 0) {
+      try { console.log('[TF-seed-defaults] seeded', seeded, 'default localStorage settings'); } catch(_){}
+    }
+  } catch(e) {
+    try { console.warn('[TF-seed-defaults] error:', e && e.message); } catch(_){}
+  }
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfInjectModuleTemplates (Gate 30e, 2026-05-26).
+
+   Bundle's `tfPageloadData.modules` is an array of {name, template, hasHtml,
+   hasJs, hasCss} for every page module (start, obsoverlays, goals, sounds,
+   actions, ...). Bundle's native `moduleinjector.load()` would inject each
+   module.template into `<div data-pageid="X">` containers.
+
+   Our clone INTENTIONALLY keeps `appConfig.modules` empty (see blockScript
+   line ~2097) so moduleinjector.load() skips its loop — that avoids the
+   CDN dependency. But we ALSO need the templates injected, otherwise the
+   `<div data-pageid="X">` containers stay empty and start.onVisible() has
+   nothing to populate.
+
+   This IIFE manually iterates `tfPageloadData.modules` and injects each
+   `module.template` into the matching `<div data-pageid="X">` element.
+   Runs before tfTriggerOverlaysOnVisible so containers exist when
+   onVisible() fires.
+
+   Gates the injection on:
+   1. tfPageloadData.modules being populated
+   2. The target page container existing in DOM (Vue may render it lazily)
+   ───────────────────────────────────────────────────────────────────── */
+(function tfInjectModuleTemplates(){
+  function tryInject() {
+    var pld = window.tfPageloadData;
+    if (!pld || !Array.isArray(pld.modules) || pld.modules.length === 0) return false;
+    var injected = 0;
+    pld.modules.forEach(function(mod) {
+      if (!mod || !mod.name || !mod.template || !mod.hasHtml) return;
+      var container = document.querySelector('div[data-pageid="' + mod.name + '"]');
+      if (!container) return;  // Vue hasn't created this page yet — skip, will retry
+      // Skip if already injected (avoid double-inject + child-clobbering)
+      if (container.getAttribute('data-tf-injected') === '1') return;
+      try {
+        container.innerHTML = mod.template;
+        container.setAttribute('data-tf-injected', '1');
+        injected++;
+      } catch (e) {
+        try { console.warn('[TF-mod-inject] failed for', mod.name, ':', e && e.message); } catch(_){}
+      }
+    });
+    if (injected > 0) {
+      try { console.log('[TF-mod-inject] injected', injected, 'module templates'); } catch(_){}
+    }
+    return injected;
+  }
+  // Poll every 300ms until all available containers are populated.
+  // Vue creates `<div data-pageid="X">` lazily as user navigates, so we
+  // can't do a single-shot pass at boot — need to re-check periodically.
+  var iv = setInterval(tryInject, 300);
+  setTimeout(function(){ clearInterval(iv); }, 60000);  // give up after 60s
+  // Initial passes (Vue may already have created start container by 500ms)
+  setTimeout(tryInject, 100);
+  setTimeout(tryInject, 500);
+  setTimeout(tryInject, 1500);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfTriggerOverlaysOnVisible (Gate 30d v6, 2026-05-26).
+
+   Investigation by agent-stretch-investigator decoded bundle's real
+   mechanism. Previous shim called non-existent `.show()` + singular
+   `.stretchIframe()` → zero side effects → empty cards.
+
+   Bundle's actual chain:
+     window[pageId].onVisible() → init() → generateWidget(...) → stretchIframes()
+                                  └─ EARLY-RETURN gate:
+                                     navigation.currentPage !== pageId
+
+   The legacy `navigation.js` that set `currentPage` + fired `onVisible`
+   is NEVER loaded (init.js only loads /combo/app.js). Vue's pageChange
+   only mutates URL/Pinia, doesn't trigger module lifecycle. Without this
+   trigger, `.obsOverlayOnPage` wrappers stay empty (no iframe generated).
+
+   Strategy: MutationObserver on `.page[data-pageid].pageenabled` class →
+   1. Set `window.navigation.currentPage = pageId` (satisfies init() gate)
+   2. Call `window[pageId].onVisible()` (real entry, chains init→generate→stretch)
+   3. Belt-and-braces `stretchIframes()` (PLURAL) after 500ms for async safety
+
+   Gate behind both `window.session.me.channel` (init reads channelId) AND
+   `window[pageId]` existing (modules.js loaded via _injectModules).
+   ───────────────────────────────────────────────────────────────────── */
+(function tfTriggerOverlaysOnVisible(){
+  // Pages with module-level onVisible() hooks in modules.js:
+  //   start            — renders TikTok Live Connection + Quick Access cards
+  //   obsoverlays      — generateWidget() inserts iframes into .obsOverlayOnPage
+  //   goals            — goal overlay cards
+  //   graphicoverlays  — graphic overlay cards
+  //   sounds           — Sound Alerts grid (Create button + dxDataGrid table)
+  //   actionsandevents — Actions & Events table + screens
+  //   chatbot          — chat commands table
+  //   points           — points leaderboard / settings grid
+  //   setup            — connection wizard
+  // Add more here if user reports another page rendering empty.
+  // (Verified via runtime probe: each has window[name].onVisible function.)
+  var PAGES = ['start', 'obsoverlays', 'goals', 'graphicoverlays', 'sounds', 'actionsandevents', 'chatbot', 'points', 'setup'];
+  function isReady(pageId) {
+    if (!window[pageId] || typeof window[pageId].onVisible !== 'function') return false;
+    if (!window.session || !window.session.me || !window.session.me.channel) return false;
+    return true;
+  }
+  function tryFire(pageId) {
+    try {
+      if (!isReady(pageId)) return false;
+      window.navigation = window.navigation || {};
+      window.navigation.currentPage = pageId;
+      // CALL init() ONCE per page — bundle's init() builds the DOM widgets
+      // (dxButton, dxDataGrid, dxCheckbox, etc.) inside the page containers.
+      // Without init, page divs stay structurally empty even after onVisible.
+      // Subsequent fires must skip init (would rebuild widgets = duplicates).
+      window.__tfPageInits = window.__tfPageInits || {};
+      if (!window.__tfPageInits[pageId] && typeof window[pageId].init === 'function') {
+        try {
+          window[pageId].init();
+          window.__tfPageInits[pageId] = true;
+          try { console.log('[TF-overlay-visible] fired init() for', pageId); } catch(_){}
+        } catch(e){
+          try { console.warn('[TF-overlay-visible] init() error for', pageId, ':', e && e.message); } catch(_){}
+        }
+      }
+      window[pageId].onVisible();
+      // Start page: also fire initQuickAccessItems() + showItems() — bundle
+      // gates these behind onChannelContextChanged / Connect button handler.
+      // GUARD: only fire ONCE — initQuickAccessItems appends without clearing.
+      if (pageId === 'start' && !window.__tfQuickAccessInited) {
+        try {
+          if (typeof window.start.initQuickAccessItems === 'function') {
+            var items = document.querySelector('#quickAccessItems');
+            if (items) items.innerHTML = '';
+            window.start.initQuickAccessItems();
+            window.__tfQuickAccessInited = true;
+          }
+          if (typeof window.start.showItems === 'function') {
+            window.start.showItems();
+          }
+        } catch(_){}
+      }
+      // Sounds page: sounds.init() only builds settings checkboxes.
+      // sounds.loadData() builds the dxButton (Create Sound Alert) +
+      // dxDataGrid (the alerts table). Verified via probe: loadData()
+      // jumps button 0→126 + grid 0→3131. Idempotent so OK to call on
+      // each visit (refresh stale rows from DB).
+      //
+      // ALSO: bundle's central dispatcher (app.js injectModules chain)
+      // does NOT fire sounds.onChannelContextChanged() in our clone, so
+      // sounds.triggerDataSource stays [] → dxSelectBox dropdown empty
+      // (no gift/event triggers shown). refreshDataSource() loads 3850+
+      // triggers (5 hardcoded events + emotes + 3845 gifts) and assigns
+      // triggerDataSource — must be called explicitly here. Verified via
+      // probe 2026-05-27: loadTriggers() resolves with 3850 items but
+      // triggerDataSource stayed 0 until refreshDataSource() runs.
+      if (pageId === 'sounds') {
+        try {
+          if (window.sounds && typeof window.sounds.refreshDataSource === 'function') {
+            window.sounds.refreshDataSource();
+          } else if (window.sounds && typeof window.sounds.loadData === 'function') {
+            window.sounds.loadData();
+          }
+        } catch(e) {
+          try { console.warn('[TF-overlay-visible] sounds.refreshDataSource error:', e && e.message); } catch(_){}
+        }
+      }
+      setTimeout(function(){
+        try {
+          if (window.obsoverlays && typeof window.obsoverlays.stretchIframes === 'function') {
+            window.obsoverlays.stretchIframes();
+          }
+        } catch(_){}
+      }, 500);
+      try { console.log('[TF-overlay-visible] fired onVisible for', pageId); } catch(_){}
+      return true;
     } catch (e) {
-      try { console.warn('[TF-overlay-show] error:', e && e.message); } catch(_){}
+      try { console.warn('[TF-overlay-visible] error for', pageId, ':', e && e.message); } catch(_){}
+      return false;
     }
   }
+  var _pendingPage = null;
   function checkPageVisible() {
     var pages = document.querySelectorAll('.page[data-pageid].pageenabled');
     for (var i = 0; i < pages.length; i++) {
       var pageId = pages[i].getAttribute('data-pageid');
-      if (PAGE_TO_HANDLER[pageId]) tryShow(pageId);
+      if (PAGES.indexOf(pageId) >= 0) {
+        if (!tryFire(pageId)) {
+          _pendingPage = pageId;
+        } else {
+          _pendingPage = null;
+        }
+        return;
+      }
     }
+    _pendingPage = null;
   }
-  // Observe pageenabled class toggles via MutationObserver on attribute
-  // changes. Bundle's router adds/removes .pageenabled when navigating.
+  // Retry pending page every 500ms while modules.js / session.me are not ready
+  setInterval(function(){
+    if (_pendingPage && tryFire(_pendingPage)) {
+      _pendingPage = null;
+    }
+  }, 500);
   var observer = new MutationObserver(function(mutations) {
-    var pageChanged = false;
     for (var i = 0; i < mutations.length; i++) {
       var m = mutations[i];
       if (m.type === 'attributes' && m.target && m.target.matches &&
           m.target.matches('.page[data-pageid]')) {
-        pageChanged = true;
-        break;
+        setTimeout(checkPageVisible, 100);
+        return;
       }
     }
-    if (pageChanged) setTimeout(checkPageVisible, 100);
   });
   function startObserver() {
     var root = document.querySelector('#pages') || document.body;
@@ -470,14 +712,11 @@
       return;
     }
     observer.observe(root, { attributes: true, subtree: true, attributeFilter: ['class'] });
-    // Initial check (page may already be active)
     setTimeout(checkPageVisible, 500);
     setTimeout(checkPageVisible, 1500);
     setTimeout(checkPageVisible, 3000);
   }
   startObserver();
-  // Re-fire on every Vue route navigation as fallback
-  setInterval(checkPageVisible, 5000);
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -687,6 +926,430 @@
     _stableTicks = 0;
     applyMe(_cachedMe);
   }, 8000);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfWrapAndPreloadTriggers (M-004, 2026-05-28).
+
+   Two jobs:
+   1. WRAP sounds.loadTriggers → always return ≤ TRUNCATE_LIMIT items.
+      This is STICKY: every refreshDataSource() call (page mount, channel
+      context change, etc.) routes through loadTriggers → gets truncated.
+      Prevents the M-003 clobber (full 3850 array reassigned on each nav).
+   2. WARM at boot: fire loadTriggers() once (pure data, NO loadData/DOM)
+      so triggerDataSource is populated + truncated before user reaches
+      Sound Alerts page → dropdown opens fast (renders ≤500 imgs not 3845).
+
+   Root cause it fixes: dxSelectBox renders ALL triggerDataSource items
+   synchronously as <img> DOM (deobfuscated.js:13335-13363) → 3845 nodes
+   = 8s freeze. Truncating the source array shrinks render cost ~7.7x.
+
+   Scout-Bundle-Boot verified: loadTriggers has zero DOM contact, no
+   channel requirement, and triggerDataSource read by closure ref at
+   click time so setting it without loadData() is safe.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfWrapAndPreloadTriggers() {
+  if (window.__tfTriggerWrapped) return;
+  var TRUNCATE_LIMIT = 500;
+  var MAX_TRIES = 60;  // 60 × 250ms = 15s grace for modules.js load
+  var tries = 0;
+  var iv = setInterval(function () {
+    tries++;
+    if (tries > MAX_TRIES) { clearInterval(iv); return; }
+    if (!window.sounds || typeof window.sounds.loadTriggers !== 'function') return;
+    if (!window.session) return;
+    if (window.__tfTriggerWrapped) { clearInterval(iv); return; }
+    clearInterval(iv);
+    try {
+      // 1. WRAP — sticky truncation on every future loadTriggers call
+      var origLoadTriggers = window.sounds.loadTriggers.bind(window.sounds);
+      window.sounds.loadTriggers = function () {
+        return origLoadTriggers.apply(null, arguments).then(function (items) {
+          if (Array.isArray(items) && items.length > TRUNCATE_LIMIT) {
+            return items.slice(0, TRUNCATE_LIMIT);
+          }
+          return items;
+        });
+      };
+      window.__tfTriggerWrapped = true;
+      // 2. WARM — populate triggerDataSource at boot (data only, no DOM)
+      window.sounds.loadTriggers().then(function (items) {
+        try {
+          for (var i = 0; i < items.length; i++) {
+            if (items[i] && items[i].id != null) items[i].id = items[i].id.toString();
+          }
+          window.sounds.triggerDataSource = items;  // already ≤500 via wrap
+          window.sounds._tfTriggerTruncated = true;
+          try { console.log('[TF-preload-triggers] warmed triggerDataSource:', items.length); } catch(_){}
+        } catch(_){}
+      }).catch(function (err) {
+        try { console.warn('[TF-preload-triggers] warm failed:', err && err.message); } catch(_){}
+      });
+    } catch (e) {
+      try { console.warn('[TF-preload-triggers] wrap failed:', e && e.message); } catch(_){}
+    }
+  }, 250);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfGiftItemTemplate (M-005, 2026-05-29).
+
+   Deterministic fix for blank gift images in the Sound Alerts trigger
+   dxSelectBox dropdown. Root cause chain:
+
+   1. Bundle's native itemTemplate (deobfuscated.js:13344) builds
+      <img src="CDN_URL" onerror="this.style.opacity='0'"> with raw
+      TikTok CDN URL.
+   2. tfRewriteGiftImagesToCache MutationObserver detects the img AFTER
+      it is inserted (src already set), calls img.src = proxyUrl. But
+      changing src cancels the in-flight CDN fetch → browser fires the
+      inline onerror handler → opacity:0 → img invisible even though
+      the proxy fetch later succeeds (naturalWidth > 0 but opacity 0).
+   3. Gate 33 Electron webRequest intercept redirects tiktokcdn.com
+      requests at network level, BUT the 307 redirect sometimes arrives
+      AFTER the onerror fires (race), and in hot-reload scenarios
+      Electron restart may not have run yet.
+
+   Deterministic solution: REPLACE itemTemplate with a clean version
+   that builds <img src="/tiktok-img-cache/..." > DIRECTLY at template
+   build time. No src-swap, no MutationObserver race, no in-flight
+   cancellation, no onerror.
+
+   Timing robustness (the #1 prior failure point):
+   sounds.loadData() → $("#datagridSounds").dxDataGrid({onEditorPreparing})
+   This creates a FRESH dxDataGrid instance each time loadData fires
+   (page mount, refreshDataSource, channel context change). A one-shot
+   wrap on a single instance is lost on each rebuild.
+
+   Strategy: wrap sounds.loadData itself. After every call to the
+   original loadData, immediately get the new grid instance and call
+   instance.option('onEditorPreparing', patchedHandler) where
+   patchedHandler = call original first → then for triggerId field,
+   replace editorOptions.itemTemplate with proxy-URL version.
+
+   This wraps the CHOKEPOINT — every rebuild routes through our wrap.
+   Flag __tfItemTplPatched on window (not on instance) prevents double-
+   wrapping sounds.loadData on hot-reload. Flag reset is not needed
+   because wrapping loadData twice would double-call original; we guard
+   with window.__tfLoadDataWrapped.
+
+   Interaction with tfRewriteGiftImagesToCache:
+   After this patch, gift imgs have src="/tiktok-img-cache/..." (proxy
+   URL, NOT tiktokcdn.com). The CDN_RE regex in tfRewriteGiftImagesToCache
+   only matches "tiktokcdn" hostnames → does NOT match our proxy URL →
+   no double-rewrite, no interference. Both IIFEs coexist safely.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfGiftItemTemplate() {
+  if (window.__tfLoadDataWrapped) return;
+
+  // Convert tiktokcdn CDN URL → local proxy URL.
+  // Inline helper so no external dependency. Same logic as
+  // tfRewriteGiftImagesToCache CDN_RE but built for string → string.
+  function toProxy(u) {
+    try {
+      var m = /^https?:\/\/([a-z0-9-]+\.tiktokcdn(?:-us)?\.com)(\/[^?#]*)?(\?[^#]*)?/i.exec(u || '');
+      if (!m) return u || '';
+      var host = m[1];
+      var path = (m[2] || '/').replace(/^\//, '');
+      var qs   = m[3] || '';
+      return '/tiktok-img-cache/' + host + '/' + path + qs;
+    } catch (_) { return u || ''; }
+  }
+
+  // Gốc-exact itemTemplate (deobfuscated.js:13335-13396).
+  // 2 intentional deltas vs gốc: proxy URL via toProxy() + NO onerror.
+  function patchedItemTemplate(item /*, _index, _container */) {
+    // One-time diagnostic: confirm this custom itemTemplate actually runs.
+    if (!window.__tfItemTplRan) { window.__tfItemTplRan = true; try { console.log('[TF-itemtpl] custom itemTemplate RAN for triggerId'); } catch(_){} }
+    // FLEXBOX row (M-007c, 2026-05-30) — abandons the gốc table-row layout.
+    // Reason: gốc uses display:table-row + table-cell and it works BECAUSE
+    // gốc's gift images are browser-cached (img has rendered content). OUR
+    // images load on-demand via proxy → at render time the img is empty →
+    // DevExtreme's .dx-list-item table-layout:fixed collapses the icon
+    // column to 0 ("có fetch nhưng không hiện" — img loads but renders 0x0).
+    // Flexbox `flex:0 0 40px` is an UNCONDITIONAL 40px guarantee, immune to
+    // table-layout collapse and to whatever overlay class the dropdown uses.
+    var row = $('<div>').css({ display: 'flex', 'flex-direction': 'row', 'align-items': 'center', height: '40px', width: '100%' });
+    var iconEl;
+    if (item.icon) {
+      iconEl = $('<div>').attr('class', item.icon);
+      iconEl.css('font-size', '30px');
+      iconEl.css('color', '#31b5d5');
+    } else {
+      var rawUrl = (item.image && item.image.url_list && item.image.url_list[0]) || item.imageUrl || '';
+      iconEl = $('<img>').attr('src', rawUrl ? toProxy(rawUrl) : '').attr('data-tf-trigger-icon', '1');
+      // INTENTIONAL DELTA vs gốc: proxy URL via toProxy + NO onerror (proxy reliable, Gate 32/33)
+    }
+    var nameDiv = $('<div>').html(item.name);
+    if (item.icon) {
+      nameDiv.css('font-size', '1.2em');
+    }
+    var subText = item.diamond_count ? item.diamond_count.toLocaleString() + ' Coins' : '';
+    if (item.type === 'emote') {
+      subText = item.sourceId === 4 ? 'Fan Club' : 'Super Fan';
+    }
+    iconEl.css('height', '40px');
+    iconEl.css('width', '40px');
+    iconEl.css('flex', '0 0 40px');   // hard 40px — flex won't shrink it
+    // Icon cell: flex item locked at 40px, centers the img/glyph inside.
+    var iconCell = $('<div>').css({
+      flex: '0 0 40px',
+      width: '40px',
+      height: '40px',
+      display: 'flex',
+      'align-items': 'center',
+      'justify-content': 'center',
+    }).append(iconEl);
+    // Label: takes remaining width, left-aligned, vertically centered.
+    var labelSpan = $('<span>').css({
+      flex: '1',
+      'min-width': '0',          // allow long names to ellipsis instead of pushing icon
+      'text-align': 'left',      // ← fix "chữ lệch"
+      'padding-left': '12px',
+      overflow: 'hidden',
+    });
+    labelSpan.append(nameDiv);
+    labelSpan.append($('<div>').text(subText).css('font-size', '0.8em').css('margin-top', '3px').css('opacity', '0.7'));
+    return row.append(iconCell).append(labelSpan);
+  }
+
+  // Patch a dxDataGrid instance's onEditorPreparing to override
+  // itemTemplate for the triggerId field only.
+  function patchInstance(inst) {
+    if (!inst || inst.__tfItemTplPatched) return;
+    inst.__tfItemTplPatched = true;
+    var origHandler = inst.option('onEditorPreparing');
+    inst.option('onEditorPreparing', function (e) {
+      // Call bundle's original first (handles soundName, shortcut, volume, etc.)
+      if (typeof origHandler === 'function') origHandler(e);
+      // Then override itemTemplate for triggerId
+      if (e && e.dataField === 'triggerId' && e.editorOptions) {
+        e.editorOptions.itemTemplate = patchedItemTemplate;
+        // Also override fieldTemplate (the SELECTED-value display in the
+        // closed box) so the chosen trigger shows its icon — gốc builds a
+        // 28px img (deobfuscated.js:13365-13391); we mirror it with toProxy.
+        // Without this, picking "Love Oman" shows text only, no icon
+        // ("chưa hiện khi chọn").
+        e.editorOptions.fieldTemplate = function (item, container) {
+          try {
+            // ROBUST item resolution (M-007d, 2026-05-30) — read gốc verbatim
+            // (deobfuscated.js fieldTemplate): gốc builds dxTextBox + an
+            // absolute-positioned 30px icon wrap (img 28px for gifts, div.fa
+            // for events). gốc ASSUMES dxSelectBox hands it the FULL item.
+            // Our gift icon failed → the selected item reaching fieldTemplate
+            // is NOT guaranteed full. Resolve it for ALL 3 shapes dxSelectBox
+            // may pass: full object | partial {id,name} | raw id value.
+            var arr = (window.sounds && window.sounds.triggerDataSource) || [];
+            var full = (item != null && typeof item === 'object') ? item : null;
+            // If the passed item lacks an icon/image, resolve the FULL item
+            // from triggerDataSource — try id, then NAME (text is always
+            // present), then raw value. Probe proved the gift item reaching
+            // fieldTemplate is partial (no .image) → icon branch skipped → NONE.
+            function _tfFind(pred) { for (var i = 0; i < arr.length; i++) { if (pred(arr[i])) return arr[i]; } return null; }
+            if (!full || (!full.icon && !(full.image && full.image.url_list) && !full.imageUrl)) {
+              var found = null;
+              if (item != null && typeof item === 'object') {
+                if (item.id != null) found = _tfFind(function (t) { return String(t.id) === String(item.id); });
+                if (!found && item.name) found = _tfFind(function (t) { return t.name === item.name; });
+              } else if (item != null) {
+                found = _tfFind(function (t) { return String(t.id) === String(item); })
+                     || _tfFind(function (t) { return t.name === String(item); });
+              }
+              if (found) full = found;
+            }
+            // ONE-TIME diagnostic: dump what fieldTemplate actually receives +
+            // what we resolved, so we stop guessing what dxSelectBox passes.
+            if (!window.__tfFieldTplLogged) {
+              window.__tfFieldTplLogged = true;
+              try {
+                console.log('[TF-fieldTpl] item type=' + (typeof item) +
+                  ' keys=' + (item && typeof item === 'object' ? Object.keys(item).join(',') : '(' + item + ')') +
+                  ' | resolved hasImage=' + !!(full && full.image && full.image.url_list) +
+                  ' hasIcon=' + !!(full && full.icon) + ' name=' + (full && full.name));
+              } catch(_){}
+            }
+            // Structure: replicate gốc 1:1 (absolute 30px icon wrap +
+            // textbox shifted 45px) — only delta: toProxy on the img src.
+            var text = (full && full.name) ? full.name : '';
+            if (full && full.diamond_count > 0) {
+              text += ' (' + full.diamond_count.toLocaleString() + ' Coins)';
+            }
+            var $box = $('<div>').dxTextBox({ text: text, placeholder: 'Select Trigger...' });
+            if (full && (full.icon || (full.image && full.image.url_list) || full.imageUrl)) {
+              var $wrap = $('<div>').css({
+                width: '30px', 'text-align': 'center', 'margin-top': '3px',
+                position: 'absolute', 'margin-left': '10px',
+              });
+              if (full.icon) {
+                $wrap.append($('<div>').attr('class', full.icon).css({ color: '#31b5d5', 'font-size': '25px' }));
+              } else {
+                var raw = (full.image && full.image.url_list && full.image.url_list[0]) || full.imageUrl || '';
+                // Render gift icon as a <div> with CSS background-image, NOT an
+                // <img>. The event branch (above) uses a <div> and renders fine
+                // here; an <img> rendered 0x0 (loaded natW>0 but zero-sized —
+                // hidden/collapsed by some img-targeting rule). A div with
+                // background-image: (1) cannot be matched by any img[src=...]
+                // hide rule, (2) renders at its explicit 28px in this absolute
+                // wrap like the event div does. Element-type parity with the
+                // working event icon = robust.
+                $wrap.append($('<div>').css({
+                  width: '28px', height: '28px',
+                  'background-image': raw ? "url('" + toProxy(raw) + "')" : 'none',
+                  'background-size': 'contain',
+                  'background-repeat': 'no-repeat',
+                  'background-position': 'center center',
+                  'display': 'inline-block',
+                }));
+              }
+              $box.css('margin-left', '45px');
+              $(container).append($wrap);
+            }
+            $(container).append($box);
+          } catch (fe) {
+            try { console.warn('[TF-fieldTpl] error:', fe && fe.message); } catch(_){}
+          }
+        };
+      }
+    });
+    try { console.log('[TF-itemTpl] patched dxDataGrid onEditorPreparing for triggerId'); } catch(_){}
+  }
+
+  var MAX_TRIES = 80;  // 80 × 250ms = 20s grace
+  var tries = 0;
+  var iv = setInterval(function () {
+    tries++;
+    if (tries > MAX_TRIES) { clearInterval(iv); return; }
+    if (!window.sounds || typeof window.sounds.loadData !== 'function') return;
+    if (window.__tfLoadDataWrapped) { clearInterval(iv); return; }
+    clearInterval(iv);
+
+    var origLoadData = window.sounds.loadData.bind(window.sounds);
+    window.sounds.loadData = function tfLoadDataPatched() {
+      // Call the original — this rebuilds dxDataGrid with a fresh instance
+      var result = origLoadData.apply(null, arguments);
+      // Immediately patch the new instance (dxDataGrid is synchronously created
+      // inside loadData, so the instance exists right after the call returns)
+      try {
+        var inst = window.$('#datagridSounds').dxDataGrid('instance');
+        patchInstance(inst);
+      } catch (err) {
+        try { console.warn('[TF-itemTpl] patchInstance after loadData failed:', err && err.message); } catch(_){}
+      }
+      return result;
+    };
+    window.__tfLoadDataWrapped = true;
+
+    // Also patch any instance that may already exist (sounds page already open)
+    try {
+      var existing = window.$('#datagridSounds').dxDataGrid('instance');
+      patchInstance(existing);
+    } catch (_) {}
+
+    try { console.log('[TF-itemTpl] sounds.loadData wrapped — gift imgs will use proxy URL directly'); } catch(_){}
+  }, 250);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfRewriteGiftImagesToCache — Route TikTok CDN gift images through
+   local proxy so they hit the pre-warmed in-memory cache on the backend
+   (/tiktok-img-cache/<host>/<path>) instead of going cross-origin cold.
+
+   Context (Gate 32+33): Backend pre-warms ~200 popular gift images into
+   _cdnProxyCache at boot (fire-and-forget). Electron webRequest intercept
+   (Gate 33) redirects network-layer CDN fetches to the proxy. This IIFE
+   is a COMPLEMENTARY JS-layer patch: it rewrites img.src in DOM so the
+   browser's own src-fetch also goes same-origin, benefits from HTTP disk
+   cache (Chromium), and does NOT depend on the Electron interceptor being
+   active (e.g., hot-reload without Electron restart).
+
+   Design decisions:
+   - MutationObserver on document.body subtree:true / childList:true.
+     Rationale: gift images appear in dropdown popup (dxSelectBox overlay,
+     .dx-popup-content) which is appended to document.body outside the
+     page container. Full-body scope catches gift browser + gift overlays +
+     any future portal. After dropdown opens the burst is ONE mutation
+     with many addedNodes — observer fires once, batch-rewrites all imgs.
+     After that, few mutations → negligible overhead.
+   - Idempotency: data-tf-cdn-rewritten="1" marks already-rewritten imgs.
+     Prevents infinite loop (attr mutation does not trigger childList obs).
+   - Initial sweep: rewrite any imgs already in DOM at install time.
+   - Double-fetch: browser may have started the direct CDN fetch before
+     our observer fires (img inserted, src already set). Setting img.src
+     to the proxy URL cancels the in-flight CDN request and starts a new
+     same-origin fetch. Acceptable tradeoff — proxy cache is warm.
+     Initial sweep covers imgs inserted before observer installs.
+   - Regex covers tiktokcdn.com AND tiktokcdn-us.com (US-region variant).
+   - SSRF-safe: only rewrites hostnames matching *.tiktokcdn(-us)?.com.
+*/
+(function tfRewriteGiftImagesToCache() {
+  if (window.__tfCdnRewriteInstalled) return;
+  window.__tfCdnRewriteInstalled = true;
+
+  var CDN_RE = /^(https?):\/\/([a-z0-9-]+\.tiktokcdn(?:-us)?\.com)(\/[^?#]*)?(\?[^#]*)?(#.*)?$/i;
+
+  function rewriteImg(img) {
+    if (!img || img.nodeType !== 1 || img.tagName !== 'IMG') return;
+    if (img.getAttribute('data-tf-cdn-rewritten')) return;
+    var src = img.getAttribute('src') || '';
+    if (!src) return;
+    var m = CDN_RE.exec(src);
+    if (!m) return;
+    var host = m[2];
+    var path = (m[3] || '/').replace(/^\//, '');
+    var qs   = m[4] || '';
+    img.setAttribute('data-tf-cdn-rewritten', '1');
+    // CRITICAL: clear bundle's onerror="opacity=0" + reset opacity BEFORE
+    // swapping src. Changing img.src cancels the in-flight direct-CDN fetch,
+    // which fires an 'error' event → bundle's inline onerror sets opacity:0
+    // → img stays INVISIBLE even after the proxy src loads (naturalWidth>0
+    // but opacity:0). Root cause of "images load but don't show".
+    img.onerror = null;
+    img.removeAttribute('onerror');
+    if (img.style.opacity === '0') img.style.opacity = '';
+    img.src = '/tiktok-img-cache/' + host + '/' + path + qs;
+  }
+
+  function sweep(root) {
+    try {
+      var imgs = (root || document).querySelectorAll(
+        'img[src*="tiktokcdn"]:not([data-tf-cdn-rewritten])'
+      );
+      for (var i = 0; i < imgs.length; i++) rewriteImg(imgs[i]);
+    } catch (_) {}
+  }
+
+  var obs = new MutationObserver(function (muts) {
+    for (var i = 0; i < muts.length; i++) {
+      var added = muts[i].addedNodes;
+      for (var j = 0; j < added.length; j++) {
+        var n = added[j];
+        if (n.nodeType !== 1) continue;
+        if (n.tagName === 'IMG') {
+          rewriteImg(n);
+        } else if (n.querySelectorAll) {
+          var imgs = n.querySelectorAll(
+            'img[src*="tiktokcdn"]:not([data-tf-cdn-rewritten])'
+          );
+          for (var k = 0; k < imgs.length; k++) rewriteImg(imgs[k]);
+        }
+      }
+    }
+  });
+
+  function start() {
+    if (!document.body) { setTimeout(start, 100); return; }
+    sweep(document);
+    obs.observe(document.body, { childList: true, subtree: true });
+    try {
+      console.log('[TF-cdn-rewrite] installed — gift imgs → /tiktok-img-cache/');
+    } catch (_) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once: true });
+  } else {
+    start();
+  }
 })();
 
 /* ─────────────────────────────────────────────────────────────────────

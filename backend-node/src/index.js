@@ -256,6 +256,47 @@ app.use('/api/obs', obsRouter);           // /obs/status, /obs/connect, /obs/sce
 app.use('/api/import', tikfinityImportRouter); // /import/tikfinity, /import/tikfinity/test
 app.use('/api/tiktok', tiktokRouter);           // /tiktok/status, /tiktok/connect, /tiktok/disconnect, /tiktok/stats
 
+// Myinstants sound library proxy — TRANSPARENT pass-through to zerody.
+//
+// GROUND TRUTH (verified 2026-05-30 via Network tab + curl, after decoding
+// app.js:69838): the bundle's soundlibrary fetches the HARDCODED url
+//   https://myinstantsapi.zerody.one/api/sounds/{trending|search}?region=X
+//   &language=Y&page=N&q=<term>&clientVersion=2
+// and reads `resp.sounds` (array of `{name, url, soundId}`).
+//
+// CORRECTION: zerody is NOT dead — an earlier test hit a FABRICATED path
+// (`/api/sounds/recent/?country=`) that 404'd, wrongly concluding it was
+// down. The REAL paths (trending/search with region=) return 200 with the
+// exact `{fromCache, sounds:[...]}` shape the bundle expects, plus CORS `*`.
+// So the prior myinstants.com translation was unnecessary + produced a
+// wrong shape. We now forward 1:1 to zerody and pipe the response back
+// unchanged — the bundle gets exactly what it was written for.
+//
+// The blockScript XHR rewrite (rewriteKnownRemoteUrl) sends the renderer's
+// hardcoded zerody URL here (same-origin), so we proxy server-side to avoid
+// any CSP/CORS edge cases. `${path}${query}` forwarded verbatim.
+const MYINSTANTS_ORIGIN = 'https://myinstantsapi.zerody.one';
+app.get(/^\/myinstants-proxy\/.*/, async (req, res) => {
+  const upstreamPath = req.path.replace(/^\/myinstants-proxy/, '');
+  const qs = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+  const upstreamUrl = `${MYINSTANTS_ORIGIN}${upstreamPath}${qs}`;
+  try {
+    const upstream = await fetch(upstreamUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TikMaxClient/1.0',
+        'Accept': 'application/json',
+      },
+    });
+    const body = await upstream.text();
+    res.status(upstream.status);
+    res.set('Content-Type', upstream.headers.get('content-type') || 'application/json');
+    res.send(body);
+  } catch (err) {
+    logger.warn({ err: err.message, upstreamUrl }, '[myinstants-proxy] upstream fetch failed');
+    res.status(502).json({ error: 'upstream fetch failed', message: err.message });
+  }
+});
+
 // Bundle's overlay-preview iframe loads URLs like `/widget/coinmatch/?cid=1`
 // (note the trailing slash before the querystring). express.static looks for
 // `coinmatch/index.html` which doesn't exist, then falls through → 404. The
@@ -445,6 +486,7 @@ app.get(SPA_HTML_ROUTES, (req, res, next) => {
 // so route-specific match wins over static 404 fallback.
 const _cdnProxyCache = new Map();
 const CDN_PROXY_TTL_MS = 24 * 60 * 60 * 1000;
+const CDN_PROXY_CACHE_MAX = parseInt(process.env.TF_CDN_CACHE_MAX, 10) || 2000;
 async function cdnProxyFetch(_req, res, cacheKey, upstreamUrl) {
   const cached = _cdnProxyCache.get(cacheKey);
   if (cached && (Date.now() - cached.fetchedAt) < CDN_PROXY_TTL_MS) {
@@ -463,6 +505,14 @@ async function cdnProxyFetch(_req, res, cacheKey, upstreamUrl) {
        'application/octet-stream');
     const body = Buffer.from(await r.arrayBuffer());
     _cdnProxyCache.set(cacheKey, { body, contentType, fetchedAt: Date.now() });
+    // FIFO eviction — Map preserves insertion order, so .keys().next().value
+    // gives the oldest entry. Bounded at CDN_PROXY_CACHE_MAX to prevent
+    // unbounded memory growth if many distinct URLs are requested over a
+    // long-running backend session. 2000 × ~30KB avg WebP ≈ 60MB worst case.
+    if (_cdnProxyCache.size > CDN_PROXY_CACHE_MAX) {
+      const oldestKey = _cdnProxyCache.keys().next().value;
+      if (oldestKey) _cdnProxyCache.delete(oldestKey);
+    }
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400');
     return res.send(body);
@@ -483,6 +533,27 @@ app.get(/^\/flag-icons\/(.+)$/, async (req, res) => {
 app.get(/^\/widget\/streambuddies\/(assets\/.+|images\/.+|sounds\/.+|buddiestester\.js)$/, async (req, res) => {
   return cdnProxyFetch(req, res, 'streambuddies/' + req.params[0],
     'https://tikfinity.zerody.one/widget/streambuddies/' + req.params[0]);
+});
+
+// /tiktok-img-cache/<host>/<path...> → https://<host>/<path...>
+// Caches gift / animation thumbnails from TikTok CDN. Without this, the
+// Sound Alerts trigger dropdown fetches ~50 cross-origin WebP images per
+// open + decode, freezing the renderer ~8s on first click. With same-origin
+// cached responses, subsequent opens reuse Electron's HTTP disk cache —
+// instant. Host pattern restricted to *.tiktokcdn.com to block SSRF.
+app.get(/^\/tiktok-img-cache\/([^/]+)\/(.+)$/, async (req, res) => {
+  const host = req.params[0];
+  // Express strips ?query into req.query before regex matches; reconstruct
+  // it onto the upstream path so signed CDN URLs (?x-expires=, etc.) reach
+  // upstream intact. Cache key also includes the query so distinct signed
+  // variants don't collide.
+  const qs = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+  const upstreamPath = req.params[1] + qs;
+  if (!/^[a-z0-9-]+\.tiktokcdn\.com$/i.test(host)) {
+    return res.status(400).type('text/plain').send('host not allowed');
+  }
+  return cdnProxyFetch(req, res, 'tiktok-img/' + host + '/' + upstreamPath,
+    'https://' + host + '/' + upstreamPath);
 });
 
 // Static bundle assets + the `downloads/api/*` JSON fixtures TikFinity ships.
@@ -596,6 +667,17 @@ app.locals.io = io;
   const bundleFixturesSync = require('./services/bundle-fixtures-sync');
   bundleFixturesSync.syncAll(config.FRONTEND_PATH).catch((err) => {
     logger.error({ err }, '[BOOT] bundle-fixtures-sync uncaught');
+  });
+
+  // Background pre-warm of the /tiktok-img-cache/* in-memory cache. Without
+  // this, the Sound Alerts trigger dropdown's first open after boot still
+  // pays ~50 cross-origin TikTok CDN fetches + WebP decodes (~1-2s freeze).
+  // We fetch the top ~200 popular gift images (sorted by diamond_count ASC)
+  // and populate _cdnProxyCache so the proxy serves from memory on first
+  // dropdown open. See [services/tiktok-image-prewarm.js].
+  const { prewarmTikTokImages } = require('./services/tiktok-image-prewarm');
+  prewarmTikTokImages(config.FRONTEND_PATH, _cdnProxyCache, logger).catch((err) => {
+    logger.error({ err }, '[BOOT] tiktok-image-prewarm uncaught');
   });
 })();
 

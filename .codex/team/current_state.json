@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "last_updated": "2026-05-30",
+  "compaction_checkpoint": true,
+  "active_mission": null,
+  "session_2026_05_30_summary": {
+    "missions": ["M-005 image-load saga (6 iter)", "M-006 layout LARGE 8-agent (reverted)", "M-007 replicate-gốc 1:1 (img + toProxy)", "settings.json malformed-JSON fix (extra brace)", "org-review workflow (7-agent council + adversarial critique)"],
+    "org_review_verdict": "adopt-with-changes — NO domain-squad. Kept tier-by-size + role + model-routing + max-thinking + war-room. Committed 2 kernel changes only.",
+    "doctrine_changes": ["CLAUDE.md §1.00 READ-GỐC-FIRST gate (tier-gated, replicate-before-invent)", "CLAUDE.md §2.1 item5 reconciliation-conflict-resolution + item6 current_state.json hard-step on mission-complete"],
+    "critic_rejected": ["5 domain-squads", "per-domain reviewers", "new mNNN-goc-*.md mandatory artifact", "formal deviation-statement file", "2 redundant guards"],
+    "model": "Opus 4.8 active (user switched)",
+    "review_artifact": ".codex/team/m-org-review-result.json"
+  },
+  "session_2026_05_28_summary": {
+    "missions_completed": ["M-001 prewarm (Gate 32)", "M-002 intercept+hardening (Gate 33)", "M-003 truncate (superseded by M-004)", "M-004 loadTriggers wrap (Gate 34, verified 60x)"],
+    "gates_committed": [32, 33, 34],
+    "policy_changes": ["team always-on", "Commander autonomy", "tiered team size", "model routing", "max thinking preamble", "skills 6→1"],
+    "skills_consolidated": ".codex/skills/tikmax/SKILL.md (was 6 files)",
+    "trigger_dropdown_result": "8816ms → 147ms freeze fixed via sticky loadTriggers truncation to 500"
+  },
+  "last_completed_mission": "M-2026-05-27-001-bundle-scouts",
+  "mission_001_outcome": {
+    "duration_min": 35,
+    "scouts": 2,
+    "reports": [".codex/team/scout-app-bundle-report.md", ".codex/team/scout-modules-bundle-report.md"],
+    "reconciliation": ".codex/team/mission-001-reconciliation.md",
+    "root_cause_unified": "loginChannel central dispatcher not wired in clone",
+    "follow_up_missions_proposed": ["M-002 loginChannel orchestrator (P1)", "M-003 actionsandevents + dxSelectBox virtualize (P2)", "M-004 15 dark modules PAGES expansion (P3)"]
+  },
+  "war_room_initialized": true,
+  "doctrine_version": "2026-05-27-v1",
+  "session_summary_for_post_compact": {
+    "completed_in_session": [
+      "Bundle 3 audit 13/13 (chip 100k, i18n 12-lang, profile sync, security/perf/db fixes)",
+      "5 SKILL.md project-local + tikmax-doctrine (Space Marine multi-agent framework)",
+      "War-room scaffold at .codex/team/",
+      "Welcome page fix (Live Connection + Quick Access via start.initQuickAccessItems)",
+      "Overlay cards iframes generated (onVisible chain + navigation.currentPage gate)",
+      "Sound Alerts page rendered (sounds.loadData() wired)",
+      "Sound Alerts 3 default empty rows seeded (Gate 30i v1-v4 iterations)",
+      "Backend routes added: /api/tiktok/gifts + /myinstants-proxy/*"
+    ],
+    "pending_electron_restart_to_load": [
+      "/api/tiktok/gifts route (gift catalog for trigger dropdown)",
+      "/myinstants-proxy/* route (Sound Library modal)",
+      "config.js JWT throw production",
+      "electron/main.js TLS scoped dev+localhost",
+      "2 new migrations (RevokedTokens FK + composite indexes)",
+      "tiktok-bridge.js batched points + webhook logging",
+      "profiles.js cascade transaction"
+    ],
+    "key_discoveries_to_remember": [
+      "Bundle's settings.get(key) LOWERCASES the key for localStorage lookup",
+      "dxDataGrid columns config requires exact field names: id (string!), enabled, triggerName, soundUrl, soundName, shortcut, createdAt",
+      "sounds.loadData() builds Create button + dxDataGrid (NOT sounds.init which builds only settings checkboxes)",
+      "start.initQuickAccessItems() builds 3 mini-cards on Start page",
+      "obsoverlays.stretchIframes (PLURAL) + onVisible() chain — navigation.currentPage gate must be set first",
+      "Vue page-mount does NOT auto-fire bundle's module.onVisible() — need our tfTriggerOverlaysOnVisible IIFE",
+      "9 pages need onVisible wired: start/obsoverlays/goals/graphicoverlays/sounds/actionsandevents/chatbot/points/setup",
+      "tfPageloadData.modules[].template injection via tfInjectModuleTemplates (Gate 30e) — bundle's moduleinjector disabled intentionally",
+      "CSS rule for .setupConnected/.setupUnconnected MUST scope to .page[data-pageid] — global broke sub-sidebar"
+    ],
+    "next_user_action": "Restart Electron: taskkill /F /IM electron.exe && start_desktop.bat"
+  },
+  "team_roster": {
+    "Commander": { "agent_type": "team-lead", "session_id": "current" },
+    "Scout-Bundle-App": { "agent_type": "code-explorer", "status": "completed", "ownership": ["downloads/combo/app.js", "decompiled/app/"], "wrote": ".codex/team/scout-app-bundle-report.md" },
+    "Scout-Bundle-Modules": { "agent_type": "code-explorer", "status": "completed", "ownership": ["downloads/combo/modules.js", "decompiled/modules/deobfuscated.js"], "wrote": ".codex/team/scout-modules-bundle-report.md" }
+  }
+}
