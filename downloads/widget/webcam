@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"
+        crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100..900;1,100..900&display=swap"
+        rel="stylesheet">
+
+    <style>
+       html,
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            background: transparent;
+        }
+
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background-color: transparent !important;
+        }
+
+        video::-webkit-media-controls {
+            background: transparent !important;
+        }
+
+        video::-webkit-media-controls-panel {
+            background: transparent !important;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+
+    <script>
+        const qs = new URLSearchParams(location.search);
+        const pid = qs.get("pid") || "webcam";
+        const type = qs.get("type");
+        const WIDGET_ID = `${pid}_${type}`;
+        const settingsKey = pid || "webcam";
+
+        let state = {
+            variation: null,
+            animation: null,
+            saturationFilter: null,
+            grayScaleFilter: null,
+            hueFilter: null,
+        }
+
+        const style = {
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "contain"
+        }
+
+        async function loadScript(src) {
+            if ([...document.scripts].some(s => (s.src || "").includes(src))) return;
+            await new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+        }
+
+        function needSplash() {
+            const isEmbeddedPreview = location.href.includes('preview=1') && window.self !== window.top;
+            return !settings.isPro && !isEmbeddedPreview;
+        }
+
+        async function maybeToggleSplash(show) {
+            const slot = document.getElementById("slot");
+            if (!slot) return;
+            if (show) {
+                await loadScript("/widget/splash.js");
+                TFSplash.show({
+                    img: "/img/finty-huh.png",
+                    heading: "Oops! Your asset needs an upgrade",
+                    html: `Your TikFinity Pro subscription has expired - reactivate it to <span>instantly bring your <strong>webcam frame</strong> back to life. ❤️</span>`
+                });
+                slot.classList.add("hidden");
+            } else {
+                if (window.TFSplash) TFSplash.hide();
+                slot.classList.remove("hidden");
+            }
+        }
+
+        // Helpers
+        function sGet(name, fallback = null) {
+            try {
+                const key = `${WIDGET_ID}_${name}`;
+                if (window.settings?.get) return window.settings.get(key) ?? fallback;
+                return window.settings?.[key] ?? fallback;
+            } catch {
+                return fallback;
+            }
+        }
+
+        function toggleSplashScreen(isVisible) {
+            const splash = document.querySelector(".splash-screen");
+            const slot = document.getElementById("slot");
+            if (!splash || !slot) return;
+
+            splash.classList.toggle("hidden", !isVisible);
+            slot.classList.toggle("hidden", isVisible);
+        }
+
+        const assetsUrl = 'https://assets.tikfinity.com/webcam'
+        
+        const DEFAULT_MAP = {
+            webcam_champion: 'greenscreen 2 panels',
+            webcam_breakpoint: 'greenscreen 2 panels',
+            webcam_military: 'greenscreen 2 panels',
+            webcam_pure: 'greenscreen 2 panels',
+            webcam_sakura: 'greenscreen 2 panels',
+            webcam_unique: 'greenscreen 2 panels',
+            webcam_chroma: 'greenscreen 2 panels',
+            webcam_pixelart: 'greenscreen 2 panels',
+            webcam_kawaiicats: 'square blank',
+            webcam_pixelworld: 'blank',
+            webcam_blackwhite: 'greenscreen 2 panels',
+        }
+
+        const ASSET_MAP = {
+            champion_greenscreen_2_panels: {
+                video: `${assetsUrl}/champion-greenscreen-2panels.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_greenscreen_4_panels: {
+                video: `${assetsUrl}/champion-greenscreen-4panels.webm`,
+                image: `${assetsUrl}/champion-greenscreen-4-panels.png`,
+                pro: true,
+            },
+            champion_2_panels: {
+                video: `${assetsUrl}/champion-greenscreen-4panels.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_greenscreen_blank: {
+                video: `${assetsUrl}/champion-greenscreen-blank.webm`,
+                image: `${assetsUrl}/champion-greenscreen.png`,
+                pro: true,
+            },
+            champion_webcam_2_panels: {
+                video: `${assetsUrl}/champion-webcam-2panels.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_4_panels: {
+                video: `${assetsUrl}/champion-webcam-4panels.webm`,
+                image: `${assetsUrl}/champion-webcam-4-panels.png`,
+                pro: true,
+            },
+            champion_blank: {
+                video: `${assetsUrl}/champion-webcam-blank.webm`,
+                image: `${assetsUrl}/champion-webcam.png`,
+                pro: true,
+            },
+            breakpoint_greenscreen_blank: {
+                video: `${assetsUrl}/breakpoint-greenscreen-blank.webm`,
+                image: `${assetsUrl}/breakpoint-greenscreen.png`,
+                pro: true,
+            },
+            breakpoint_greenscreen_2_panels: {
+                video: `${assetsUrl}/breakpoint-greenscreen-2panels.webm`,
+                image: null,
+                pro: true,
+            },
+            breakpoint_greenscreen_4_panels: {
+                video: `${assetsUrl}/breakpoint-greenscreen-4panels.webm`,
+                image: `${assetsUrl}/breakpoint-greenscreen-4-panels.png`,
+                pro: true,
+            },
+            breakpoint_2_panels: {
+                video: `${assetsUrl}/breakpoint-webcam-2panels.webm`,
+                image: null,
+                pro: true,
+            },
+            breakpoint_4_panels: {
+                video: `${assetsUrl}/breakpoint-webcam-4panels.webm`,
+                image: `${assetsUrl}/breakpoint-webcam-4-panels.png`,
+                pro: true,
+            },
+            breakpoint_blank: {
+                video: `${assetsUrl}/breakpoint-webcam-blank.webm`,
+                image: `${assetsUrl}/breakpoint-webcam.png`,
+                pro: true,
+            },
+            military_greenscreen_2_panels: {
+                video: `${assetsUrl}/military-greenscreen-2panels.webm`,
+                image: null,
+                pro: true,
+            },
+            military_greenscreen_4_panels: {
+                video: `${assetsUrl}/military-greenscreen-4panels.webm`,
+                image: `${assetsUrl}/military-greenscreen-4-panels.png`,
+                pro: true,
+            },
+            military_greenscreen_blank: {
+                video: `${assetsUrl}/military-greenscreen-blank.webm`,
+                image: `${assetsUrl}/military-greenscreen.png`,
+                pro: true,
+            },
+            military_webcam_2_panels: {
+                video: `${assetsUrl}/military-webcam-2panels.webm`,
+                image: null,
+                pro: true,
+            },
+            military_webcam_4_panels: {
+                video: `${assetsUrl}/military-webcam-4panels.webm`,
+                image: `${assetsUrl}/military-webcam-4-panels.png`,
+                pro: true,
+            },
+            military_blank: {
+                video: `${assetsUrl}/military-webcam-blank.webm`,
+                image: `${assetsUrl}/military-webcam.png`,
+                pro: true,
+            },
+            pure_greenscreen_2_panels: {
+                video: `${assetsUrl}/pure-greenscreen-2panels.webm`,
+                image: `${assetsUrl}/pure-greenscreen-2panels.png`,
+                pro: false,
+            },
+            pure_greenscreen_4_panels: {
+                video: `${assetsUrl}/pure-greenscreen-4panels.webm`,
+                image: `${assetsUrl}/pure-greenscreen-4panels.png`,
+                pro: false,
+            },
+            pure_greenscreen_blank: {
+                video: `${assetsUrl}/pure-greenscreen-blank.webm`,
+                image: `${assetsUrl}/pure-greenscreen-blank.png`,
+                pro: false,
+            },
+            pure_webcam_2_panels: {
+                video: `${assetsUrl}/pure-webcam-2panels.webm`,
+                image: `${assetsUrl}/pure-webcam-2panels.png`,
+                pro: false,
+            },
+            pure_webcam_4_panels: {
+                video: `${assetsUrl}/pure-webcam-4panels.webm`,
+                image: `${assetsUrl}/pure-webcam-4panels.png`,
+                pro: false,
+            },
+            pure_webcam_blank: {
+                video: `${assetsUrl}/pure-webcam-blank.webm`,
+                image: `${assetsUrl}/pure-webcam-blank.png`,
+                pro: false,
+            },
+            sakura_greenscreen_2_panels: {
+                video: `${assetsUrl}/sakura-greenscreen-2panels-1.webm`,
+                image: `${assetsUrl}/sakura-greenscreen-2panels-1.png`,
+                pro: true,
+            },
+            sakura_greenscreen_4_panels: {
+                video: `${assetsUrl}/sakura-greenscreen-4panels-1.webm`,
+                image: `${assetsUrl}/sakura-greenscreen-4panels-1.png`,
+                pro: true,
+            },
+            sakura_greenscreen_blank: {
+                video: `${assetsUrl}/sakura-greenscreen-blank-1.webm`,
+                image: `${assetsUrl}/sakura-greenscreen-blank-1.png`,
+                pro: true,
+            },
+            sakura_2_panels: {
+                video: `${assetsUrl}/sakura-webcam-2panels-1.webm`,
+                image: `${assetsUrl}/sakura-webcam-2panels-1.png`,
+                pro: true,
+            },
+            sakura_4_panels: {
+                video: `${assetsUrl}/sakura-webcam-4panels-1.webm`,
+                image: `${assetsUrl}/sakura-webcam-4panels-1.png`,
+                pro: true,
+            },
+            sakura_blank: {
+                video: `${assetsUrl}/sakura-webcam-blank-1.webm`,
+                image: `${assetsUrl}/sakura-webcam-blank-1.png`,
+                pro: true,
+            },
+            unique_greenscreen_2_panels: {
+                video: `${assetsUrl}/unique-greenscreen-2panels.webm`,
+                image: `${assetsUrl}/unique-greenscreen-2panels.png`,
+                pro: true,
+            },
+            unique_greenscreen_4_panels: {
+                video: `${assetsUrl}/unique-greenscreen-4panels.webm`,
+                image: `${assetsUrl}/unique-greenscreen-4panels.png`,
+                pro: true,
+            },
+            unique_greenscreen_blank: {
+                video: `${assetsUrl}/unique-greenscreen-blank.webm`,
+                image: `${assetsUrl}/unique-greenscreen-blank.png`,
+                pro: true,
+            },
+            unique_webcam_2_panels: {
+                video: `${assetsUrl}/unique-webcam-2panels.webm`,
+                image: `${assetsUrl}/unique-webcam-2panels.png`,
+                pro: true,
+            },
+            unique_webcam_4_panels: {
+                video: `${assetsUrl}/unique-webcam-4panels.webm`,
+                image: `${assetsUrl}/unique-webcam-4panels.png`,
+                pro: true,
+            },
+            unique_blank: {
+                video: `${assetsUrl}/unique-webcam-blank.webm`,
+                image: `${assetsUrl}/unique-webcam-blank.png`,
+                pro: true,
+            },
+            chroma_greenscreen_2_panels: {
+                video: `${assetsUrl}/chroma-greenscreen-2panels.webm`,
+                image: null,
+                pro: false,
+            },
+            chroma_greenscreen_4_panels: {
+                video: `${assetsUrl}/chroma-greenscreen-4panels.webm`,
+                image: `${assetsUrl}/chroma-greenscreen-4-panels.png`,
+                pro: false,
+            },
+            chroma_greenscreen_blank: {
+                video: `${assetsUrl}/chroma-greenscreen-blank.webm`,
+                image: `${assetsUrl}/chroma-greenscreen.png`,
+                pro: false,
+            },
+            chroma_webcam_2_panels: {
+                video: `${assetsUrl}/chroma-webcam-2panels.webm`,
+                image: null,
+                pro: false,
+            },
+            chroma_webcam_4_panels: {
+                video: `${assetsUrl}/chroma-webcam-4panels.webm`,
+                image: `${assetsUrl}/chroma-webcam-4-panels.png`,
+                pro: false,
+            },
+            chroma_webcam_blank: {
+                video: `${assetsUrl}/chroma-webcam-blank.webm`,
+                image: `${assetsUrl}/chroma-webcam.png`,
+                pro: false,
+            },
+            pixelart_greenscreen_2_panels: {
+                video: `${assetsUrl}/pixelart-greenscreen-2panels.webm`,
+                image: `${assetsUrl}/pixelart-greenscreen-2panels.png`,
+                pro: true,
+            },
+            pixelart_greenscreen_4_panels: {
+                video: `${assetsUrl}/pixelart-greenscreen-4panels.webm`,
+                image: `${assetsUrl}/pixelart-greenscreen-4panels.png`,
+                pro: true,
+            },
+            pixelart_webcam_2_panels: {
+                video: `${assetsUrl}/pixelart-webcam-2panels.webm`,
+                image: `${assetsUrl}/pixelart-webcam-2panels.png`,
+                pro: true,
+            },
+            pixelart_webcam_4_panels: {
+                video: `${assetsUrl}/pixelart-webcam-4panels.webm`,
+                image: `${assetsUrl}/pixelart-webcam-4panels.png`,
+                pro: true,
+            },
+            pixelart_greenscreen_blank: {
+                video: `${assetsUrl}/pixelartart-greenscreen-blank.webm`,
+                image: `${assetsUrl}/pixelartart-greenscreen-blank.png`,
+                pro: true,
+            },
+            pixelart_webcam_blank: {
+                video: `${assetsUrl}/pixelartart-webcam-blank.webm`,
+                image: `${assetsUrl}/pixelartart-webcam-blank.png`,
+                pro: true,
+            },
+
+            kawaiicats_square_blank: {
+                video: `${assetsUrl}/kawaiicats-webcam-square-blank-1.webm`,
+                image: `${assetsUrl}/kawaii-cats-1x1.png`,
+                pro: true,
+            },
+            kawaiicats_square_blank_2: {
+                video: `${assetsUrl}/kawaiicats-webcam-square-blank-2.webm`,
+                image: `${assetsUrl}/kawaii-cats-1x1.png`,
+                pro: true,
+            },
+            kawaiicats_webcam_blank: {
+                video: `${assetsUrl}/kawaiicats-webcam-blank-1.webm`,
+                image: `${assetsUrl}/kawaii-cats-webcam.png`,
+                pro: true,
+            },
+            kawaiicats_webcam_blank_2: {
+                video: `${assetsUrl}/kawaiicats-webcam-blank-2.webm`,
+                image: `${assetsUrl}/kawaii-cats-webcam.png`,
+                pro: true,
+            },
+            kawaiicats_webcam_4_panels: {
+                video: `${assetsUrl}/kawaiicats-webcam-4panels-1.webm`,
+                image: `${assetsUrl}/kawaii-cats-webcam-4-panels.png`,
+                pro: true,
+            },
+            kawaiicats_webcam_2_panels: {
+                video: `${assetsUrl}/kawaiicats-webcam-2panels-1.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_greenscreen_blank: {
+                video: `${assetsUrl}/kawaiicats-greenscreen-blank-1.webm`,
+                image: `${assetsUrl}/kawaii-cats-greescreen.png`,
+                pro: true,
+            },
+            kawaiicats_greenscreen_blank_2: {
+                video: `${assetsUrl}/kawaiicats-greenscreen-blank-2.webm`,
+                image: `${assetsUrl}/kawaii-cats-greenscreen-4-panels.png`,
+                pro: true,
+            },
+            kawaiicats_greenscreen_4_panels: {
+                video: `${assetsUrl}/kawaiicats-greenscreen-4panels.webm`,
+                image: `${assetsUrl}/kawaii-cats-greenscreen-4-panels.png`,
+                pro: true,
+            },
+            kawaiicats_greenscreen_2_panels: {
+                video: `${assetsUrl}/kawaiicats-greenscreen-2panels.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelworld_blank: {
+                video: `${assetsUrl}/pixelworld-webcam-blank.webm`,
+                image: `${assetsUrl}/pixelworld-webcam-blank.png`,
+                pro: true,
+            },
+            pixelworld_4_panels: {
+                video: `${assetsUrl}/pixelworld-webcam-4panels.webm`,
+                image: `${assetsUrl}/pixelworld-webcam-4panels.png`,
+                pro: true,
+            },
+            pixelworld_2_panels: {
+                video: `${assetsUrl}/pixelworld-webcam-2panels.webm`,
+                image: `${assetsUrl}/pixelworld-webcam-2panels.png`,
+                pro: true,
+            },
+            pixelworld_greenscreen_blank: {
+                video: `${assetsUrl}/PixelWorld-greenscreen-blank.webm`,
+                image: `${assetsUrl}/pixelworld-greenscreen-blank.png`,
+                pro: true,
+            },
+            pixelworld_greenscreen_4_panels: {
+                video: `${assetsUrl}/pixelworld-greenscreen-4panels.webm`,
+                image: `${assetsUrl}/pixelworld-greenscreen-4panels.png`,
+                pro: true,
+            },
+            pixelworld_greenscreen_2_panels: {
+                video: `${assetsUrl}/pixelworld-greenscreen-2panels.webm`,
+                image: `${assetsUrl}/pixelworld-greenscreen-2panels.png`,
+                pro: true,
+            },
+            blackwhite_greenscreen_blank: {
+                video: `${assetsUrl}/blackwhite-greenscreen-blank.webm`,
+                image: `${assetsUrl}/blackwhite-greenscreen.png`,
+                pro: true,
+            },
+            blackwhite_greenscreen_2_panels: {
+                video: `${assetsUrl}/blackwhite-greenscreen-2panels.webm`,
+                image: null,
+                pro: true,
+            },
+            blackwhite_greenscreen_4_panels: {
+                video: `${assetsUrl}/blackwhite-greenscreen-4panels.webm`,
+                image: `${assetsUrl}/blackwhite-greenscreen-4panels.png`,
+                pro: true,
+            },
+            blackwhite_greenscreen_blank: {
+                video: `${assetsUrl}/blackwhite-greenscreen.png`,
+                image: `${assetsUrl}/blackwhite-greenscreen.png`,
+                pro: true,
+            },
+            blackwhite_2_panels: {
+                video: `${assetsUrl}/blackwhite-webcam-2panels.webm`,
+                image: null,
+                pro: true,
+            },
+            blackwhite_4_panels: {
+                video: `${assetsUrl}/blackwhite-webcam-4panels.webm`,
+                image: `${assetsUrl}/blackwhite-webcam-frame-4-panels.png`,
+                pro: true,
+            },
+            blackwhite_blank: {
+                video: `${assetsUrl}/blackwhite-webcam-blank.webm`,
+                image: `${assetsUrl}/blackwhite-webcam-frame.png`,
+                pro: true,
+            },
+        };
+
+        function replaceWithVideo(src, opts = {}) {
+            const $slot = $("#slot");
+            $slot.empty();
+
+            const $v = $("<video playsinline>").attr("autoplay", true);
+
+            if (opts.muted) $v.prop("muted", true);
+            if (opts.loop) $v.prop("loop", true);
+            if (opts.controls) $v.prop("controls", true);
+            $v.css(style);
+            $v.append($("<source>").attr("src", src).attr("type", "video/webm"));
+            $slot.append($v);
+            applyAppearance($v);
+        }
+
+        function replaceWithIframe(url) {
+            const $slot = $("#slot");
+            $slot.empty();
+
+            const $f = $("<iframe>").attr("src", url)
+                .attr("frameborder", "0").attr("allow", "autoplay")
+                .css({ position: "absolute", inset: 0, width: "100%", height: "100%" });
+
+            $slot.append($f);
+        }
+
+        function replaceWithImage(src) {
+            const $slot = $("#slot");
+            $slot.empty();
+
+            const $img = $("<img>")
+                .attr("src", src)
+                .css(style);
+
+            $slot.append($img);
+            applyAppearance($img);
+        }
+
+        function applyAppearance($el) {
+            const grayscalefilter = state.grayScaleFilter;
+            const saturationfilter = state.saturationFilter;
+            const huefilter = state.hueFilter;
+
+            const filters = `hue-rotate(${(parseInt(huefilter) || 0) * 3.6}deg) saturate(${parseInt(saturationfilter || 0) * 2}%) grayscale(${grayscalefilter || 0}%)`;
+            $el.css("filter", filters).css("opacity", 1).css("mix-blend-mode", "normal");
+        }
+
+        function previewUrl(url, hasPro) {
+            const extensions = ['.webm', '.png']
+                if (!settings.isPro && hasPro) {
+                    for (const ext of extensions) {
+                    if (url.endsWith(ext)) {
+                        return url.replace(ext, `_wm${ext}`);
+                    }
+                }
+            }
+
+            return url;
+        }
+
+        const render = () => {
+            const variation = state.variation;
+            const version = `${type}_${variation}`.replace(/\s+/g, "_");
+            const isAnimated = state.animation;
+            const cfg = ASSET_MAP[version];
+
+            if (cfg.pro) {
+                maybeToggleSplash(needSplash());
+            }
+
+            if (isAnimated) {
+                replaceWithVideo(previewUrl(cfg.video, cfg.pro), { muted: true, loop: true });
+            } else {
+                replaceWithImage(previewUrl(cfg.image, cfg.pro))
+            }
+        }
+
+        const intializeWidget = () => {
+            function waitForSessionReady() {
+                return new Promise(resolve => {
+                    const check = () => {
+                        const ready = settings !== null;
+                        if (ready) {
+                            resolve();
+                        } else {
+                            setTimeout(check, 50);
+                        }
+                    };
+
+                    check();
+                });
+            }
+
+            waitForSessionReady().then(() => {
+                const variation = sGet("variation") !== '' ? sGet("variation") : DEFAULT_MAP[WIDGET_ID];
+                const animation = sGet("animation");
+                const grayScaleFilter = parseInt(sGet('grayScaleFilter'));
+                const saturationFilter = parseInt(sGet('saturationFilter'));
+                const hueFilter = parseInt(sGet('hueFilter'));
+
+                if (variation !== null) {
+                    state.variation = variation;
+                }
+                state.animation = animation;
+                state.grayScaleFilter = grayScaleFilter;
+                state.saturationFilter = saturationFilter;
+                state.hueFilter = hueFilter;
+
+                render();
+            })
+        }
+        
+        function updateWidgetSettings (wSettings) {
+            let hasChanges = false;
+            const variation = wSettings[`${WIDGET_ID}_variation`];
+            const animation = wSettings[`${WIDGET_ID}_animation`];
+            const grayScaleFilter = parseInt(wSettings[`${WIDGET_ID}_grayScaleFilter`]);
+            const hueFilter = parseInt(wSettings[`${WIDGET_ID}_hueFilter`]);
+            const saturationFilter = parseInt(wSettings[`${WIDGET_ID}_saturationFilter`]);
+
+            if (state.variation !== variation) {                
+                state.variation = variation;
+                hasChanges = true;
+            }
+            
+            if (state.animation !== animation) {                
+                state.animation = animation;
+                hasChanges = true;
+            }
+            if (state.hueFilter !== hueFilter && !isNaN(hueFilter)) {                
+                state.hueFilter = hueFilter;
+                hasChanges = true;
+
+            }
+            if (state.saturationFilter !== saturationFilter && !isNaN(saturationFilter)) {                
+                state.saturationFilter = saturationFilter;
+                hasChanges = true;
+            }
+
+            if (state.grayScaleFilter !== grayScaleFilter && !isNaN(grayScaleFilter)) {
+                state.grayScaleFilter = grayScaleFilter;
+                hasChanges = true;
+            }
+
+            if (hasChanges) {
+                render();
+            }
+        }
+
+        window.addEventListener("load", (e) => {
+            intializeWidget();
+            io.on("widgetSettings", updateWidgetSettings)
+        });
+    </script>
+</head>
+
+<body>
+    <div id="slot" style="position:absolute; inset:0;"></div>
+</body>
+
+</html>

@@ -1,26 +1,29 @@
 # Current Mission
 
 ## Mission ID
-M-2026-05-30-008-lastx-overlays-fix
+M-2026-05-31-009-overlay-preview-system
 
 ## Objective
-Fix trang **Last X Overlays** (`data-pageid=lastx`, breadcrumb "Overlays / Last X Overlays"): preview iframe của các card (Last Follower, Last Gifter, Last Subscribe/Super Fan, Last Share, Last Like, Last Chatter) đang **TRỐNG**, và "tính năng" (nút Copy URL / Test / Customize) cần verify hoạt động. User: "fix cái giao diện và tính năng của trang này luôn".
+User: "overlays không có hiệu ứng gì hết". Vấn đề RỘNG hơn lastx — toàn bộ widget-preview system:
+- **graphicoverlays (Webcam Frames):** `/widget/webcam?cid=1&type=pure` → 404 "Cannot GET /widget/webcam" (no file in downloads/widget/).
+- **obsoverlays (Overlay Gallery):** 25 widgets GET 200 (cannon/coinjar/coinmatch/... fresh log 04:24) nhưng preview trống/no-effect (purple box).
+- **lastx:** v2 fix applied (aggregates all-keys + framePreviewPing) — status post-restart chưa confirm.
+- **⚠️ Self-introduced regression suspect:** M-008 Fix B calls `obsoverlays.init()` from lastx/graphicoverlays guarded by `__tfPageInits['obsoverlays']` → if those pages visited BEFORE Overlay Gallery, real obsoverlays init skipped (init early-returns on currentPage!=='obsoverlays' but flag set) → empty gallery.
 
-## Root-cause hypothesis (Commander recon, pre-team)
-- `lastx` page = `type:"nav.gallery"` với sections `type:"Widget"` (giống obsoverlays/Gift Overlays) — gốc def `decompiled/app/deobfuscated.js:34311-34349`.
-- Clone IIFE `tfTriggerOverlaysOnVisible` (blockScript.txt:595) PAGES list **KHÔNG có `lastx`** → page-mount không fire build/stretch iframe.
-- NHƯNG grep cho thấy `window.lastx` không có `.onVisible` (chỉ `emitStatus`) → cơ chế render preview của `nav.gallery` Widget-card CẦN scout xác minh (Vue/jQuery shared renderer? iframe src-only? cần stretch? cần data?).
-- Widget HTML tồn tại: `downloads/widget/lastx.html` (76KB). Route `/widget/lastx?cid=1&x=follower` qua index.js rewrite + static serve.
+## Evidence (runtime)
+- Backend restart 2026-05-31T04:23:34Z (fresh, has M-008 v2 fixes).
+- `/widget/webcam` 404; no webcam/frame/talking file in downloads/widget/. Some widgets are vite: `/widget/vite/src/<name>/index.html`.
+- framePreviewPing at deobfuscated.js:19266-19291, condition `broadcastlistener.isLive` (line 19269) — does it throw if broadcastlistener undefined in clone? → would kill ALL preview effects.
 
-## Active agents (Workflow M-008 understand-phase)
-1. **Scout-Bundle-Render** [Sonnet, max-think] → gốc render path `nav.gallery`/`Widget` preview iframe + Copy/Test/Customize handlers (deobfuscated app.js).
-2. **Scout-Backend-Widget** [Sonnet, max-think] → `/widget/lastx` route resolve + lastx.html runtime deps (socket/data) + Test/Customize backend.
-3. **Scout-Clone-Wiring** [Sonnet, max-think] → gap clone vs obsoverlays (blockScript onVisible/template-inject + earlyCss iframe height).
-4. **Reconciler** [Opus] → unified root cause + minimal fix spec + regression list.
-5. **Critic-Demolition** [Opus] → adversarial refute fix spec (READ-GỐC-FIRST enforcement, replicate-before-invent).
+## Active agents (Workflow M-009)
+1. Scout-Missing-Widgets [S] → webcam 404 + full graphicoverlays widget list + gốc /widget/webcam shape + vite mapping.
+2. Scout-Effects-Mechanism [S] → why obsoverlays widgets load but no effect; is framePreviewPing firing / throwing; broadcastlistener defined?
+3. Scout-FixB-Regression [S] → did M-008 Fix B break real obsoverlays init via __tfPageInits hijack; lastx current status.
+4. Reconciler [O] → concrete prioritized fix plan (files + exact changes, minimal, gốc-faithful).
+5. Critic [O] → adversarial.
 
 ## Then
-Commander reconcile → backup blockScript.txt (+ earlyCss.txt nếu touch) → apply minimal fix → `node backend-node/scripts/check-script-syntax.js` → user restart Electron để runtime-verify.
+Commander reconcile → apply fixes (likely: fix Fix B guard to separate flag; add/fetch webcam widget; fix framePreviewPing if broadcastlistener issue) → user restart + verify.
 
-## Note
-- Previous mission M-007 (gift itemTemplate replicate) PARKED — chưa reconcile chính thức; state ở git + current_state.json session summary. KHÔNG revert M-007 work.
+## Backups already held
+blockScript.txt.bak-2026-05-31-pre-lastx, aggregates.js.bak-2026-05-31-pre-lastx-keys, lastx.html.bak-2026-05-31-pre-guard, CLAUDE.md.bak-2026-05-31-pre-karpathy.

@@ -665,15 +665,24 @@
       // interval (modules.js:19266), which ONLY obsoverlays.init() starts. tryFire
       // calls <page>.init() — never obsoverlays.init — so landing on these gallery
       // pages without first visiting Overlay Library leaves the ping off and the
-      // preview iframes blank. Start obsoverlays.init() ONCE (reuse the init-once
-      // guard so the Overlay Library page itself won't double-init its
-      // fetchTopGifter interval).
+      // preview iframes blank. Start obsoverlays.init() ONCE.
+      //
+      // CRITICAL (regression fix M-009): use a SEPARATE flag __tfFramePingStarted,
+      // NOT __tfPageInits['obsoverlays']. obsoverlays.init() early-returns at
+      // modules.js:19293 (`if navigation.currentPage !== 'obsoverlays' return`)
+      // when called from here (currentPage is 'lastx'/'graphicoverlays'), so it
+      // starts the ping but does NOT build the 28 gallery widgets. If we set
+      // __tfPageInits['obsoverlays'] here, the real Overlay Library page would
+      // then SKIP its own init() (tryFire line ~612) and render EMPTY. The
+      // framePreviewPingInterval is itself guarded (modules.js:19266) so starting
+      // it once is enough; the only cost of obsoverlays.init() running twice total
+      // is a redundant fetchTopGifter poller (unguarded at 19263, benign).
       if ((pageId === 'lastx' || pageId === 'graphicoverlays')
-          && !window.__tfPageInits['obsoverlays']
+          && !window.__tfFramePingStarted
           && window.obsoverlays && typeof window.obsoverlays.init === 'function') {
         try {
           window.obsoverlays.init();
-          window.__tfPageInits['obsoverlays'] = true;
+          window.__tfFramePingStarted = true;
           try { console.log('[TF-overlay-visible] started obsoverlays framePreviewPing via', pageId); } catch(_){}
         } catch(e) {
           try { console.warn('[TF-overlay-visible] obsoverlays.init for', pageId, 'error:', e && e.message); } catch(_){}

@@ -3,6 +3,26 @@
   "last_updated": "2026-05-31",
   "compaction_checkpoint": true,
   "active_mission": null,
+  "m009_overlay_preview_outcome": {
+    "status": "fixes-applied, static-verified, pending user Ctrl+R runtime verify",
+    "root_causes": [
+      "fixB-regression (M-008 self-introduced): ping-branch set __tfPageInits['obsoverlays']=true while currentPage!=='obsoverlays' -> obsoverlays.init early-returns before building 28 gallery widgets -> real Overlay Library page skips init -> EMPTY gallery when lastx/graphicoverlays visited first",
+      "webcam-404: downloads/widget/{webcam,overlay,talking}+splash.js absent -> graphicoverlays previews 404",
+      "coinjar/coinmatch blank: /vue/dist/widgets/{coin-match,coin-jar}.js absent -> Vue never mounts",
+      "firework: REFUTED by critic (window.preview already defined) -> NO fix",
+      "lastx: no remaining server bug (M-008 v2 correct)"
+    ],
+    "fixes": [
+      "blockScript ping-branch -> separate flag __tfFramePingStarted (regression fix); reload-html",
+      "fetched downloads/widget/{webcam,overlay,talking,splash.js} from gốc (200, sizes 25861/21858/24652/2921)",
+      "fetched downloads/vue/dist/widgets/{coin-match(219262),coin-jar(358276)}.js (self-contained IIFE)"
+    ],
+    "verified_static": "blockScript syntax OK; backend serves all 6 files 200 (webcam 302->200 real widget)",
+    "pending_runtime": "Ctrl+R -> Overlay Gallery non-empty regardless of nav order; coin widgets mount; webcam frames load (CDN frame imgs not proxied = cosmetic)",
+    "workflow": "wf_dbf3a1c1-e71 (critic caught 2 scout errors: firework non-bug, vue chunk-graph over-caution)",
+    "reconciliation": ".codex/team/mission-009-reconciliation.md",
+    "backups": ["blockScript.txt.bak-2026-05-31-pre-fixb-guard"]
+  },
   "m008_lastx_overlays_outcome": {
     "status": "v2 — REAL root cause from runtime logs; 2 deeper fixes applied; pending user RESTART + verify",
     "v2_runtime_evidence": "5288x 'Uncaught TypeError: Cannot read properties of undefined (reading testuser)' @ widget/lastx:920 — widget crashes when backend setLastX omits the requested overlay key; the PAGES fix correctly made iframes render which EXPOSED this deeper bug",

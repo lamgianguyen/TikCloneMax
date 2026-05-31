@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"
+        crossorigin="anonymous"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100..900;1,100..900&display=swap"
+        rel="stylesheet">
+
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            background: transparent;
+        }
+
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background-color: transparent !important;
+        }
+
+        video::-webkit-media-controls {
+            background: transparent !important;
+        }
+
+        video::-webkit-media-controls-panel {
+            background: transparent !important;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+
+    <script>
+        const qs = new URLSearchParams(location.search);
+        const pid = qs.get("pid") || "talking";
+        const type = qs.get("type");
+        const WIDGET_ID = `${pid}_${type}`;
+        const settingsKey = pid || "talking";
+
+        let state = {
+            variation: null,
+            animation: null,
+            saturationFilter: null,
+            grayScaleFilter: null,
+            hueFilter: null,
+        }
+
+        const style = {
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "contain"
+        }
+
+        async function loadScript(src) {
+            if ([...document.scripts].some(s => (s.src || "").includes(src))) return;
+            await new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+        }
+
+        function needSplash() {
+            const isEmbeddedPreview = location.href.includes('preview=1') && window.self !== window.top;
+            return !settings.isPro && !isEmbeddedPreview;
+        }
+
+        async function maybeToggleSplash(show) {
+            const slot = document.getElementById("slot");
+            if (!slot) return;
+            if (show) {
+                await loadScript("/widget/splash.js");
+                TFSplash.show({
+                    img: "/img/finty-huh.png",
+                    heading: "Oops! Your asset needs an upgrade",
+                    html: `Your TikFinity Pro subscription has expired - reactivate it to <span>instantly bring your <strong>talking banner</strong> back to life. ❤️</span>`
+                });
+                slot.classList.add("hidden");
+            } else {
+                if (window.TFSplash) TFSplash.hide();
+                slot.classList.remove("hidden");
+            }
+        }
+
+        // Helpers
+        function sGet(name, fallback = null) {
+            try {
+                const key = `${WIDGET_ID}_${name}`;
+                if (window.settings?.get) return window.settings.get(key) ?? fallback;
+                return window.settings?.[key] ?? fallback;
+            } catch {
+                return fallback;
+            }
+        }
+
+        function toggleSplashScreen(isVisible) {
+            const splash = document.querySelector(".splash-screen");
+            const slot = document.getElementById("slot");
+            if (!splash || !slot) return;
+
+            splash.classList.toggle("hidden", !isVisible);
+            slot.classList.toggle("hidden", isVisible);
+        }
+
+        const assetsUrl = 'https://assets.tikfinity.com/banner';
+        const DEFAULT_MAP = {
+            talking_champion: 'bg',
+            talking_breakpoint: 'bg',
+            talking_military: 'bg',
+            talking_pure: 'bg',
+            talking_sakura: 'blank',
+            talking_unique: 'bg',
+            talking_chroma: 'bg',
+            talking_pixelart: 'bg',
+            talking_kawaiicats: 'bg',
+            talking_pixelworld: 'bg',
+            talking_blackwhite: 'bg',
+        }
+
+        const ASSET_MAP = {
+            breakpoint_bg: {
+                video: `${assetsUrl}/breakpoint-talkingbanner-bg-blank-1.webm`,
+                image: null,
+                pro: true,
+            },
+            breakpoint_gameborder_1: {
+                video: `${assetsUrl}/breakpoint-talkingbanner-gameborder1.webm`,
+                image: null,
+                pro: true,
+            },
+            breakpoint_gameborder_2: {
+                video: `${assetsUrl}/breakpoint-talkingbanner-gameborder2.webm`,
+                image: null,
+                pro: true,
+            },
+            breakpoint_gameborder_3: {
+                video: `${assetsUrl}/breakpoint-talkingbanner-gameborder3.webm`,
+                image: null,
+                pro: true,
+            },
+            breakpoint_infopanel: {
+                video: `${assetsUrl}/breakpoint-talkingbanner-infopanel.webm`,
+                image: null,
+                pro: true,
+            },
+            breakpoint_livechat: {
+                video: `${assetsUrl}/breakpoint-talkingbanner-livechat.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_bg: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-bg.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_bg_2: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-bg-2.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_gameborder_1_v1: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-gameborder1-v1.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_gameborder_1_v2: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-gameborder1-v2.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_gameborder_2_v1: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-gameborder2-v1.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_gameborder_2_v2: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-gameborder2-v2.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_gameborder_3_v1: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-gameborder3-v1.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_gameborder_3_v2: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-gameborder3-v2.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_infopanel: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-infopanel.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_livechat: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-livechat.webm`,
+                image: null,
+                pro: true,
+            },
+            kawaiicats_socialpanel: {
+                video: `${assetsUrl}/kawaiicats-talkingbanner-socialpanel.webm`,
+                image: null,
+                pro: true,
+            },
+            military_bg: {
+                video: `${assetsUrl}/military-talkingbanner-bg.webm`,
+                image: null,
+                pro: true,
+            },
+            military_gameborder_1: {
+                video: `${assetsUrl}/military-talkingbanner-gameborder1.webm`,
+                image: null,
+                pro: true,
+            },
+            military_gameborder_2: {
+                video: `${assetsUrl}/military-talkingbanner-gameborder2.webm`,
+                image: null,
+                pro: true,
+            },
+            military_gameborder_3: {
+                video: `${assetsUrl}/military-talkingbanner-gameborder3.webm`,
+                image: null,
+                pro: true,
+            },
+            military_livechat: {
+                video: `${assetsUrl}/military-talkingbanner-livechat.webm`,
+                image: null,
+                pro: true,
+            },
+            pure_bg: {
+                video: `${assetsUrl}/pure-talkingbanner-bg-blank.webm`,
+                image: null,
+                pro: false,
+            },
+            pure_gameborder: {
+                video: null,
+                image: `${assetsUrl}/pure-talkingbanner-gameborder1.png`,
+                pro: false,
+            },
+            pure_gameborder_2: {
+                video: `${assetsUrl}/pure-talkingbanner-gameborder3.webm`,
+                image: null,
+                pro: false,
+            },
+            pure_infopanel: {
+                video: `${assetsUrl}/pure-talkingbanner-infopanel1.webm`,
+                image: null,
+                pro: false,
+            },
+            pure_infopanel_2: {
+                video: `${assetsUrl}/pure-talkingbanner-infopanel2.webm`,
+                image: null,
+                pro: false,
+            },
+            pure_infopanel_3: {
+                video: `${assetsUrl}/pure-talkingbanner-infopanel3.webm`,
+                image: null,
+                pro: false,
+            },
+            pure_livechat: {
+                video: `${assetsUrl}/pure-talkingbanner-livechat.webm`,
+                image: null,
+                pro: false,
+            },
+            sakura_blank: {
+                video: `${assetsUrl}/sakura-talkingbanner-blank-1.webm`,
+                image: null,
+                pro: true,
+            },
+            sakura_gameborder_1: {
+                video: `${assetsUrl}/sakura-talkingbanner-gameborder1-1.webm`,
+                image: null,
+                pro: true,
+            },
+            sakura_gameborder_2: {
+                video: `${assetsUrl}/sakura-talkingbanner-gameborder2.webm`,
+                image: null,
+                pro: true,
+            },
+            sakura_gameborder_3: {
+                video: `${assetsUrl}/sakura-talkingbanner-gameborder3-1.webm`,
+                image: null,
+                pro: true,
+            },
+            sakura_livechat: {
+                video: null,
+                image: `${assetsUrl}/sakura-talkingbanner-livechat-1.png`,
+                pro: true,
+            },
+            unique_bg: {
+                video: `${assetsUrl}/unique-talkingbanner-bg-blank.webm`,
+                image: null,
+                pro: true,
+            },
+            unique_gameborder: {
+                video: `${assetsUrl}/unique-talkingbanner-gameborder1.webm`,
+                image: null,
+                pro: true,
+            },
+            unique_gameborder_2: {
+                video: null,
+                image: `${assetsUrl}/unique-talkingbanner-gameborder2.png`,
+                pro: true,
+            },
+            unique_gameborder_3: {
+                video: null,
+                image: `${assetsUrl}/unique-talkingbanner-gameborder3.png`,
+                pro: true,
+            },
+            unique_infopanel: {
+                video: `${assetsUrl}/unique-talkingbanner-infopanel.webm`,
+                image: null,
+                pro: true,
+            },
+            unique_livechat: {
+                video: `${assetsUrl}/unique-talkingbanner-livechat.webm`,
+                image: null,
+                pro: true,
+            },
+            chroma_bg: {
+                video: `${assetsUrl}/chroma-talkingbanner-bg-blank.webm`,
+                image: null,
+                pro: false,
+            },
+            chroma_gameborder_1: {
+                video: null,
+                image: `${assetsUrl}/chroma-talkingbanner-gameborder.png`,
+                pro: false,
+            },
+            chroma_gameborder_2: {
+                video: null,
+                image: `${assetsUrl}/chroma-talkingbanner-gameborder1.png`,
+                pro: false,
+            },
+            chroma_livechat: {
+                video: null,
+                image: `${assetsUrl}/chroma-talkingbanner-livechat.png`,
+                pro: false,
+            },
+            pixelart_bg: {
+                video: `${assetsUrl}/pixelart-talkingbanner-bg.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelart_gameborder_1: {
+                video: `${assetsUrl}/pixelart-talkingbanner-gameborder1.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelart_gameborder_2: {
+                video: `${assetsUrl}/pixelart-talkingbanner-gameborder2.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelart_gameborder_3: {
+                video: `${assetsUrl}/pixelart-talkingbanner-gameborder3.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelart_infopanel_1: {
+                video: `${assetsUrl}/pixelart-talkingbanner-infopanel1.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelart_infopanel_2: {
+                video: `${assetsUrl}/pixelart-talkingbanner-infopanel2.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelart_infopanel_3: {
+                video: `${assetsUrl}/pixelart-talkingbanner-infopanel3.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelart_infopanel_4: {
+                video: `${assetsUrl}/pixelart-talkingbanner-infopanel4.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelart_livechat: {
+                video: null,
+                image: `${assetsUrl}/pixelart-talkingbanner-livechat-1.png`,
+                pro: true,
+            },
+            pixelworld_bg: {
+                video: `${assetsUrl}/pixelworld-talkingbanner-bg-1.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelworld_bg_2: {
+                video: `${assetsUrl}/pixelworld-talkingbanner-bg-2.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelworld_bg_3: {
+                video: `${assetsUrl}/pixelworld-talkingbanner-bg-3.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelworld_gameborder_1: {
+                video: `${assetsUrl}/pixelworld-talkingbanner-gameborder1.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelworld_gameborder_2: {
+                video: `${assetsUrl}/pixelworld-talkingbanner-gameborder2.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelworld_gameborder_3: {
+                video: `${assetsUrl}/pixelworld-talkingbanner-gameborder3.webm`,
+                image: null,
+                pro: true,
+            },
+            pixelworld_livechat: {
+                video: null,
+                image: `${assetsUrl}/pixelworld-talkingbanner-livechat.png`,
+                pro: true,
+            },
+            blackwhite_bg: {
+                video: `${assetsUrl}/blackwhite-talkingbanner-bg-blank.webm`,
+                image: null,
+                pro: true,
+            },
+            blackwhite_gameborder_1: {
+                video: null,
+                image: `${assetsUrl}/blackwhite-talkingbanner-gameborder1.png`,
+                pro: true,
+            },
+            blackwhite_gameborder_2: {
+                video: null,
+                image: `${assetsUrl}/blackwhite-talkingbanner-gameborder2.png`,
+                pro: true,
+            },
+            blackwhite_gameborder_3: {
+                video: null,
+                image: `${assetsUrl}/blackwhite-talkingbanner-gameborder3.png`,
+                pro: true,
+            },
+            blackwhite_infopanel: {
+                video: `${assetsUrl}/blackwhite-talkingbanner-infopanel.webm`,
+                image: null,
+                pro: true,
+            },
+            blackwhite_livechat: {
+                video: null,
+                image: `${assetsUrl}/blackwhite-talkingbanner-livechat.png`,
+                pro: true,
+            },
+            champion_bg: {
+                video: `${assetsUrl}/champion-talkingbanner-bg-blank.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_gameborder_1: {
+                video: `${assetsUrl}/champion-talkingbanner-gameborder1.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_gameborder_2: {
+                video: `${assetsUrl}/champion-talkingbanner-gameborder2.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_gameborder_3: {
+                video: `${assetsUrl}/champion-talkingbanner-gameborder3.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_infopanel_1: {
+                video: `${assetsUrl}/champion-talkingbanner-infopanel1.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_infopanel_2: {
+                video: `${assetsUrl}/champion-talkingbanner-infopanel2.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_infopanel_3: {
+                video: `${assetsUrl}/champion-talkingbanner-infopanel3.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_infopanel_4: {
+                video: `${assetsUrl}/champion-talkingbanner-infopanel4.webm`,
+                image: null,
+                pro: true,
+            },
+            champion_livechat: {
+                video: `${assetsUrl}/champion-talkingbanner-livechat.webm`,
+                image: null,
+                pro: true,
+            },
+        };
+
+        function replaceWithVideo(src, opts = {}) {
+            const $slot = $("#slot");
+            $slot.empty();
+
+            const $v = $("<video playsinline>").attr("autoplay", true);
+
+            if (opts.muted) $v.prop("muted", true);
+            if (opts.loop) $v.prop("loop", true);
+            if (opts.controls) $v.prop("controls", true);
+            $v.css(style);
+            $v.append($("<source>").attr("src", src).attr("type", "video/webm"));
+            $slot.append($v);
+            applyAppearance($v);
+        }
+
+        function replaceWithIframe(url) {
+            const $slot = $("#slot");
+            $slot.empty();
+
+            const $f = $("<iframe>").attr("src", url)
+                .attr("frameborder", "0").attr("allow", "autoplay")
+                .css({ position: "absolute", inset: 0, width: "100%", height: "100%" });
+
+            $slot.append($f);
+        }
+
+        function replaceWithImage(src) {
+            const $slot = $("#slot");
+            $slot.empty();
+
+            const $img = $("<img>")
+                .attr("src", src)
+                .css(style);
+
+            $slot.append($img);
+            applyAppearance($img);
+        }
+
+        function applyAppearance($el) {
+            const grayscalefilter = state.grayScaleFilter;
+            const saturationfilter = state.saturationFilter;
+            const huefilter = state.hueFilter;
+
+            const filters = `hue-rotate(${(parseInt(huefilter) || 0) * 3.6}deg) saturate(${parseInt(saturationfilter || 0) * 2}%) grayscale(${grayscalefilter || 0}%)`;
+            $el.css("filter", filters).css("opacity", 1).css("mix-blend-mode", "normal");
+        }
+
+        function previewUrl(url, hasPro) {
+            const extensions = ['.webm', '.png']
+                if (!settings.isPro && hasPro) {
+                    for (const ext of extensions) {
+                    if (url.endsWith(ext)) {
+                        return url.replace(ext, `_wm${ext}`);
+                    }
+                }
+            }
+
+            return url;
+        }
+
+        const render = () => {
+            const variation = state.variation;
+            const version = `${type}_${variation}`.replace(/\s+/g, "_");
+            const cfg = ASSET_MAP[version];
+            if (cfg.pro) {
+                maybeToggleSplash(needSplash());
+            }
+
+            if (cfg.video !== null) {
+                replaceWithVideo(previewUrl(cfg.video, cfg.pro), { muted: true, loop: true });
+            } else {
+                replaceWithImage(previewUrl(cfg.image, cfg.pro))
+            }
+        }
+
+        const intializeWidget = () => {
+            function waitForSessionReady() {
+                return new Promise(resolve => {
+                    const check = () => {
+                        const ready = settings !== null;
+                        if (ready) {
+                            resolve();
+                        } else {
+                            setTimeout(check, 50);
+                        }
+                    };
+
+                    check();
+                });
+            }
+
+            waitForSessionReady().then(() => {
+                const variation = sGet("variation") !== '' ? sGet("variation") : DEFAULT_MAP[WIDGET_ID];
+                const animation = sGet("animation");
+                const grayScaleFilter = parseInt(sGet('grayScaleFilter'));
+                const saturationFilter = parseInt(sGet('saturationFilter'));
+                const hueFilter = parseInt(sGet('hueFilter'));
+
+                if (variation !== null) {
+                    state.variation = variation;
+                }
+                state.animation = animation;
+                state.grayScaleFilter = grayScaleFilter;
+                state.saturationFilter = saturationFilter;
+                state.hueFilter = hueFilter;
+
+                render();
+            })
+        }
+
+        function updateWidgetSettings (wSettings) {
+            let hasChanges = false;
+            const variation = wSettings[`${WIDGET_ID}_variation`];
+            const animation = wSettings[`${WIDGET_ID}_animation`];
+            const grayScaleFilter = parseInt(wSettings[`${WIDGET_ID}_grayScaleFilter`]);
+            const hueFilter = parseInt(wSettings[`${WIDGET_ID}_hueFilter`]);
+            const saturationFilter = parseInt(wSettings[`${WIDGET_ID}_saturationFilter`]);
+
+            if (state.variation !== variation) {                
+                state.variation = variation;
+                hasChanges = true;
+            }
+            
+            if (state.animation !== animation) {                
+                state.animation = animation;
+                hasChanges = true;
+            }
+
+            if (state.hueFilter !== hueFilter && !isNaN(hueFilter)) {                
+                state.hueFilter = hueFilter;
+                hasChanges = true;
+
+            }
+            
+            if (state.saturationFilter !== saturationFilter && !isNaN(saturationFilter)) {                
+                state.saturationFilter = saturationFilter;
+                hasChanges = true;
+            }
+
+            if (state.grayScaleFilter !== grayScaleFilter && !isNaN(grayScaleFilter)) {
+                state.grayScaleFilter = grayScaleFilter;
+                hasChanges = true;
+            }
+
+            if (hasChanges) {
+                render();
+            }
+        }
+        
+        window.addEventListener("load", (e) => {
+            intializeWidget();
+            io.on("widgetSettings", updateWidgetSettings)
+        });
+    </script>
+</head>
+
+<body>
+    <div id="slot" style="position:absolute; inset:0;"></div>
+    <div class="splash-screen hidden">
+        <div class="splash-screen-inner">
+            <img class="splash-screen-img" src="/img/finty-huh.png" alt="finity huh">
+            <h3 class="splash-screen-heading">
+                Oops! Your asset needs an upgrade
+            </h3>
+            <p class="splash-screen-paragraph">
+                Your TikFinity Pro subscription has expired - reactivate it to <span>instantly bring your <strong>webcam
+                        frame</strong> back to life. ❤️</span>
+            </p>
+        </div>
+    </div>
+</body>
+
+</html>

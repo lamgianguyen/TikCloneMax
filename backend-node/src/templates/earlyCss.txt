@@ -5,14 +5,23 @@
      Hide nó hoàn toàn — Vue mount #pages thay thế nội dung này. */
   #pageSSRContent { display: none !important; }
 
-  /* Gate 20 (actionsandevents page text cut-off):
-     Bundle có rule `.page[data-pageid=actionsandevents]{margin-left:-255px}`
-     để page extend qua vùng sub-sidebar (gốc auto-hide sub-sidebar cho
-     pageid này). Combined với #pages max-width + overflow-x:hidden, page
-     extend LEFT 255px bị CLIP → text cắt đầu dòng (vd "ành động" thay vì
-     "Hành động"). Override -255 về 0 — page sit at standard x=335, cards
-     bên trong render OK (chỉ mất ~255px breathing room bên trái so với
-     gốc, không break gì). */
+  /* Gate 20 → Gate 35 (actionsandevents full-width, MATCH gốc):
+     actionsandevents là type:"nav.page", pages:[] (deobfuscated.js:34386) →
+     KHÔNG có sub-sidebar. GỐC lấp chỗ sub-sidebar trống bằng
+     `.page[data-pageid=actionsandevents]{margin-left:-255px}` → content bắt đầu
+     ở x≈80 (sát main icon sidebar), full width.
+     DEVIATION STATEMENT (READ-GỐC-FIRST): replicate -255px verbatim FAIL trong
+     clone — `#pages{overflow-x:hidden}` (dưới) clip 255px tràn trái → cắt chữ
+     tiêu đề ("ành động"); evidence Gate 20. Đạt VISUAL gốc bằng cơ chế an toàn:
+     dịch chính #pages sang x=80 cho riêng trang này (lấy lại chỗ sub-sidebar
+     trống) + page giữ margin-left:0 → KHÔNG margin âm, KHÔNG có gì để clip.
+     Trước đây (Gate 20) ép margin 0 mà KHÔNG dịch #pages → content lệch phải
+     255px + trống trái (user báo "lệch phải nhiều" 2026-05-31). Scope qua :has()
+     (cùng pattern banner rule, đã verify chạy trong Electron này). */
+  body[data-new-navigation-design] #pages:has(.page.pageenabled[data-pageid=actionsandevents]) {
+    margin-left: 80px !important;
+    max-width: calc(100vw - 80px) !important;
+  }
   body[data-new-navigation-design] .page[data-pageid=actionsandevents] {
     margin-left: 0 !important;
   }
