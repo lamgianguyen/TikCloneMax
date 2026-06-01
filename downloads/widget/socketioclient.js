@@ -136,7 +136,13 @@ function reportState(stateData) {
 }
 
 io.on("widgetSettings", function (data) {
-    if (location.href.includes('preview=1') && localStorage.getItem("cachedSettings")) {
+    // Preview mode: PREFER the fresh broadcast. Fall back to the cached
+    // snapshot ONLY when this event carried no data (avoids a blank flash
+    // before the first real broadcast). The original code ALWAYS replaced
+    // fresh data with the stale cache, which froze the in-app preview on its
+    // first value — and combined with the framePreviewPing re-feed below it
+    // caused a 500ms empty/reload flip-flop ("nothing loads on click").
+    if (location.href.includes('preview=1') && (data == null) && localStorage.getItem("cachedSettings")) {
         data = JSON.parse(localStorage.getItem("cachedSettings"));
     }
 
@@ -146,6 +152,16 @@ io.on("widgetSettings", function (data) {
     localStorage.setItem("cachedSettings", JSON.stringify(data));
     settings = data;
     if (typeof updateSettings === "function") updateSettings(hasChanges);
+    // Graphic-overlay widgets (webcam/overlay/talking) register their OWN
+    // widgetSettings handler (updateWidgetSettings) but it was not re-rendering
+    // on a style change in preview mode. This generic handler fires on EVERY
+    // broadcast, so re-dispatch the FRESH bag to the widget's own callback to
+    // force a re-render when the variation changes. Works even while LIVE
+    // (framePreviewPing is paused when live, so we must NOT rely on it).
+    // No-op for widgets that never registered their own widgetSettings handler.
+    if (location.href.includes('preview=1') && typeof io.fakeEmit === 'function') {
+        io.fakeEmit('widgetSettings', data);
+    }
     setFontSettings();
 })
 

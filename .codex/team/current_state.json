@@ -1,8 +1,31 @@
 {
   "schema_version": 1,
-  "last_updated": "2026-05-31",
+  "last_updated": "2026-06-01",
   "compaction_checkpoint": true,
   "active_mission": null,
+  "m012_overlay_switch_RESOLVED": {
+    "status": "RESOLVED (webcam confirmed by user 'có nhảy ok rồi'; overlay+talking same fix applied, pending user restart-verify)",
+    "root_cause": "Carousel writes new variation to localStorage (local, always OK) + fires POST /api/updateSettings, but the RENDERER POST aborts client-side (API Error -1, XHR no-status) -> never persists -> rebuildAndBroadcast never runs -> preview iframe never gets the new value via socket broadcast. Backend fine (manual full-bag POST -> 200/10ms). Not URL/size/channel.",
+    "fix": "BYPASS the broken POST: preview iframe (same-origin) reads variation straight from SHARED localStorage. Added preview=1-only 400ms poll in downloads/widget/{webcam,overlay,talking} reading localStorage['setting_widget_'+WIDGET_ID+'_variation'] (+_animation) -> render on change. OBS/live unaffected. socketioclient ?v bumped to 13.",
+    "other_fixes_same_session": ["assets localized assets.tikfinity.com/{webcam,overlay,banner} -> downloads/tf-assets/ (268 files, assetsUrl rewritten, scripts/dl-tf-assets.js)", "settings.js strips self-referential dynamicsettings key (bloat loop ~295KB)", "electron/main.js session.clearCache() on boot (cache staleness)", "widget-settings-cache.js aliasGraphicOverlayKeys (belt-and-suspenders)"],
+    "workflows": ["wf_939b310e (diag)", "wf_3bd20cab (M-010)", "wf_2503c89e (M-011)", "wf_f86466b2 (M-012 full trace)"],
+    "backups": ["widget/{webcam,overlay,talking}.bak-2026-06-01-*", "socketioclient.js.bak-2026-06-01-pre-preview-refeed", "settings.js.bak-2026-06-01-pre-dynsettings-strip", "main.js.bak-2026-06-01-pre-clearcache", "socket-manager.js.bak-2026-06-01-pre-m010-diag", "widget-settings-cache.js.bak-2026-06-01-pre-overlay-variation-alias"],
+    "todo": "Document CLAUDE.md Gate after user confirms overlay+talking; offer DB cleanup of polluted P2 dynamicsettings (295KB junk from team repro) — needs user OK.",
+    "two_db_trap": "Electron uses %APPDATA%/tikfinity-desktop/tikfinity-data/tikfinity.db (ProfileId=2); standalone npm start uses %APPDATA%/tikfinity-desktop/tikfinity.db (stale)."
+  },
+  "m010_overlay_variation_switch": {
+    "status": "superseded by m012_overlay_switch_RESOLVED",
+    "symptom": "Webcam Frames carousel: counter/title change but preview graphic frozen; toast 'API Error (-1) HTTP Communication Error' on click",
+    "fix1": "widget-settings-cache.js aliasGraphicOverlayKeys — non-prefixed alias for widget_(webcam|overlay|talking)_*_(variation|animation); unit 6/6 + integration getForChannel(1) on Electron DB PASS; KEEP",
+    "current_blocker": "DB still shows widget_webcam_pure_variation='greenscreen 2 panels' (default) after user clicks -> POST /api/updateSettings NOT persisting -> no broadcast -> frozen. API Error(-1)=XHR no-status (network/timeout/abort).",
+    "refuted": ["channel-mismatch (single channel=1)", "Electron BLOCK_URLS blocking assets.tikfinity.com (only ph.tikfinity.com)", "socketioclient preview-override starving webcam listener (SharedIO dispatch independent)"],
+    "decisive_probe": "DevTools console main window: print window.appConfig.apiBasePath + fetch POST updateSettings -> status/fail; + check DB persists after a click",
+    "instrumentation_temp": ["widget-settings-cache.js rebuildAndBroadcast [M010] log", "socket-manager.js broadcastToChannel widgetSettings in diag log"],
+    "workflows": ["wf_939b310e-43c (diag)", "wf_3bd20cab-e5a (M-010 team)"],
+    "reconciliation": ".codex/team/mission-010-reconciliation.md",
+    "backups": ["widget-settings-cache.js.bak-2026-06-01-pre-overlay-variation-alias", "socket-manager.js.bak-2026-06-01-pre-m010-diag"],
+    "two_db_trap": "Electron uses %APPDATA%/tikfinity-desktop/tikfinity-data/tikfinity.db (populated, ProfileId=2); standalone npm start uses %APPDATA%/tikfinity-desktop/tikfinity.db (empty). Probe the Electron DB."
+  },
   "m009_overlay_preview_outcome": {
     "status": "fixes-applied, static-verified, pending user Ctrl+R runtime verify",
     "root_causes": [

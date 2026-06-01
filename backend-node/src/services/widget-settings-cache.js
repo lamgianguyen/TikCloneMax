@@ -57,6 +57,28 @@ function coerce(value) {
   return s;
 }
 
+// Graphic-overlay widgets (webcam / overlay / talking) read their per-style
+// settings under the NON-prefixed key `${widgetId}_${field}` — e.g. the webcam
+// widget reads `webcam_pure_variation` (downloads/widget/webcam). But the
+// bundle persists the variation under the `widget_`-prefixed form
+// (`widget_webcam_pure_variation`), and normalizeKey() only de-prefixes keys
+// whose de-prefixed form exists in DEFAULTS — which these per-style keys do
+// not. Result: the variation never reaches the widget, so the in-app preview
+// freezes on its built-in default while the carousel counter (which reads the
+// prefixed key) still advances. Expose a de-prefixed alias for these keys
+// WITHOUT dropping the prefixed original (the control page reads the prefixed
+// form). Only the variation/animation per-style keys are aliased.
+const GRAPHIC_OVERLAY_ALIAS_RE =
+  /^widget_((?:webcam|overlay|talking)_[a-z0-9]+_(?:variation|animation))$/;
+
+function aliasGraphicOverlayKeys(merged) {
+  for (const [key, value] of Object.entries(merged)) {
+    const m = GRAPHIC_OVERLAY_ALIAS_RE.exec(key);
+    if (m && merged[m[1]] === undefined) merged[m[1]] = value;
+  }
+  return merged;
+}
+
 function buildMerged(channelId) {
   const ch = channels.findById(channelId);
   const profileId = ch && ch.ProfileId > 0 ? ch.ProfileId : 1;
@@ -68,6 +90,7 @@ function buildMerged(channelId) {
     if (value === '' || value === null || value === undefined) continue;
     merged[normalizeKey(rawKey)] = coerce(value);
   }
+  aliasGraphicOverlayKeys(merged);
   return merged;
 }
 
@@ -127,4 +150,5 @@ module.exports = {
   rebuildAndBroadcast,
   invalidate,
   normalizeKey,
+  _aliasGraphicOverlayKeys: aliasGraphicOverlayKeys,
 };

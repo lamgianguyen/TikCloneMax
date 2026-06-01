@@ -1089,6 +1089,16 @@ function configureSession() {
     const sess = session.defaultSession;
     let lastEasemobOrigin = null;
 
+    // [Cache] Clear Electron's HTTP disk cache on every boot. Widget HTML +
+    // socketioclient.js are served from downloads/ with a hardcoded ?v cache
+    // key; when that key was reused across edits, Electron kept serving the
+    // STALE pre-edit body across restarts, so on-disk code fixes never ran.
+    // Clearing on boot guarantees the current widget/asset code always loads.
+    // Source is the LOCAL backend, so the re-fetch cost is negligible.
+    sess.clearCache()
+        .then(() => console.log('[Cache] HTTP cache cleared on boot'))
+        .catch((e) => console.warn('[Cache] clearCache failed:', e && e.message));
+
     // Log any 404 from our local backend so we can spot missing assets.
     sess.webRequest.onCompleted({ urls: ['http://localhost:5285/*'] }, (details) => {
         if (details.statusCode === 404) {

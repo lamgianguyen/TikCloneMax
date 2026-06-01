@@ -12,7 +12,7 @@
         crossorigin="anonymous"></script>
 
     <script src="sharedio/sharedio.js"></script>
-    <script src="socketioclient.js?v=10"></script>
+    <script src="socketioclient.js?v=13"></script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -123,7 +123,7 @@
             slot.classList.toggle("hidden", isVisible);
         }
 
-        const assetsUrl = 'https://assets.tikfinity.com/banner';
+        const assetsUrl = '/tf-assets/banner';  // localized from assets.tikfinity.com (self-contained clone)
         const DEFAULT_MAP = {
             talking_champion: 'bg',
             talking_breakpoint: 'bg',
@@ -669,6 +669,29 @@
             intializeWidget();
             io.on("widgetSettings", updateWidgetSettings)
         });
+
+        // [Preview fallback — clone] Read the chosen variation straight from the
+        // shared (same-origin) localStorage the control page writes on every
+        // carousel switch, because the POST/updateSettings -> socket broadcast
+        // push is unreliable in the clone (renderer POST aborts). preview=1 ONLY
+        // so OBS/live (own localStorage + socket broadcast) is unaffected.
+        if (location.href.includes('preview=1')) {
+            setInterval(() => {
+                try {
+                    const lv = localStorage.getItem('setting_widget_' + WIDGET_ID + '_variation')
+                            || localStorage.getItem('setting_' + WIDGET_ID + '_variation');
+                    const la = localStorage.getItem('setting_widget_' + WIDGET_ID + '_animation')
+                            || localStorage.getItem('setting_' + WIDGET_ID + '_animation');
+                    let changed = false;
+                    if (lv && state.variation !== lv) { state.variation = lv; changed = true; }
+                    if (la != null) {
+                        const ab = (la === 'true' || la === true);
+                        if (state.animation !== ab) { state.animation = ab; changed = true; }
+                    }
+                    if (changed) render();
+                } catch (_) {}
+            }, 400);
+        }
     </script>
 </head>
 

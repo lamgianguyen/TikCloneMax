@@ -67,6 +67,15 @@ router.post('/updateSettings', (req, res) => {
     }
   }
 
+  // The bundle dumps the ENTIRE settings bag into a single `dynamicsettings`
+  // key (clone authScript writes `setting_dynamicsettings` = JSON of the whole
+  // bag). It round-trips via /api/me back into localStorage and is re-sent on
+  // every save → an unbounded self-referential growth loop (live DB rows hit
+  // ~295KB). It is never read as an individual setting, so NEVER persist it —
+  // this keeps every save bag small (~50KB) and stops the bloat.
+  delete settings.dynamicsettings;
+  delete settings.dynamicSettings;
+
   if (Object.keys(settings).length === 0) {
     return res.json({ status: 200, message: 'OK' });
   }
