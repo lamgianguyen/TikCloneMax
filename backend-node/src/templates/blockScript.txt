@@ -321,25 +321,65 @@
   setInterval(trim, 1000);
 })();
 
+/* ─────────────────────────────────────────────────────────────────────
+   TTS credit ledger (shared by tfForceProCredits + the /api/tts/* mocks).
+   The chip = streamer's AI-TTS credit balance. User asked for REAL per-use
+   decrement (instead of pinning 100k). Persist remaining in localStorage so
+   both the chip force-patcher (this file, top) and tfReadCreditState (mock
+   IIFE, below) read/write the SAME number. Auto-resets monthly to 100k —
+   matches gốc Pro semantics ("100.000 tín dụng mỗi tháng"). Only AI/Pro voice
+   generations (tts.tikfinity.com/api/tts/generate) decrement this; standard
+   TikTok voices are free by design.
+   ───────────────────────────────────────────────────────────────────── */
+window.__tfTtsCredits = window.__tfTtsCredits || (function(){
+  var KEY = 'tf_tts_credits_remaining';
+  var MKEY = 'tf_tts_credits_month';
+  var MAX = 100000;
+  function curMonth(){ var d = new Date(); return d.getUTCFullYear() + '-' + (d.getUTCMonth() + 1); }
+  function read(){
+    try {
+      if (localStorage.getItem(MKEY) !== curMonth()) {   // monthly refill
+        localStorage.setItem(MKEY, curMonth());
+        localStorage.setItem(KEY, String(MAX));
+        return MAX;
+      }
+      var v = localStorage.getItem(KEY);
+      if (v == null || v === '') return MAX;
+      var n = parseInt(v, 10);
+      return Number.isFinite(n) ? Math.max(0, n) : MAX;
+    } catch(_) { return MAX; }
+  }
+  function write(n){
+    try {
+      localStorage.setItem(MKEY, curMonth());
+      localStorage.setItem(KEY, String(Math.max(0, Math.floor(Number(n) || 0))));
+    } catch(_){}
+  }
+  function reset(){ write(MAX); }
+  return { read: read, write: write, reset: reset, MAX: MAX };
+})();
+
 (function tfForceProCredits(){
   var FULL_PRO = 100000;
   var FULL_FREE = 25;
   function patchOne(state){
     if (!state || typeof state !== 'object') return false;
     var touched = false;
+    // REMAINING fields mirror the live TTS credit ledger (decrements per AI
+    // TTS use); TOTAL/MAX + flags stay at full Pro so the Pro UI never locks.
+    var REMAIN = (window.__tfTtsCredits && window.__tfTtsCredits.read)
+      ? window.__tfTtsCredits.read() : FULL_PRO;
     // Bundle's TTS Pinia store uses these field names (verified via
-    // earlier probes — Object.keys(state) listed them). Set every known
-    // credit/quota field to its Pro-full value so the chip never shows 0
-    // regardless of which field bundle's render component reads.
+    // earlier probes — Object.keys(state) listed them).
     var fields = {
       freeMessages: FULL_FREE,
       freeMessagesMax: FULL_FREE,
-      proCredits: FULL_PRO,
+      proCredits: REMAIN,
       proCreditsMax: FULL_PRO,
       topUpCredits: 0,
       topUpCreditsMax: 0,
       creditsRefreshDays: 30,
-      subscriptionCreditsRemaining: FULL_PRO,
+      subscriptionCreditsRemaining: REMAIN,
       subscriptionCreditsTotal: FULL_PRO,
       purchasedCreditsRemaining: 0,
       purchasedCreditsTotal: 0,
@@ -3700,16 +3740,19 @@
      will map AI voiceId → real TikTok TTS voice later — for now return a
      placeholder audioUrl (bundle may fail to play silently; that's OK).
      ───────────────────────────────────────────────────────────────────── */
-  // TikClone is ALL-PRO by design (CLAUDE.md §1.0). Pro user expects the
-  // 100k credit balance to be visible at all times — chip should never show
-  // "0" or a depleted state. Real TTS playback goes through the TikTok
-  // session legacy endpoint (no actual charging), so tracking credits in
-  // localStorage was creating fake "depleted" UX with no real benefit.
-  // Always return 100k for both read and write — chip stays at full
-  // Pro balance regardless of usage. If user later wants daily/monthly
-  // reset with actual decrement, replace these two functions.
-  function tfReadCreditState(){ return 100000; }
-  function tfWriteCreditState(_n){ /* no-op — credits fixed at Pro 100k */ }
+  // Real per-use TTS credit decrement (user-requested 2026-06-02). Delegates
+  // to the shared ledger (window.__tfTtsCredits, defined near tfForceProCredits
+  // at the top of this file) so the chip force-patcher and these /api/tts/*
+  // mocks read/write ONE number. Auto-resets to 100k monthly (gốc Pro
+  // semantics). Only AI/Pro voice generations decrement; standard TikTok
+  // voices stay free. isPro stays true elsewhere, so Pro UI never locks.
+  function tfReadCreditState(){
+    return (window.__tfTtsCredits && window.__tfTtsCredits.read)
+      ? window.__tfTtsCredits.read() : 100000;
+  }
+  function tfWriteCreditState(n){
+    if (window.__tfTtsCredits && window.__tfTtsCredits.write) window.__tfTtsCredits.write(n);
+  }
   function tfBuildQuotaPayload(remaining){
     var nowDate = new Date();
     // Subscription credits reset MONTHLY per gốc Pro semantics ("100.000

@@ -111,8 +111,12 @@ router.all('/list', (req, res) => {
   res.json({ status: 200, message: 'OK', notifications: list });
 });
 
-router.all('/preferences', (_req, res) => {
-  res.json({ status: 200, message: 'OK', inApp: true });
+router.all('/preferences', (req, res) => {
+  // Bundle's in-app notification toggle does PUT notifications/preferences {inApp}
+  // and commits only if response.success is truthy (else it snaps the checkbox
+  // back — deobfuscated.js:75837-75844). Echo the requested value + report success.
+  const inApp = req.body && req.body.inApp !== undefined ? !!req.body.inApp : true;
+  res.json({ status: 200, message: 'OK', success: true, inApp });
 });
 
 router.post('/markRead', (req, res) => {

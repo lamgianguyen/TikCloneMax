@@ -1,5 +1,5 @@
 importScripts("/js/guard/obf/trcws.js");
-importScripts("https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js");
+importScripts("/js/lib/socket.io.min.js");
 
 let ioChannelConnections = {};
 

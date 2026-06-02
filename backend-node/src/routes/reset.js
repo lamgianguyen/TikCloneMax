@@ -42,7 +42,10 @@ router.post('/points', (req, res) => {
   const channelId = resolveChannelId(req);
   if (channelId <= 0) return res.json({ status: 200, reset: 'points', count: 0 });
   const result = db
-    .prepare(`DELETE FROM "DynamicSettings" WHERE "ChannelId" = ? AND "Key" LIKE 'points_user_%'`)
+    .prepare(
+      `DELETE FROM "DynamicSettings"
+        WHERE "ChannelId" = ? AND ("Key" LIKE 'points_user_%' OR "Key" LIKE 'pointsmeta_%')`
+    )
     .run(channelId);
   broadcastReset(channelId, 'pointsReset', { channelId, removed: result.changes });
   res.json({ status: 200, reset: 'points', count: result.changes });
@@ -64,7 +67,10 @@ router.post('/all', (req, res) => {
 
   const txn = db.transaction(() => {
     const pts = db
-      .prepare(`DELETE FROM "DynamicSettings" WHERE "ChannelId" = ? AND "Key" LIKE 'points_user_%'`)
+      .prepare(
+        `DELETE FROM "DynamicSettings"
+          WHERE "ChannelId" = ? AND ("Key" LIKE 'points_user_%' OR "Key" LIKE 'pointsmeta_%')`
+      )
       .run(channelId);
     const gls = db
       .prepare(`UPDATE "Goals" SET "Current" = 0 WHERE "ChannelId" = ?`)

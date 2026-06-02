@@ -257,4 +257,52 @@ router.delete('/action/:id', (req, res) => {
   res.json({ status: 200 });
 });
 
+// The Actions & Events native form + DevExtreme grid use REST verbs the
+// original C# API exposed but the POST-only port omitted, so create/edit
+// silently 404'd. The bundle's saveActionForm (deobfuscated.js:8766) does
+// PUT rest/action (create) + PATCH rest/action/:id (update) and reads
+// response.action; getActionById (8784) does GET rest/action/:id and reads
+// response.record. Add those verbs, mirroring the POST handler's field
+// mapping, and return the mapped action/record the callbacks expect.
+function buildActionFields(dto, existing) {
+  const cfg = dto.ConfigJson ?? dto.configJson;
+  const en = dto.Enabled ?? dto.enabled;
+  return {
+    Name: dto.Name ?? dto.name ?? (existing ? existing.Name : ''),
+    Type: dto.Type ?? dto.type ?? (existing ? existing.Type : ''),
+    TriggerValue: dto.TriggerValue ?? dto.triggerValue ?? (existing ? existing.TriggerValue : null),
+    ConfigJson: cfg && String(cfg).trim() ? cfg : (existing ? existing.ConfigJson : '{}'),
+    Enabled: en === undefined ? (existing ? !!existing.Enabled : true) : !!en,
+    Sort: Number(dto.Sort ?? dto.sort ?? (existing ? existing.Sort : 0)) | 0,
+  };
+}
+
+// GET /action/:id — edit-form prefill (bundle reads response.record).
+router.get('/action/:id', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const id = parseInt(req.params.id, 10);
+  const row = Number.isFinite(id) && id > 0 ? actions.findById(id) : null;
+  if (!row || row.ChannelId !== channelId) return res.status(404).json({ status: 404 });
+  res.json({ status: 200, message: 'OK', record: mapAction(row) });
+});
+
+// PUT /action — create (native form + duplicate). Returns the created action.
+router.put('/action', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const profileId = resolveProfileId(req, channelId);
+  const f = buildActionFields(req.body || {}, null);
+  const newId = actions.create({ ChannelId: channelId, ProfileId: profileId, ...f });
+  res.json({ status: 200, id: newId, action: mapAction(actions.findById(newId)) });
+});
+
+// PATCH /action/:id — update (native form + grid inline). Returns the action.
+router.patch('/action/:id', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const id = parseInt(req.params.id, 10);
+  const existing = Number.isFinite(id) && id > 0 ? actions.findById(id) : null;
+  if (!existing || existing.ChannelId !== channelId) return res.status(404).json({ status: 404 });
+  actions.patch(id, buildActionFields(req.body || {}, existing));
+  res.json({ status: 200, id, action: mapAction(actions.findById(id)) });
+});
+
 module.exports = router;

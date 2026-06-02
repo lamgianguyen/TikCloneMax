@@ -14,7 +14,9 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const transactions = require('../db/models/transactions');
+const points = require('../services/points');
 const channels = require('../db/models/channels');
+const sockets = require('../services/socket-manager');
 const config = require('../config');
 const logger = require('../logger');
 
@@ -92,24 +94,129 @@ router.get('/rest/transaction', (req, res) => {
   });
 });
 
-// ── Channel users (leaderboards) — empty in local mode ─────────────────────
-
-router.get('/odata/channeluser', (_req, res) => {
-  res.json({ value: [] });
-});
-
-router.get('/rest/channeluser', (_req, res) => {
+// PUT /rest/transaction — manual points grant/adjust + reward redemption. The
+// bundle (deobfuscated.js:72386) sends {userId,username,nickname,amount,isReward,
+// isManual,description,...} and reads response.preBalanceValidationPassed +
+// response.transaction + response.channeluser.totalRewardAmount. Points are
+// stored as running per-user balances (services/points), not a per-row ledger,
+// so we apply the delta and return the expected shape. Without this, manual
+// grant 404'd SILENTLY (the bundle suppresses the error toast for this path).
+router.put('/rest/transaction', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const b = req.body || {};
+  const username = String(b.username || b.userId || '').trim();
+  const amount = Number(b.amount) || 0;
+  if (!username || channelId <= 0) {
+    return res.json({ status: 200, preBalanceValidationPassed: false });
+  }
+  const current = points.getBalance(channelId, username);
+  const next = current + amount;
+  // The bundle shows a BALANCE error when preBalanceValidationPassed===false;
+  // reject a deduction that would drive the balance negative.
+  if (next < 0) {
+    return res.json({ status: 200, preBalanceValidationPassed: false, currentBalance: current });
+  }
+  points.setBalance(channelId, username, next);
+  // Record viewer identity so later reads by numeric userId (the bundle's
+  // rest/channeluser?userId= lookup + the !points leaderboard) resolve back to
+  // this balance. Merged, so partial calls never wipe known fields.
+  points.recordIdentity(channelId, username, {
+    userId: b.userId,
+    nickname: b.nickname,
+    thumbnailUrl: b.thumbnailUrl,
+  });
+  const transaction = {
+    id: 0,
+    userId: b.userId ?? '',
+    username,
+    nickname: b.nickname ?? username,
+    amount,
+    isReward: !!b.isReward,
+    isManual: !!b.isManual,
+    description: b.description ?? '',
+    thumbnailUrl: b.thumbnailUrl ?? '',
+    createdAt: new Date().toISOString(),
+  };
   res.json({
     status: 200,
     message: 'OK',
+    preBalanceValidationPassed: true,
+    transaction,
+    channeluser: {
+      userId: b.userId ?? '',
+      username,
+      nickname: b.nickname ?? username,
+      balance: next,
+      totalAmount: next,
+      totalRewardAmount: next,
+      thumbnailUrl: b.thumbnailUrl ?? '',
+    },
+  });
+});
+
+// DELETE /rest/transaction/:id — the bundle removes a points ledger entry. The
+// clone keeps only running balances (no per-row ledger), so there is nothing to
+// delete; ack 200 so the UI does not error.
+router.delete('/rest/transaction/:id', (_req, res) => {
+  res.json({ status: 200 });
+});
+
+// ── Channel users (leaderboards) — empty in local mode ─────────────────────
+
+// Leaderboard grid (DevExtreme ODataStore on the Points page — decompiled
+// modules:9772/13716/14042). Surface the stored balances, highest first.
+router.get('/odata/channeluser', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const list = channelId > 0 ? points.listChannelUsers(channelId, 500) : [];
+  res.json({ value: list, '@odata.count': list.length });
+});
+
+// rest/channeluser drives: !points (single read by userId + top-100 check —
+// modules:4205/4218), wheel-spin + transfer balance checks (9256/14684), and
+// the app.js single read ($.get ...?userId= — 70492). The bundle queries by
+// numeric userId OR username; honour both. Previously returned [] always, so
+// every awarded balance read back as 0.
+router.get('/rest/channeluser', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const envelope = {
+    status: 200,
+    message: 'OK',
     arrayKey: 'channelusers',
-    channelusers: [],
-    pageSize: 3,
     page: 0,
     orderType: 'DESC',
-    orderColumn: 'id',
+    orderColumn: 'totalAmount',
     hasNext: false,
-  });
+  };
+  if (channelId <= 0) {
+    return res.json({ ...envelope, channelusers: [], data: [], pageSize: 1 });
+  }
+  const userId = req.query.userId;
+  const username = req.query.username;
+  let list;
+  if ((userId != null && userId !== '') || (username != null && username !== '')) {
+    const one = points.getChannelUser(channelId, { userId, username });
+    list = one ? [one] : [];
+  } else {
+    const pageSize = Math.max(1, Math.min(500, Number(req.query.pageSize) || 100));
+    list = points.listChannelUsers(channelId, pageSize);
+  }
+  res.json({ ...envelope, channelusers: list, data: list, pageSize: Math.max(list.length, 1) });
+});
+
+// POST /deleteAllUsers — Setup "Reset Points" / "DB Reset" button. The bundle
+// (setup.resetDbPoints, decompiled/modules:2674) does POST deleteAllUsers and
+// shows "DB reset success!" on 200. The route did NOT exist → 404 swallowed by
+// the bundle's empty error callback → the button appeared to do nothing. Wipes
+// all viewer points + identity rows for the channel.
+router.post('/deleteAllUsers', (req, res) => {
+  const channelId = resolveChannelId(req);
+  if (channelId <= 0) return res.json({ status: 200, message: 'OK', removed: 0 });
+  const removed = points.clearAll(channelId);
+  // Snap any live points displays to empty (the Points leaderboard grid
+  // re-fetches on its own via odata/channeluser).
+  try { sockets.broadcastToChannel('pointsReset', { channelId, removed }, channelId, 'widget'); } catch (_) {}
+  try { sockets.broadcast('pointsReset', { channelId, removed }); } catch (_) {}
+  res.json({ status: 200, message: 'OK', removed });
 });
 
 router.all('/getChannelUserCount', (_req, res) => {

@@ -9,6 +9,7 @@
 // Idempotent: safe to call on every boot.
 
 const models = require('./models');
+const db = require('./conn');
 const logger = require('../logger');
 const { DEFAULT_CHANNEL_ID, DEFAULT_CHANNEL_NAME } = require('../config');
 
@@ -127,6 +128,28 @@ function ensureProProfiles(channelId) {
   logger.info(`[SEED] seeded ${10 - startCount} additional profiles for Pro tier (channel ${channelId})`);
 }
 
+// One-time maintenance: the bundle dumps the entire settings bag into a
+// self-referential `dynamicsettings` row that grew unbounded (live rows hit
+// ~295KB). settings.js now strips it on write; this clears the existing bloat.
+// Also repairs an invalid `webcam_pure` variation — 'square blank' is a
+// kawaiicats-only value (left by earlier debugging) that crashes the pure
+// widget's render(). Idempotent: after the first clean, no rows match.
+function cleanupBloatedDynamicSettings() {
+  try {
+    const r1 = db
+      .prepare("UPDATE DynamicSettings SET Value='{}' WHERE lower(Key)='dynamicsettings' AND length(Value) > 2000")
+      .run();
+    const r2 = db
+      .prepare("UPDATE DynamicSettings SET Value='greenscreen 2 panels' WHERE lower(Key) IN ('widget_webcam_pure_variation','webcam_pure_variation') AND Value='square blank'")
+      .run();
+    if (r1.changes || r2.changes) {
+      logger.info(`[SEED] cleaned bloated dynamicsettings (${r1.changes}) + repaired pure variation (${r2.changes})`);
+    }
+  } catch (err) {
+    logger.warn({ err: err && err.message }, '[SEED] dynamicsettings cleanup failed (non-fatal)');
+  }
+}
+
 function run() {
   const ch = ensureDefaultChannel();
   ensureDefaultSubscription(ch.ChannelId);
@@ -134,6 +157,7 @@ function run() {
   ensureProProfiles(ch.ChannelId);
   models.channelModules.ensureDefaults(ch.ChannelId);
   ensureWelcomeNotifications(ch.ChannelId);
+  cleanupBloatedDynamicSettings();
   return ch;
 }
 

@@ -1,8 +1,29 @@
 {
   "schema_version": 1,
-  "last_updated": "2026-06-01",
+  "last_updated": "2026-06-02",
   "compaction_checkpoint": true,
   "active_mission": null,
+  "m013_points_action_completeness": {
+    "status": "DONE (code + adversarial-verified + runtime LIKE/exports proven); REQUIRES BACKEND RESTART; all RUNTIME-untested",
+    "user_ask": "'làm được cái nào làm hết lun đi' — implement all doable items from the not-done list",
+    "decisive_finding": "READ-GỐC proved prior critic WRONG: Actions + Points fire CLIENT-SIDE in the bundle (broadcastlistener.onGift@app71943 -> emitTiktokEventToModules@71797 loops appConfig.modules -> actionsandevents.onGift=executeActionsFromEvent + setup.onGift=transaction.put). Driven by OUR bridge broadcasts. Server-side firing/awarding would DOUBLE-FIRE. Critic only checked the backend bridge.",
+    "genuine_gaps_fixed": {
+      "#2_points_readback": "Points WRITTEN (transaction.put->points.setBalance) but rest/channeluser+odata/channeluser returned [] always -> read back as 0 (broke !points, wheel cost, transfer, Points grid). Bundle writes by username, READS by numeric userId (modules:4218) -> added pointsmeta_<username> identity map. Files: points.js (recordIdentity/getMeta/findUsernameByUserId/toChannelUser(channelId)/getChannelUser/listChannelUsers), data.js (PUT records identity; GET rest/channeluser single-by-userId|username or leaderboard; odata returns {value,@odata.count}), tiktok-bridge.js chat handler records identity (guarded, identity-only no double-count).",
+      "#3_action_test_sideeffects": "widget.js /actions/test hard-coded *Fired:false; dispatchActionSideEffects(234) was dead code. Wired: context.__test + real dispatch + ...sideEffects in response. + http(s)-only scheme guard on user webhookUrl (SSRF).",
+      "#6_obs": "npm i obs-websocket-js (exit 0); obs.js already lazy-loads -> real connect works."
+    },
+    "not_backend_gaps": {
+      "#1_actions_live": "client-side (bundle). RUNTIME (needs live test).",
+      "#8_goal_lastx_test": "client-side lastx.testuser (modules:22686).",
+      "#9_reset": "bundle resets client-side goals.resetAll(21196), zero /api/reset calls; reset.js already exists."
+    },
+    "verification": "wf_248f68f9 (5-agent adversarial; synth StructuredOutput failed, 4 reviewer findings salvaged from transcripts). 2 CRITICALs caught+fixed: (1) toChannelUser channelId:0 vs OData grid filter [channelId,=,X]@modules13720 -> grid empty; (2) reset.js left pointsmeta_ rows. Plus bridge recordIdentity try/catch, webhook scheme guard, PUT totalAmount. False alarms dropped: __test order (Socket.IO serializes at emit), field naming, /actions/test auth (consistent w/ all widget endpoints).",
+    "runtime_proven": "in-memory sqlite: LIKE 'points_user_%' does NOT match pointsmeta_*; userId->username resolves; 8 points.js exports present. node --check PASS x6.",
+    "blocked_flagged": ["TTS AI/Pro real timbre (paid tts.tikfinity.com cloud)", "Spotify/Song requests (OAuth creds)"],
+    "files_backups": "all .bak-2026-06-02-*: widget.js(pre-test-sideeffects), data.js(pre-channeluser-readback), points.js(pre-identity-map), tiktok-bridge.js(pre-identity-record), reset.js(pre-meta-cleanup)",
+    "reconciliation": ".codex/team/mission-013-points-action-completeness.md",
+    "todo": "User must RESTART backend, then live-test: !points shows balance, Points leaderboard grid populates, wheel/transfer balance checks, Action Test button fires webhook/OBS, OBS connect. Document CLAUDE.md Gate after user confirms."
+  },
   "m012_overlay_switch_RESOLVED": {
     "status": "RESOLVED (webcam confirmed by user 'có nhảy ok rồi'; overlay+talking same fix applied, pending user restart-verify)",
     "root_cause": "Carousel writes new variation to localStorage (local, always OK) + fires POST /api/updateSettings, but the RENDERER POST aborts client-side (API Error -1, XHR no-status) -> never persists -> rebuildAndBroadcast never runs -> preview iframe never gets the new value via socket broadcast. Backend fine (manual full-bag POST -> 200/10ms). Not URL/size/channel.",

@@ -93,7 +93,10 @@ router.post('/timer/:op(start|pause|resume|stop|add)', (req, res) => {
 
 // ── Coin Jar Reset ─────────────────────────────────────────────────────────
 router.post('/coinjar/reset', (req, res) => {
-  broadcast(req, 'coinjarReset', {});
+  // Widget (downloads/widget/coinjar*.html) listens for "coin-jar:reset"
+  // (hyphenated) — NOT "coinjarReset". Mismatched name = HTTP 200 but the OBS
+  // overlay never resets ("Reset Jar" appears to do nothing).
+  broadcast(req, 'coin-jar:reset', {});
   res.json({ reset: true });
 });
 
@@ -181,6 +184,16 @@ router.post('/actions/changed', (req, res) => {
 function fireWebhookForAction(actionInfo, context) {
   const url = typeof actionInfo.webhookUrl === 'string' ? actionInfo.webhookUrl.trim() : '';
   if (!url) return false;
+  // webhookUrl is user-supplied (action ConfigJson). Allow only http(s) so a
+  // crafted file:/data:/etc. scheme can't be used to hit local files or odd
+  // protocols. (Private-range hosts are intentionally NOT blocked — local
+  // integrations like Streamerbot legitimately live on 127.0.0.1.)
+  try {
+    const proto = new URL(url).protocol;
+    if (proto !== 'http:' && proto !== 'https:') return false;
+  } catch {
+    return false;
+  }
   webhooks.fireOneShot(url, {
     action: { id: actionInfo.id, name: actionInfo.name, type: actionInfo.type },
     test: !!context.__test,
@@ -293,18 +306,25 @@ router.post('/actions/test', (req, res) => {
   };
 
   sockets.broadcastArgs('executeAction', actionInfo, context);
-  logger.info(`[Widget] test fire id=${action.Id} name="${action.Name}" clients=${sockets.connectionCount()}`);
+
+  // Fire the per-action side effects (webhook / streamerbot / minecraft /
+  // keystrokes) so the Test button exercises the FULL pipeline — same as the
+  // C# bridge did. `__test` lets downstream targets flag a manual test fire.
+  // All dispatchers are fire-and-forget (failures only log), so this never
+  // blocks or errors the response.
+  context.__test = true;
+  const sideEffects = dispatchActionSideEffects(actionInfo, context);
+  logger.info(
+    `[Widget] test fire id=${action.Id} name="${action.Name}" ` +
+    `clients=${sockets.connectionCount()} sideEffects=${JSON.stringify(sideEffects)}`
+  );
 
   res.json({
     fired: true,
     actionId: action.Id,
     actionName: action.Name,
     clients: sockets.connectionCount(),
-    // Side-effects gated until Phase 3 lands the bridge.
-    webhookFired: false,
-    streamerbotFired: false,
-    minecraftFired: false,
-    keystrokesFired: false,
+    ...sideEffects,
   });
 });
 

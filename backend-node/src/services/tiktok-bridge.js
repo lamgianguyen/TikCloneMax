@@ -262,6 +262,19 @@ async function disconnect() {
 const MAX_CONNECT_ATTEMPTS = 5;
 const RETRY_DELAY_MS = 3000;
 
+// Read roomId/roomInfo off the live connection instance. tiktok-live-connector
+// v2 exposes them as getters (`get roomId()`, `get roomInfo()`) that are set
+// during the WS handshake — available even when `connect()` rejects via the
+// v2 empty-AggregateError bug. Getters may throw before the room is joined, so
+// guard each.
+function readConnRoom(conn) {
+  let roomId = null;
+  let roomInfo = null;
+  try { roomId = conn.roomId || null; } catch (_) { roomId = null; }
+  try { roomInfo = conn.roomInfo || null; } catch (_) { roomInfo = null; }
+  return { roomId, roomInfo };
+}
+
 async function tryConnectOnce(clean, channelId, attempt) {
   loadConnector();
   _state.username = clean;
@@ -305,9 +318,10 @@ async function tryConnectOnce(clean, channelId, attempt) {
     ]);
     _state.connected = true;
     _state.connecting = false;
-    _state.roomId = state.roomId;
-    _state.roomInfo = state.roomInfo;
-    logger.info(`[TikTokBridge] connected @${_state.username} roomId=${state.roomId} (attempt ${attempt})`);
+    const room0 = readConnRoom(conn);
+    _state.roomId = state.roomId || room0.roomId;
+    _state.roomInfo = state.roomInfo || room0.roomInfo;
+    logger.info(`[TikTokBridge] connected @${_state.username} roomId=${_state.roomId} (attempt ${attempt})`);
     // `fetchRoomInfoOnConnect: false` (set above to keep the connect path
     // fast) means `state.roomInfo` is empty here. Fetch it explicitly in the
     // background so `accountSnapshot()` has owner avatar/follower/title to
@@ -331,11 +345,27 @@ async function tryConnectOnce(clean, channelId, attempt) {
     if (firstEventAt) {
       _state.connected = true;
       _state.connecting = false;
+      // connect() rejected (v2 empty AggregateError) but the WS joined the room
+      // and events are streaming → it IS live. Capture roomId/roomInfo from the
+      // connection instance so accountSnapshot().isLive (which gates on roomId)
+      // is correct — without this the topbar shows "Disconnected" mid-stream.
+      // Fetch roomInfo in the background for avatar/title/status.
+      const roomSoft = readConnRoom(conn);
+      _state.roomId = roomSoft.roomId || _state.roomId;
+      _state.roomInfo = roomSoft.roomInfo || _state.roomInfo;
+      if (!_state.roomInfo) {
+        setImmediate(() => {
+          Promise.resolve()
+            .then(() => conn.fetchRoomInfo?.())
+            .then((info) => { if (info && _state.username === clean) _state.roomInfo = info; })
+            .catch(() => {});
+        });
+      }
       logger.warn(
         { err: err?.message || err },
-        `[TikTokBridge] connect() rejected but events arrived (attempt ${attempt}) — soft success`
+        `[TikTokBridge] connect() rejected but events arrived (attempt ${attempt}) — soft success, roomId=${_state.roomId}`
       );
-      return { success: true, soft: true };
+      return { success: true, soft: true, roomId: _state.roomId };
     }
     // Hard failure: throw so the retry loop can re-arm.
     throw err;
@@ -522,6 +552,20 @@ function wireEvents(conn, channelId, username) {
     aggregates.recordChat(channelId, { userId: u.userId, username: u.uniqueId, nickname: u.nickname, profilePictureUrl: u.profilePictureUrl });
     // Batched flush every PENDING_POINTS_FLUSH_MS — see _pendingPoints above.
     queuePointsDelta(channelId, u.uniqueId, 1);
+    // Record identity (userId ⇆ username) so a chat-only viewer's balance is
+    // resolvable by numeric userId (the bundle's !points / rest/channeluser
+    // read path). recordIdentity no-ops once nothing new is learned, so it does
+    // not write on every message. Guarded so a DB error never breaks the rest
+    // of the chat chain (chatBot.onChat / TTS / webhooks below).
+    try {
+      points.recordIdentity(channelId, u.uniqueId, {
+        userId: u.userId,
+        nickname: u.nickname,
+        thumbnailUrl: u.profilePictureUrl,
+      });
+    } catch (err) {
+      logger.warn({ err }, '[Bridge] recordIdentity failed');
+    }
     bumpGoals(channelId, 'chats', 1);
     chatBot.onChat({
       channelId,
@@ -534,6 +578,14 @@ function wireEvents(conn, channelId, username) {
   });
 
   conn.on('gift', (data) => {
+    // Streak de-dup — match gốc bundle (app/deobfuscated.js:71976). For
+    // streakable gifts (giftType===1) TikTok emits one event PER repeat tick
+    // (repeatEnd=false) then a final tick (repeatEnd=true). Process ONLY the
+    // final tick — otherwise every gift overlay (cannon, coin jar, gifts,
+    // goals) fires once per tick AND gift/diamond counters inflate massively
+    // (an x10 combo counted as 1+2+…+10 = the "fires like an AK" + 151k-gift
+    // bug). Non-streak gifts (giftType!==1) have no streak so they pass through.
+    if (data.giftType === 1 && !data.repeatEnd) return;
     const u = getUser(data);
     let giftPicUrl = data.giftPictureUrl || '';
     if (!giftPicUrl && data.giftDetails?.giftImage?.url?.length) {
@@ -714,6 +766,13 @@ function wireEvents(conn, channelId, username) {
 // `avatarUrl` / `profilePictureUrl` / `owner.avatar_thumb.url_list` — flatten
 // the common variants here so the same payload satisfies every caller.
 function accountSnapshot() {
+  // Self-heal: a soft-success connect (connect() rejected but events flowed) may
+  // not have captured roomId. Backfill lazily from the live connection instance
+  // so isLive reflects reality without forcing a reconnect (fixes the existing
+  // session on the next status poll).
+  if (_state.connected && !_state.roomId && _state.connection) {
+    try { _state.roomId = _state.connection.roomId || _state.roomId; } catch (_) { /* getter may throw pre-join */ }
+  }
   const raw = _state.roomInfo || {};
   // Unwrap common envelopes: TikTok wraps in `data`, HTML fallback in `liveRoomUserInfo`.
   const ri = raw.data || raw.liveRoomUserInfo || raw;
