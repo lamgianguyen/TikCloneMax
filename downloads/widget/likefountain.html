@@ -202,7 +202,7 @@ function reportState(stateData) {
 }
 
 io.on("widgetSettings", function (data) {
-    if (location.href.includes('preview=1') && localStorage.getItem("cachedSettings")) {
+    if (location.href.includes('preview=1') && (data == null) && localStorage.getItem("cachedSettings")) {
         data = JSON.parse(localStorage.getItem("cachedSettings"));
     }
 

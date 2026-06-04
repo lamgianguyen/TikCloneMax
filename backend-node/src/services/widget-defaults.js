@@ -93,6 +93,10 @@ module.exports = Object.freeze({
   likefountain_randomColor: true,
   likefountain_randomPosition: true,
   likefountain_showProfilePictures: true,
+  // widget reads these (likefountain.html:424-425); were missing → normalizeKey
+  // kept widget_-prefix → undefined → hardcoded color instead of user's choice.
+  likefountain_heartColor1: '#ff859d',
+  likefountain_heartColor2: '#8f81fc',
 
   // ── coindrop ────────────────────────────────────────────────────────────
   coindrop_soundEnabled: true,
@@ -261,6 +265,10 @@ module.exports = Object.freeze({
   timer_fontSize: 50,
   timer_fontLineSpacing: 50,
   timer_fontLetterSpacing: 50,
+  // widget reads these (timer.html ~438-500); were missing → undefined → defaults.
+  timer_fontColor: '#ebebeb',
+  timer_backgroundColor: 'rgba(40, 40, 40, 0.8)',
+  timer_hideAfterExpiry: false,
   emojify_fontType: '',
   emojify_fontSize: 50,
   emojify_fontLineSpacing: 50,
@@ -298,6 +306,14 @@ module.exports = Object.freeze({
   coinmatch_enableSnipeMode: false,
   coinmatch_shouldAutoScroll: true,
   coinmatch_showParticipantsCount: true,
+  // These 3 were missing → normalizeKey kept them `widget_`-prefixed → the
+  // coinmatch widget (reads settings.coinmatch_title/showWinners/
+  // timerBackgroundColor — coinmatch.html:72/74/84) never got them. Defaults
+  // from the bundle schema (deobfuscated.js:18716/18765/18817).
+  coinmatch_title: 'Coin Match',
+  coinmatch_showWinners: 'keepShowing',
+  coinmatch_timerBackgroundColor: 'rgba(255, 255, 255, 0.1)',
+  coinmatch_showTitle: true,   // widget reads settings.coinmatch_showTitle (coinmatch.html:71); was missing → toggle never applied via persist path
 
   // ── commandinfo ─────────────────────────────────────────────────────────
   commandinfo_fontColor: '#ffffff',

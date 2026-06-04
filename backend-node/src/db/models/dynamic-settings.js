@@ -55,7 +55,10 @@ function writeMany(channelId, profileId, kv) {
   // db.transaction wraps the loop in a real SQLite BEGIN/COMMIT — orders of
   // magnitude faster than 100 individual INSERTs.
   const run = db.transaction((entries) => {
-    for (const [k, v] of entries) upsert.run(channelId, profileId, k, v ?? '');
+    // Lowercase the key to match the bundle (it lowercases every key before
+    // saving) so we never create case-variant duplicate rows that shadow each
+    // other in buildMerged's last-write-wins merge.
+    for (const [k, v] of entries) upsert.run(channelId, profileId, String(k).toLowerCase(), v ?? '');
   });
   run(Object.entries(kv || {}));
 }

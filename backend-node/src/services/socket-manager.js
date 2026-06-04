@@ -13,6 +13,13 @@ const logger = require('../logger');
 /** @type {import('socket.io').Server | null} */
 let io = null;
 
+// Per-channel set of widgetIds we've already seen connect, so `widgetConnected`
+// fires once per (channel,widget) — not on every alive/ack ping. Cleared on the
+// widget socket's disconnect so a reopened widget re-triggers the control page's
+// live settings re-push. (gốc handshake the C# server did; the clone previously
+// never relayed reportWidgetState/widgetConnected at all → RC-A of M-012.)
+const _seenWidgets = new Map(); // channelId -> Set<widgetId>
+
 /**
  * Attach the singleton Server instance. Call once from index.js after the
  * Socket.IO server is created.
@@ -58,7 +65,114 @@ function bind(ioServer) {
       }
     });
 
+    // LIVE overlay preview. The main bundle emits `widgetSettings` on EVERY
+    // Customize change (obsoverlays.refreshPublicSettings → emitWidgetSettings-
+    // ToWidgets, app/deobfuscated.js:70944). The gốc server RELAYS it to widget
+    // sockets so overlay previews update instantly; the clone server dropped it
+    // (no handler) → settings only propagated via the slower POST/rebuild path,
+    // so changing a setting "did nothing" live. Relay to widget-appType sockets
+    // ONLY — the main page must NOT receive widgetSettings (it would clobber its
+    // own dynamicSettings view — see the buildLoginPayload note below).
+    // The bundle wraps EVERY client emit as an ENVELOPE:
+    //   socketiowrapper.io.emit("distributeEvent", eventName, payload)
+    //   (decompiled/app/deobfuscated.js:70903).
+    // The gốc server unwraps "distributeEvent" + relays the inner event. Binding
+    // the bare names (widgetSettings/goalStatus/giftGoalStatus) never fires, so
+    // the control-page → widget preview push was dead. Unwrap + relay the
+    // overlay-preview events to widget-appType sockets → Customize changes update
+    // the preview/OBS widget INSTANTLY (the POST/rebuild path also delivers, but
+    // ~700ms–2s slower; this is the ~0ms path).
+    // Inner event names we unwrap from the distributeEvent envelope and relay
+    // to widget-appType sockets. The settings/goal group pushes Customize
+    // changes live; the overlay-FX group is what each overlay's test button
+    // (and live-preview driver) emits via emitSocketEvent → distributeEvent.
+    // Before this list was widened, ONLY the 3 settings/goal events were
+    // relayed, so NO overlay effect (gift/wheel/coin/like/aggregates) animated
+    // from the control page — RC-1 of mission-011 (overlay-socket-rca).
+    //
+    // Double-fire safety when LIVE: real TikTok gift/like events travel through
+    // the bundle's emitWsEvent → Electron DAPI transport (NOT emitSocketEvent),
+    // and every gift/onLikeReceived emitSocketEvent payload carries isTest:true
+    // (verified decompiled/modules/deobfuscated.js:20249-20651). So the live
+    // tiktok-bridge broadcast and this control-page relay never collide.
+    // Relay target is ALWAYS appType='widget' — never echoed to controlpage
+    // (that would retrigger settings.restore → reload loop; see buildLoginPayload).
+    const RELAYABLE_DISTRIBUTE = new Set([
+      // settings / goals (live Customize push — original whitelist)
+      'widgetSettings', 'goalStatus', 'giftGoalStatus', 'testGoal', 'testGiftGoal',
+      // gift / like FX
+      'gift', 'onLikeReceived',
+      // coin jar / coin match / coin drop
+      'coin-jar:gift', 'coin-jar:reset',
+      'coin-match:start', 'coin-match:update', 'coin-match:result', 'coin-match:reset',
+      'createCoins', 'timeoutCoins', 'collectCoin',
+      // wheel
+      'onSpinWheel', 'spinWheel',
+      // aggregates / misc overlay
+      'updateTopGifter', 'updateTopLiker', 'updateViewerCount', 'topGiftData',
+      'newTransaction', 'showCommandResult', 'showCommands', 'showCustomCommands', 'showUserScore',
+    ]);
+    socket.on('distributeEvent', (eventName, payload) => {
+      try {
+        if (!RELAYABLE_DISTRIBUTE.has(eventName)) return;
+        const cid = socket.data.channelId;
+        // Relay even when payload is undefined — reset events (coin-jar:reset,
+        // coin-match:reset, wheel reset) carry no payload but the widget still
+        // needs the signal.
+        if (eventName === 'widgetSettings' && payload && typeof payload === 'object') {
+          logger.info(`[WS-relay] LIVE widgetSettings cid=${cid} cannon_ballSize=${payload.cannon_ballSize} cannon_maxBalls=${payload.cannon_maxBalls} cannon_showCannon=${payload.cannon_showCannon}`);
+        }
+        if (cid > 0) {
+          broadcastToChannel(eventName, payload, cid, 'widget');
+        }
+      } catch (err) {
+        logger.warn({ err, eventName }, '[SocketManager] distributeEvent relay failed');
+      }
+    });
+
+    // Widget → control-page handshake (gốc: the C# server relayed these). Each
+    // widget tab periodically emits `reportWidgetState` (socketioclient.js:129).
+    // The control page listens for `widgetState` (onWidgetState → activeWidgets/
+    // lastWidgetAck) and `widgetConnected` (→ emitWidgetSettingsToWidgets, which
+    // re-pushes the LIVE settings snapshot). Without relaying these, a widget
+    // that (re)opens — or opens mid-unsaved-edit — only ever gets the login-time
+    // DB bag and never the fresh live snapshot. Relay control-page-scoped ONLY
+    // (never to widgets → no reload loop).
+    socket.on('reportWidgetState', (payload) => {
+      try {
+        const cid = socket.data.channelId;
+        if (!(cid > 0) || !payload || typeof payload !== 'object') return;
+        // Always forward raw state so the bundle tracks live/active widgets.
+        broadcastToChannel('widgetState', payload, cid, 'controlpage');
+        // First sighting of this widgetId on this channel → announce connect so
+        // the control page re-pushes the live snapshot. Gated (seen-set) to
+        // avoid a re-push on every alive/ack ping.
+        // Composite key (widgetId|screenId) so 2 instances of the SAME overlay
+        // on different screens each get their own first-seen handshake (a bare
+        // widgetId would make instance #2 miss the live re-push, and instance #1
+        // disconnecting would wrongly clear it).
+        const wid = payload.widgetId ? (payload.widgetId + '|' + (payload.screenId || 1)) : null;
+        if (wid) {
+          socket.data.widgetId = wid;
+          let seen = _seenWidgets.get(cid);
+          if (!seen) { seen = new Set(); _seenWidgets.set(cid, seen); }
+          if (!seen.has(wid)) {
+            seen.add(wid);
+            broadcastToChannel('widgetConnected', {}, cid, 'controlpage');
+          }
+        }
+      } catch (err) {
+        logger.warn({ err }, '[SocketManager] reportWidgetState relay failed');
+      }
+    });
+
     socket.on('disconnect', (reason) => {
+      // Forget this widget so a reopen re-triggers widgetConnected → live re-push.
+      const cid = socket.data.channelId;
+      const wid = socket.data.widgetId;
+      if (cid > 0 && wid && _seenWidgets.has(cid)) {
+        _seenWidgets.get(cid).delete(wid);
+      }
       logger.info(`[SocketManager] Client disconnected: ${socket.id} (${reason}) total=${io.engine.clientsCount}`);
     });
   });
@@ -225,9 +339,14 @@ function broadcastToChannel(eventName, data, channelId, appType = '') {
     // exception, channel-scoped emits get filtered out and DAPI consumers
     // never receive a single TikTok event.
     if (sockApp === 'relay') {
-      sock.emit(eventName, data);
-      delivered++;
-      deliveredTo.push('relay');
+      // Don't forward control-page TEST events (isTest:true — fired by the
+      // overlay "Bài kiểm tra" buttons) to DAPI/raw-WS plugins; they'd react to
+      // a fake gift/like. Real bridge events never carry isTest.
+      if (!(data && data.isTest)) {
+        sock.emit(eventName, data);
+        delivered++;
+        deliveredTo.push('relay');
+      }
       continue;
     }
     if (sock.data.channelId !== channelId) continue;
@@ -238,7 +357,8 @@ function broadcastToChannel(eventName, data, channelId, appType = '') {
   }
   // Diagnostic log — only for events we care about during TTS debugging.
   // Comment out the `if` to log EVERYTHING (warning: chat-heavy rooms spam).
-  if (eventName === 'chat' || eventName === 'connected' || eventName === 'disconnected' || eventName === 'channelStatus') {
+  if (eventName === 'chat' || eventName === 'connected' || eventName === 'disconnected' || eventName === 'channelStatus'
+      || eventName === 'widgetSettings' || eventName === 'goalStatus' || eventName === 'giftGoalStatus') {  // [INSTR-2026-06-02] settings-diag
     logger.info(`[Broadcast] ${eventName} channelId=${channelId} appType="${appType}" delivered=${delivered} to=[${deliveredTo.join(',')}]`);
   }
 }

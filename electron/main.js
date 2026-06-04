@@ -1160,6 +1160,30 @@ function configureSession() {
     );
     console.log('[Electron] TikTok CDN intercept installed → ' + TIKTOK_CACHE_BASE + '/*');
 
+    // Redirect TikFinity's OWN asset CDNs → local disk-cached proxy so the clone
+    // never depends on tikfinity-assets.b-cdn.net / assets.tikfinity.com at
+    // runtime (credit-chip icon, webcam/overlay frames, etc.). Backend /tf-cdn/*
+    // persists each asset to downloads/tf-assets-cache/ on first fetch → served
+    // locally forever after. SSRF-locked to the explicit host allow-list.
+    const TF_CDN_HOSTS = new Set(['tikfinity-assets.b-cdn.net', 'assets.tikfinity.com']);
+    const TF_CDN_BASE = `${BACKEND_URL}/tf-cdn`;
+    sess.webRequest.onBeforeRequest(
+        { urls: ['https://tikfinity-assets.b-cdn.net/*', 'https://assets.tikfinity.com/*'] },
+        (details, callback) => {
+            try {
+                const u = new URL(details.url);
+                if (!TF_CDN_HOSTS.has(u.hostname.toLowerCase())) {
+                    return callback({});  // not a TikFinity asset host — let it through
+                }
+                const redirectURL = `${TF_CDN_BASE}/${u.hostname}${u.pathname}${u.search}`;
+                return callback({ redirectURL });
+            } catch (err) {
+                return callback({});  // URL parse failed — let request through
+            }
+        }
+    );
+    console.log('[Electron] TikFinity asset CDN intercept installed → ' + TF_CDN_BASE + '/*');
+
     // Bundle's overlay-gallery UI links to `/widget/<name>?cid=1&preview=1`
     // using an `<a download>` element. Chromium honours `download` attribute
     // for same-origin URLs and shows a Save dialog INSTEAD of navigating —

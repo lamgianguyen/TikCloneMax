@@ -449,6 +449,97 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
+   Overlay-settings autosave → live preview (user-requested 2026-06-02).
+   The obsoverlays Customize modal writes changes via settings.set (localStorage
+   ONLY — app/deobfuscated.js:66977) and its "Done" button just closes the popup
+   (modules:19687) — it never POSTs. So a changed Cannon ballSize / intensity /
+   color neither persisted to the backend NOR reached the preview/OBS widget
+   (which read from the widgetSettings broadcast) until some unrelated
+   settings.save fired. Wrap settings.set so a `widget_`-key change debounces a
+   settings.save() → POST /api/updateSettings → rebuildAndBroadcast →
+   widgetSettings → the preview (and OBS) widget re-applies within ~1s. The
+   boot-time settings-restore burst is skipped via the `ready` flag.
+   NOTE: settings + window.settings are the same singleton (both forms appear in
+   the bundle), so replacing the .set METHOD intercepts every caller.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfOverlaySettingsAutosave(){
+  var ready = false;
+  setTimeout(function(){ ready = true; }, 5000);   // ignore the boot settings-restore burst
+  var saveTimer = null;
+  function scheduleSave(){
+    if (saveTimer) { clearTimeout(saveTimer); }
+    saveTimer = setTimeout(function(){
+      try {
+        if (window.settings && typeof window.settings.save === 'function') {
+          try { console.log('[INSTR-FE] tfOverlaySettingsAutosave → settings.save() firing (should POST /api/updateSettings)'); } catch(_){}
+          window.settings.save();
+        } else {
+          try { console.log('[INSTR-FE] settings.save MISSING — window.settings=', window.settings); } catch(_){}
+        }
+      } catch(e){ try { console.log('[INSTR-FE] settings.save() threw', e); } catch(_){} }
+    }, 700);
+  }
+  function install(){
+    if (!window.settings || typeof window.settings.set !== 'function') return false;
+    if (window.settings.__tfAutosaveWrapped) return true;
+    var origSet = window.settings.set.bind(window.settings);
+    window.settings.set = function(key){
+      var r = origSet.apply(null, arguments);
+      try {
+        if (typeof key === 'string' && key.indexOf('widget_') === 0) {
+          try { console.log('[INSTR-FE] settings.set', key, ready ? '(ready→scheduleSave)' : '(boot-skip)'); } catch(_){}
+          if (ready) scheduleSave();
+        }
+      } catch(_){}
+      return r;
+    };
+    window.settings.__tfAutosaveWrapped = true;
+    try { console.log('[TF-overlay-autosave] settings.set wrapped — widget_ changes auto-save+broadcast to preview'); } catch(_){}
+    return true;
+  }
+  var t = setInterval(function(){ if (install()) clearInterval(t); }, 500);
+  setTimeout(function(){ try { clearInterval(t); } catch(_){} }, 30000);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfForceSaveOnCustomizeClose (2026-06-04).
+   The overlay Customize modal ("Cài đặt lớp phủ", obsoverlays.openSettings) has
+   NO Save button — only Test + a Close button ("ĐƯỢC RỒI" / the X). Gốc relies
+   on the per-change autosave above, but it was observed NOT firing in the clone:
+   a changed Ball Size / Max Balls never reached the backend (DB held no row for
+   the new value → the widget kept the old/default value). Belt-and-braces: when
+   the user finishes editing and clicks ANY button in the modal (incl. the close
+   "ĐƯỢC RỒI"), force settings.save() so the edits — already written to
+   localStorage by each input's onValueChanged — POST /api/updateSettings → DB →
+   rebuildAndBroadcast → widget applies. Guard against POSTing a half-loaded bag.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfForceSaveOnCustomizeClose(){
+  document.addEventListener('click', function(e){
+    var modal = document.getElementById('widgetSettingsModal');
+    if (!modal || !e.target || !e.target.closest) return;
+    var btn = e.target.closest('.dx-button, .dx-closebutton');
+    if (!btn || !modal.contains(btn)) return;
+    setTimeout(function(){
+      try {
+        if (!window.settings || typeof window.settings.save !== 'function') return;
+        // Only force-save once localStorage actually holds the settings bag
+        // (post-boot it has hundreds of `setting_` keys) — never POST an empty
+        // or half-restored bag.
+        var n = 0;
+        for (var i = 0; i < localStorage.length; i++) {
+          if ((localStorage.key(i) || '').indexOf('setting_') === 0) { n++; if (n > 30) break; }
+        }
+        if (n > 30) {
+          try { console.log('[TF-customize-save] modal button clicked → forcing settings.save()'); } catch(_){}
+          window.settings.restored = true;   // never block on a stale restored flag
+          window.settings.save();
+        }
+      } catch (err) { try { console.log('[TF-customize-save] failed', err && err.message); } catch(_){} }
+    }, 200);
+  }, true);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
    tfSeedDefaultSettings (Gate 30i, 2026-05-27).
 
    Bundle's `settings` module reads from localStorage with `setting_<key>`

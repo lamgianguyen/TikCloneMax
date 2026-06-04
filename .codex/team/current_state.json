@@ -1,8 +1,23 @@
 {
   "schema_version": 1,
-  "last_updated": "2026-06-02",
+  "last_updated": "2026-06-03",
   "compaction_checkpoint": true,
   "active_mission": null,
+  "doctrine_2026_06_03": {
+    "team": "1 TEAM full roster ~8-11 agent mặc định (user: '1 team, nạp mọi agent'). Solo chỉ cho true-trivial. CLAUDE.md §2.1 updated.",
+    "model": "FULL OPUS + max-thinking cho MỌI agent (user: 'full opus max thinking context'). Supersedes tiered Opus/Sonnet/Haiku routing.",
+    "verify_default": "adversarial verify BẮT BUỘC cho render-bundle / socket-realtime / đã-từng-sai."
+  },
+  "m011_overlay_socket_relay": {
+    "status": "code FIXED + adversarial-verified (11-agent workflow wf_d93d425a-1b3); REQUIRES ELECTRON RESTART; runtime-untested",
+    "symptom": "overlay không nhận live socket event — gift FX/wheel/coin/style không nhảy; 11 webcam iframe connected nhưng không nhận event",
+    "root_cause": "RC-1: socket-manager.js RELAYABLE_DISTRIBUTE whitelist chỉ cho qua widgetSettings/goalStatus/giftGoalStatus → mọi overlay-FX event (gift/onSpinWheel/coin-match:*/coin-jar:gift/onLikeReceived/...) bị drop ở distributeEvent handler. appType/channelId KHỚP (không phải lỗi room).",
+    "fix": "socket-manager.js: mở rộng RELAYABLE_DISTRIBUTE thêm overlay-FX events + nới guard `if(cid>0)` cho reset-event không payload. Relay target='widget' (no controlpage echo → no reload loop). No double-fire: live gift/like đi emitWsEvent→DAPI, test đi emitSocketEvent isTest:true (verified modules:20249-20651).",
+    "deferred": ["RC-4 channelId affinity (latent multi-channel)", "RC-5 isPro guard race (secondary)"],
+    "backup": "socket-manager.js.bak-2026-06-03-pre-distribute-relay",
+    "reconciliation": ".codex/team/mission-011-reconciliation.md",
+    "pending_runtime": "restart Electron → bấm test overlay (wheel/coin/gift) phải nhảy hiệu ứng; webcam style đổi preview"
+  },
   "m013_points_action_completeness": {
     "status": "DONE (code + adversarial-verified + runtime LIKE/exports proven); REQUIRES BACKEND RESTART; all RUNTIME-untested",
     "user_ask": "'làm được cái nào làm hết lun đi' — implement all doable items from the not-done list",

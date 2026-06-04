@@ -38,7 +38,9 @@
       let triggered = false;
 
       io.on("coin-jar:gift", (data) => {
-        if(!settings.isPro && !location.href.includes('preview=1')) {
+        // null-safe + all-pro: only skip when settings EXPLICITLY says not-pro.
+        // null/undefined settings (cold tab, before first widgetSettings) → allow.
+        if(!location.href.includes('preview=1') && settings && settings.isPro === false) {
           return;
         }
 

@@ -129,6 +129,29 @@ router.post('/markRead', (req, res) => {
   res.json({ status: 200 });
 });
 
+// Bundle ALSO calls notifications/read (app:75758/76027), /count (75688) and
+// /seen (75923) — all were 404. /read mirrors markRead (single id); /count
+// returns the unread badge number; /seen acks (markRead already sets IsSeen).
+router.all('/read', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const id = Number(req.body?.Id ?? req.body?.id ?? req.query?.id) || 0;
+  if (channelId > 0 && id > 0) {
+    const n = notifications.findByChannelAndId(channelId, id);
+    if (n) notifications.markRead(id);
+  }
+  res.json({ status: 200, success: true });
+});
+
+router.all('/count', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const count = channelId > 0 ? notifications.countUnread(channelId) : 0;
+  res.json({ status: 200, count, unread: count });
+});
+
+router.all('/seen', (_req, res) => {
+  res.json({ status: 200, success: true });
+});
+
 router.post('/markAllRead', (req, res) => {
   const channelId = resolveChannelId(req);
   if (channelId <= 0) return res.json({ status: 200, marked: 0 });

@@ -578,6 +578,7 @@ function wireEvents(conn, channelId, username) {
   });
 
   conn.on('gift', (data) => {
+    logger.info(`[Bridge] gift event channelId=${channelId} giftType=${data.giftType} repeatEnd=${data.repeatEnd} gift="${data.giftName || data.describe || ''}" from=${data.uniqueId || data.user?.uniqueId || '?'}`);
     // Streak de-dup — match gốc bundle (app/deobfuscated.js:71976). For
     // streakable gifts (giftType===1) TikTok emits one event PER repeat tick
     // (repeatEnd=false) then a final tick (repeatEnd=true). Process ONLY the

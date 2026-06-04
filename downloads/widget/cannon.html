@@ -202,7 +202,7 @@ function reportState(stateData) {
 }
 
 io.on("widgetSettings", function (data) {
-    if (location.href.includes('preview=1') && localStorage.getItem("cachedSettings")) {
+    if (location.href.includes('preview=1') && (data == null) && localStorage.getItem("cachedSettings")) {
         data = JSON.parse(localStorage.getItem("cachedSettings"));
     }
 
@@ -277,24 +277,20 @@ function setFontSettings() {
         if (widgetId === "myactions") {
             let percent = 100 + ((fontSize - 50) * 3);
             $("text").css("zoom", percent + "%");
-            console.log(widgetId, "zoom", percent);
         } else {
             let em = 1 + ((fontSize - 50) * 0.01);
             $("html").css("font-size", em + "em");
-            console.log(widgetId, "em", em);
         }
 
     } else {
         $("body").css("zoom", "");
         $("text").css("zoom", "");
         $("html").css("font-size", "");
-        console.log(widgetId, "default size");
     }
 
     if (fontLineSpacing) {
         if (fontLineSpacing != 50) {
             let em = 1 + ((fontLineSpacing - 50) * 0.03);
-            console.log("fontLineSpacing em", em)
             $("body").css("line-height", em + "em");
         } else {
             $("body").css("line-height", "");
@@ -304,7 +300,6 @@ function setFontSettings() {
     if (fontLetterSpacing) {
         if (fontLetterSpacing != 50) {
             let em = 0 + ((fontLetterSpacing - 50) * 0.01);
-            console.log("fontLetterSpacing em", em);
             $("body").css("letter-spacing", em + "em");
         } else {
             $("body").css("letter-spacing", "");
@@ -564,7 +559,6 @@ if (!location.href.includes('preview=1')) {
         function removeProjectile(projectile, useAnimation = true, reason = 'unknown') {
             if (!activeProjectiles.includes(projectile)) return; // Already removed
 
-            console.log(`Removing projectile: reason=${reason}, y=${projectile.position.y}, activeCount=${activeProjectiles.length}`);
             const index = activeProjectiles.indexOf(projectile);
             if (index !== -1) activeProjectiles.splice(index, 1);
 
@@ -620,14 +614,8 @@ if (!location.href.includes('preview=1')) {
                 (activeProjectiles.length >= 20 && span >= 0.9 * window.innerHeight) // Extreme congestion: 20+ total, 90% span
             );
             if (isOvercrowded) {
-                console.log(`Overcrowding triggered: ${restingBalls} resting balls, total=${activeProjectiles.length}, span=${span}, threshold=${0.8 * window.innerHeight}, minY=${minY}, maxY=${maxY}`);
                 const oldestProjectile = activeProjectiles[0];
                 removeProjectile(oldestProjectile, false, 'overcrowding');
-            } else if (restingBalls > 0 || activeProjectiles.length >= 10) {
-                console.log(`Overcrowding check failed: ${restingBalls} resting balls, total=${activeProjectiles.length}, span=${span}, threshold=${0.8 * window.innerHeight}, minY=${minY}, maxY=${maxY}`);
-                if (nonRestingInfo.length > 0) {
-                    console.log(`Non-resting projectiles: ${nonRestingInfo.join('; ')}`);
-                }
             }
 
             // Enforce maxBalls limit by removing oldest projectiles immediately
@@ -709,7 +697,6 @@ if (!location.href.includes('preview=1')) {
                 }
 
                 if (giftData.giftType > 1 || giftData.isTest) {
-                    console.log("CREATE CANNON GIFT", giftData);
                     sendCannon(giftData.giftPictureUrl, giftData.profilePictureUrl);
                     return;
                 }
@@ -747,6 +734,15 @@ if (!location.href.includes('preview=1')) {
             window.intensity = settings?.cannon_intensity || 50;
             window.showGiftPictures = settings?.cannon_showGiftPictures !== false;
             window.showCannon = settings?.cannon_showCannon !== false;
+            // [SETTINGS-PROBE] In ra giá trị cannon nhận được MỖI lần widgetSettings tới.
+            // Đổi setting ở app → nếu dòng này nhảy + giá trị KHỚP cái bạn chỉnh = setting ĐÃ tới widget.
+            // Nếu không nhảy / giá trị cũ = setting KHÔNG tới (lỗi đẩy live). settings==null = chưa có bag.
+            console.log('%c[CANNON SETTINGS]', 'color:#00e5ff;font-weight:bold',
+                'ballSize=' + window.ballSize + ' maxBalls=' + window.maxBalls +
+                ' intensity=' + window.intensity + ' showCannon=' + window.showCannon +
+                ' showGiftPic=' + window.showGiftPictures +
+                ' | raw cannon_ballSize=' + (settings && settings.cannon_ballSize) +
+                ' settingsObj=' + (settings ? 'OK' : 'NULL'));
         }
 
         updateSettings();

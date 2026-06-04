@@ -543,7 +543,12 @@
 
         function applyAppearance($el) {
             const grayscalefilter = state.grayScaleFilter;
-            const saturationfilter = state.saturationFilter;
+            // Default saturation to 50 (= saturate 100%, full color) when unset/NaN.
+            // Bundle schema default is 50; without this an unconfigured graphic overlay
+            // renders saturate(0%) = grayscale in OBS / an external browser (where
+            // window.settings lacks the bundle's defaults). Explicit values respected.
+            const _satRaw = state.saturationFilter;
+            const saturationfilter = (_satRaw == null || isNaN(parseInt(_satRaw))) ? 50 : parseInt(_satRaw);
             const huefilter = state.hueFilter;
 
             const filters = `hue-rotate(${(parseInt(huefilter) || 0) * 3.6}deg) saturate(${parseInt(saturationfilter || 0) * 2}%) grayscale(${grayscalefilter || 0}%)`;

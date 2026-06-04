@@ -17,6 +17,12 @@ const transactions = require('../db/models/transactions');
 const points = require('../services/points');
 const channels = require('../db/models/channels');
 const sockets = require('../services/socket-manager');
+const actions = require('../db/models/actions');
+
+function resolveProfileIdData(channelId) {
+  const ch = channelId > 0 ? channels.findById(channelId) : null;
+  return ch && ch.ProfileId > 0 ? ch.ProfileId : 1;
+}
 const config = require('../config');
 const logger = require('../logger');
 
@@ -216,6 +222,63 @@ router.post('/deleteAllUsers', (req, res) => {
   // re-fetches on its own via odata/channeluser).
   try { sockets.broadcastToChannel('pointsReset', { channelId, removed }, channelId, 'widget'); } catch (_) {}
   try { sockets.broadcast('pointsReset', { channelId, removed }); } catch (_) {}
+  res.json({ status: 200, message: 'OK', removed });
+});
+
+// POST /executeAction — the bundle fires this on EVERY matched action (live +
+// test): api.doAction("POST","executeAction",{actionId,context}) (decompiled
+// modules:9061). On 200 the bundle's success callback awards points
+// (transaction.put, :9067); on 404 it skipped the award AND showed an "API
+// Error (404)" toast every fire. ACK 200 + fire the action's overlay to widget
+// sockets (what the C# server did) so live actions display.
+router.post('/executeAction', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const b = req.body || {};
+  const actionId = parseInt(b.actionId, 10);
+  const context = (b.context && typeof b.context === 'object') ? b.context : {};
+  try {
+    if (actionId && channelId > 0) {
+      const profileId = resolveProfileIdData(channelId);
+      const action = actions.listByChannelProfile(channelId, profileId).find((a) => a.Id === actionId && a.Enabled);
+      if (action) {
+        let actionInfo = {};
+        try {
+          if (action.ConfigJson && action.ConfigJson.trim()) {
+            const p = JSON.parse(action.ConfigJson);
+            if (p && typeof p === 'object' && !Array.isArray(p)) actionInfo = p;
+          }
+        } catch { /* ignore */ }
+        actionInfo.id = action.Id;
+        actionInfo.channelId = action.ChannelId;
+        actionInfo.name = action.Name;
+        if (actionInfo.screenId == null) actionInfo.screenId = 1;
+        if (actionInfo.duration == null) actionInfo.duration = 5;
+        if (actionInfo.enableFadeEffect == null) actionInfo.enableFadeEffect = true;
+        if (actionInfo.dynamicConfig == null) actionInfo.dynamicConfig = {};
+        sockets.broadcastArgs('executeAction', actionInfo, context);
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, '[Data] executeAction failed');
+  }
+  res.json({ status: 200, message: 'OK' });
+});
+
+// POST /deleteChannelUsers — bundle's Points-page "delete selected viewers"
+// (modules:2814/13820, body {userIds:[…]}). Was 404. Resolve each userId →
+// username (identity map) and zero its balance (the leaderboard filters
+// balance>0, so they drop off). deleteAllUsers wipes everyone; this is scoped.
+router.post('/deleteChannelUsers', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const b = req.body || {};
+  const userIds = Array.isArray(b.userIds) ? b.userIds : (b.userId != null ? [b.userId] : []);
+  let removed = 0;
+  if (channelId > 0) {
+    for (const uid of userIds) {
+      const uname = points.findUsernameByUserId(channelId, uid);
+      if (uname) { points.setBalance(channelId, uname, 0); removed++; }
+    }
+  }
   res.json({ status: 200, message: 'OK', removed });
 });
 

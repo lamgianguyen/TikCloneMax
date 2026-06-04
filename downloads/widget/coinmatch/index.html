@@ -37,7 +37,8 @@
       let interval = null;
 
       io.on("coin-match:start", (data) => {
-        if(!settings.isPro && !location.href.includes('preview=1')) {
+        // null-safe + all-pro: only skip when settings EXPLICITLY says not-pro.
+        if(!location.href.includes('preview=1') && settings && settings.isPro === false) {
           return;
         }
 

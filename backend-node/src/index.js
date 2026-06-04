@@ -487,7 +487,23 @@ app.get(SPA_HTML_ROUTES, (req, res, next) => {
 const _cdnProxyCache = new Map();
 const CDN_PROXY_TTL_MS = 24 * 60 * 60 * 1000;
 const CDN_PROXY_CACHE_MAX = parseInt(process.env.TF_CDN_CACHE_MAX, 10) || 2000;
-async function cdnProxyFetch(_req, res, cacheKey, upstreamUrl) {
+// 1×1 transparent PNG. Returned (200) when an IMAGE proxy upstream fails so the
+// <img> resolves to a valid-but-empty image instead of entering the browser's
+// "broken" state — which made coin-jar.js drawImage() throw InvalidStateError
+// every animation frame (red console spam + stalled canvas) whenever a gift or
+// avatar's signed TikTok CDN URL had expired (403) or failed to fetch.
+const TRANSPARENT_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64'
+);
+// opts.fallbackImage: on upstream failure, send TRANSPARENT_PNG (200, uncached
+// so a later request retries the real URL) instead of an error status.
+async function cdnProxyFetch(_req, res, cacheKey, upstreamUrl, opts = {}) {
+  const sendImageFallback = () => {
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(TRANSPARENT_PNG);
+  };
   const cached = _cdnProxyCache.get(cacheKey);
   if (cached && (Date.now() - cached.fetchedAt) < CDN_PROXY_TTL_MS) {
     res.setHeader('Content-Type', cached.contentType);
@@ -496,7 +512,7 @@ async function cdnProxyFetch(_req, res, cacheKey, upstreamUrl) {
   }
   try {
     const r = await fetch(upstreamUrl, { headers: { 'User-Agent': 'TikMax-clone/1.0' } });
-    if (!r.ok) return res.status(r.status).end();
+    if (!r.ok) return opts.fallbackImage ? sendImageFallback() : res.status(r.status).end();
     const contentType = r.headers.get('content-type') ||
       (cacheKey.endsWith('.css') ? 'text/css' :
        cacheKey.endsWith('.svg') ? 'image/svg+xml' :
@@ -518,7 +534,7 @@ async function cdnProxyFetch(_req, res, cacheKey, upstreamUrl) {
     return res.send(body);
   } catch (err) {
     logger.warn({ upstreamUrl, err: err.message }, '[cdn-proxy] fetch failed');
-    return res.status(502).end();
+    return opts.fallbackImage ? sendImageFallback() : res.status(502).end();
   }
 }
 
@@ -553,7 +569,76 @@ app.get(/^\/tiktok-img-cache\/([^/]+)\/(.+)$/, async (req, res) => {
     return res.status(400).type('text/plain').send('host not allowed');
   }
   return cdnProxyFetch(req, res, 'tiktok-img/' + host + '/' + upstreamPath,
-    'https://' + host + '/' + upstreamPath);
+    'https://' + host + '/' + upstreamPath, { fallbackImage: true });
+});
+
+// /tf-cdn/<host>/<path...> → https://<host>/<path...> for TikFinity's OWN asset
+// CDNs (credit-chip + icons on tikfinity-assets.b-cdn.net, webcam/overlay frames
+// on assets.tikfinity.com). DISK-cached under downloads/tf-assets-cache/<host>/
+// so the clone serves them LOCALLY forever after the first fetch — no runtime
+// dependency on TikFinity's CDN (user: "tải về của mình, không xài gốc"). The
+// Electron webRequest layer redirects these hosts here (electron/main.js).
+// SSRF-locked to an explicit host allow-list + path-traversal guard.
+const TF_CDN_HOSTS = new Set(['tikfinity-assets.b-cdn.net', 'assets.tikfinity.com']);
+const TF_CDN_CACHE_DIR = path.join(config.FRONTEND_PATH, 'tf-assets-cache');
+function tfCdnContentType(p) {
+  if (/\.png$/i.test(p)) return 'image/png';
+  if (/\.webp$/i.test(p)) return 'image/webp';
+  if (/\.jpe?g$/i.test(p)) return 'image/jpeg';
+  if (/\.gif$/i.test(p)) return 'image/gif';
+  if (/\.svg$/i.test(p)) return 'image/svg+xml';
+  if (/\.webm$/i.test(p)) return 'video/webm';
+  if (/\.mp4$/i.test(p)) return 'video/mp4';
+  if (/\.css$/i.test(p)) return 'text/css';
+  if (/\.js$/i.test(p)) return 'application/javascript';
+  if (/\.json$/i.test(p)) return 'application/json';
+  if (/\.woff2$/i.test(p)) return 'font/woff2';
+  if (/\.woff$/i.test(p)) return 'font/woff';
+  return 'application/octet-stream';
+}
+app.get(/^\/tf-cdn\/([^/]+)\/(.+)$/, async (req, res) => {
+  const fsp = require('fs').promises;
+  const host = req.params[0];
+  if (!TF_CDN_HOSTS.has(host.toLowerCase())) {
+    return res.status(400).type('text/plain').send('host not allowed');
+  }
+  const rawPath = req.params[1];
+  const qs = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+  // Path-traversal guard: the on-disk path MUST stay under the host's cache dir.
+  const hostDir = path.join(TF_CDN_CACHE_DIR, host);
+  const diskPath = path.join(hostDir, path.normalize(rawPath));
+  if (diskPath !== hostDir && !diskPath.startsWith(hostDir + path.sep)) {
+    return res.status(400).type('text/plain').send('bad path');
+  }
+  const ct = tfCdnContentType(rawPath);
+  const isImg = /\.(png|webp|jpe?g|gif)$/i.test(rawPath);
+  const sendImgFallback = () => {
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(TRANSPARENT_PNG);
+  };
+  // 1) Serve from local disk if already downloaded.
+  try {
+    const buf = await fsp.readFile(diskPath);
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    return res.send(buf);
+  } catch (_) { /* not on disk yet — fetch + persist below */ }
+  // 2) Fetch from upstream once, persist to disk, serve.
+  try {
+    const r = await fetch('https://' + host + '/' + rawPath + qs, { headers: { 'User-Agent': 'TikMax-clone/1.0' } });
+    if (!r.ok) return isImg ? sendImgFallback() : res.status(r.status).end();
+    const body = Buffer.from(await r.arrayBuffer());
+    fsp.mkdir(path.dirname(diskPath), { recursive: true })
+      .then(() => fsp.writeFile(diskPath, body))
+      .catch((err) => logger.warn({ err: err.message, diskPath }, '[tf-cdn] disk write failed'));
+    res.setHeader('Content-Type', r.headers.get('content-type') || ct);
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    return res.send(body);
+  } catch (err) {
+    logger.warn({ host, err: err.message }, '[tf-cdn] fetch failed');
+    return isImg ? sendImgFallback() : res.status(502).end();
+  }
 });
 
 // Static bundle assets + the `downloads/api/*` JSON fixtures TikFinity ships.

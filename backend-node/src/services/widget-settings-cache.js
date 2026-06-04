@@ -67,14 +67,34 @@ function coerce(value) {
 // freezes on its built-in default while the carousel counter (which reads the
 // prefixed key) still advances. Expose a de-prefixed alias for these keys
 // WITHOUT dropping the prefixed original (the control page reads the prefixed
-// form). Only the variation/animation per-style keys are aliased.
+// form). The per-style variation/animation AND the colour filters
+// (saturationFilter/hueFilter/grayScaleFilter) are aliased — the graphic
+// widgets read all of these as `${WIDGET_ID}_<field>` (downloads/widget/webcam
+// :627-629), none of which exist in DEFAULTS, so without the alias a user's
+// hue/saturation/grayscale adjustment never reaches the overlay.
+// IMPORTANT: the bundle persists these keys LOWERCASED
+// (widget_webcam_sakura_saturationfilter) but the widget reads camelCase
+// (`${WIDGET_ID}_saturationFilter`). So match case-insensitively and re-emit the
+// camelCase form the widget actually reads. (variation/animation are already
+// lowercase on both sides.)
 const GRAPHIC_OVERLAY_ALIAS_RE =
-  /^widget_((?:webcam|overlay|talking)_[a-z0-9]+_(?:variation|animation))$/;
+  /^widget_((?:webcam|overlay|talking)_[a-z0-9]+)_(variation|animation|saturationfilter|huefilter|grayscalefilter)$/i;
+const GRAPHIC_FIELD_CASE = {
+  variation: 'variation',
+  animation: 'animation',
+  saturationfilter: 'saturationFilter',
+  huefilter: 'hueFilter',
+  grayscalefilter: 'grayScaleFilter',
+};
 
 function aliasGraphicOverlayKeys(merged) {
   for (const [key, value] of Object.entries(merged)) {
     const m = GRAPHIC_OVERLAY_ALIAS_RE.exec(key);
-    if (m && merged[m[1]] === undefined) merged[m[1]] = value;
+    if (!m) continue;
+    const field = GRAPHIC_FIELD_CASE[m[2].toLowerCase()];
+    if (!field) continue;
+    const aliasKey = m[1].toLowerCase() + '_' + field;   // e.g. webcam_sakura_saturationFilter
+    if (merged[aliasKey] === undefined) merged[aliasKey] = value;
   }
   return merged;
 }
@@ -86,9 +106,20 @@ function buildMerged(channelId) {
 
   // Defaults first (frozen — clone before mutating).
   const merged = { ...DEFAULTS };
+  // The bundle lowercases every settings key before saving (settings.set,
+  // decompiled/app/deobfuscated.js:68305), so the real save is e.g.
+  // `widget_cannon_ballsize`. A stray case-variant row (`widget_cannon_ballSize`)
+  // normalizes to the SAME canonical key and, on a last-write-wins collision,
+  // could shadow the user's actual lowercase write. Prefer the lowercase raw key
+  // so the value the user saved always wins, regardless of row order/Id.
+  const canonSetByLower = {};
   for (const [rawKey, value] of Object.entries(rows)) {
     if (value === '' || value === null || value === undefined) continue;
-    merged[normalizeKey(rawKey)] = coerce(value);
+    const canon = normalizeKey(rawKey);
+    const isLower = rawKey === rawKey.toLowerCase();
+    if (canonSetByLower[canon] && !isLower) continue; // a lowercase variant already won
+    merged[canon] = coerce(value);
+    if (isLower) canonSetByLower[canon] = true;
   }
   aliasGraphicOverlayKeys(merged);
   return merged;

@@ -273,7 +273,9 @@
     reset: function() {
       var key = getScopeKey();
       sessionStorage.removeItem(key);
-      sessionStorage.removeItem(key + TIME_SUFFIX);
+      // (TIME_SUFFIX was never declared — timestamps live inside `key` itself;
+      // the stray removeItem(key + TIME_SUFFIX) threw ReferenceError and aborted
+      // reset() midway. Removed.)
     }
   };
 })();

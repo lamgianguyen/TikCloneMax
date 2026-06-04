@@ -85,7 +85,7 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
    Serial Key gate ở TikfinityServer startup đã unlock TẤT CẢ tính năng Pro của bundle. Mọi response của `/api/me`, `/api/tts/user`, `/api/tts/auth-token` PHẢI emit user state là Pro:
    - `/api/me` → `isPro: true`, `subscription.isPro: true`, `userFeatures.isPro: true`
    - JWT từ `/api/tts/auth-token` payload có `subscriptionEnabled: true` + `subscriptionPeriodCredits > 0`
-   - `/api/tts/user` quota: `currentUsageMode: 'subscription'`, `subscriptionCreditsRemaining: 100000`, `subscriptionCreditsTotal: 100000`
+   - `/api/tts/user` quota: `currentUsageMode: 'sub_credits'` (KHÔNG phải `'subscription'` — xem Gate 23b: `'subscription'` không khớp 3 mode bundle check → `tts.proCredits` không set → chip hiện 0), `subscriptionCreditsRemaining: 100000`, `subscriptionCreditsTotal: 100000`
 
    Side-effect duy nhất: bundle's topbar chip render TikTok avatar thay vì coin (Pro UX gốc). Fix qua CSS override trong `earlyCss.txt` (force-hide `<img>` + show coin twemoji 1fa99 pseudo-element). Selector dùng `bg-[#D435554D]` (chip's burgundy background) — ổn định qua bundle updates.
 
@@ -182,11 +182,15 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
 | Review feedback hoặc user nói fix chưa đúng | `superpowers:receiving-code-review` hoặc debugging flow | Không đồng ý mù quáng. Xác minh feedback, reproduce lại, rồi mới sửa. |
 | Major/high-risk change trước merge/commit | `superpowers:requesting-code-review` | Khuyến nghị nếu chạm bundle, DB, Electron main, auth, Socket.IO, profile switch, TikTok connection. |
 
-### 2.1 Agent Team — ALWAYS ACTIVE, 8-10 AGENTS DEFAULT (updated 2026-05-28)
+### 2.1 Agent Team — 1 TEAM, FULL ROSTER mặc định (nạp mọi agent — user directive 2026-06-03)
 
-> **OVERRIDES previous "solo by default" policy.** Project vận hành theo Space Marine Doctrine (xem [`.codex/skills/tikmax/SKILL.md`](.codex/skills/tikmax/SKILL.md) §1). Mọi mission đều có team **8-10 agents** — KHÔNG còn solo trên main thread mặc định. Commander tự quyết định team composition + execution path, không xin phép user.
+> **OVERRIDES previous "solo by default" policy.** Project vận hành theo Space Marine Doctrine (xem [`.codex/skills/tikmax/SKILL.md`](.codex/skills/tikmax/SKILL.md) §1). Commander tự quyết định composition + execution path, không xin phép user.
 
-**Team size = TIERED theo độ khó (updated 2026-05-28, supersedes "always 8-10").** Commander assess task difficulty → right-size team cho linh động + nhanh. KHÔNG gọi full team cho mọi task.
+**Team size = 1 TEAM, FULL ROSTER — nạp MỌI agent (user directive 2026-06-03, supersedes "tiered downsizing").** Mặc định MỌI task substantive = **1 team thống nhất ~8–11 agent**, mobilize toàn bộ roster liên quan; KHÔNG cắt xuống 1–3. Shape chuẩn (đã verify ở M-011 overlay-socket RCA, 11 agent → root cause confirmed): **5 Scout song song** (chia vùng: bundle-emit / widget-receive / backend / gift-flow / handshake) → **1 Reconciler Opus** → **3–5 adversarial Verifier** (1 / root cause) → Engineer cho fix. Bảng "Tier" dưới CHỈ dùng để biết VAI TRÒ nào lo phần nào — KHÔNG dùng để giảm số agent.
+
+> **2 ngoại lệ duy nhất giữ solo:** (1) **true-trivial** — 1 dòng / typo / rename / comment / single config; (2) continuation của mission đang chạy (Commander chỉ reconcile). Mọi thứ khác → 1 team full roster.
+>
+> **Đặc thù project (luôn áp):** bundle obfuscated khổng lồ ⇒ RE **luôn cần ≥3–5 Scout song song**; lịch sử "fix đi fix lại" ⇒ **adversarial verify BẮT BUỘC** cho mọi việc đụng render-bundle / socket-realtime / đã-từng-sai >1 lần.
 
 | Tier | Criteria | Team size | Composition |
 |---|---|---|---|
@@ -2041,3 +2045,59 @@ Plus WARM at boot (fire loadTriggers once, pure data, NO loadData/DOM) so trigge
 **If still slow:** dxSelectBox renders even 500 imgs synchronously. Next lever = lower limit OR proper dxSelectBox virtualization (render only ~15 visible via paginated DataSource — the onEditorPreparing patch that had timing issues).
 
 **Related:** Gate 30j (sounds.refreshDataSource discovery), Gate 32 (pre-warm CDN), Gate 33 (Electron intercept).
+
+---
+
+### Gate 35: Overlay/Widget realtime — relay, handshake, guards, assets, settings-live-apply (M-011/012, 2026-06-03/04)
+
+> **Bộ lỗi overlay/widget hay tái phát — fix sẵn + chỗ sửa. ĐỌC trước khi đụng overlay FX / settings-live / widget standalone.** Kiến trúc: control-page (bundle) emit → backend relay → widget (preview iframe HOẶC OBS/standalone qua SharedIO).
+
+**Chuỗi sự kiện widget (PHẢI nhớ):** bundle wrap MỌI client emit thành envelope `socketiowrapper.io.emit("distributeEvent", eventName, payload)` (app deob:70895-70903). Backend PHẢI unwrap `distributeEvent` + relay event con tới socket `appType='widget'`. Widget nhận qua `io.on('<event>')` (flat: cannon.html/gifts.html...; modular: coinjar/index.html). Standalone/OBS dùng **SharedIO** (SharedWorker multiplex) — `downloads/widget/sharedio/sharedioworker.js`, login `{channelId, appType:'widget'}`; backend `handleLogin` BỎ QUA payload.channelId → `findDefault()` (single-channel → cid=1 cả 2 đầu, khớp).
+
+| # | Triệu chứng | Root cause | Fix (file) |
+|---|---|---|---|
+| **RC-1** | Bấm test overlay (gift/wheel/coin/cannon) KHÔNG nhảy FX | `socket-manager.js` `RELAYABLE_DISTRIBUTE` whitelist chỉ có 3 event (widgetSettings/goalStatus/giftGoalStatus) → drop hết FX events | Mở rộng set: thêm `gift, onLikeReceived, coin-jar:gift/reset, coin-match:start/update/result/reset, onSpinWheel/spinWheel, createCoins/timeoutCoins/collectCoin, updateTopGifter/Liker, updateViewerCount, topGiftData, newTransaction, showCommandResult...` ([socket-manager.js](backend-node/src/services/socket-manager.js)). **No double-fire:** live gift đi `emitWsEvent`→DAPI (transport khác), test đi `emitSocketEvent` `isTest:true` (modules:20249-20651). Relay target LUÔN `'widget'` (không echo controlpage → no reload loop). |
+| **RC-A** | Widget reopen / sau khi save abort → nhận settings cũ | Clone thiếu relay `reportWidgetState`→`widgetState` + `widgetConnected` (gốc C# server có) → control-page không re-push live snapshot | Thêm `socket.on('reportWidgetState')` → `broadcastToChannel('widgetState', payload, cid, 'controlpage')` + first-seen (seen-set per channel) → `broadcastToChannel('widgetConnected', {}, cid, 'controlpage')`. Control-page-scoped ONLY ([socket-manager.js](backend-node/src/services/socket-manager.js)). |
+| **RC-D** | coinjar/coinmatch nuốt quà im lặng (widget OBS) | Guard `if(!settings.isPro && !preview) return` → `settings` null (cachedSettings chưa có) → `settings.isPro` THROW TypeError | Null-safe + all-pro: `if(!preview && settings && settings.isPro === false) return` ([coinjar/index.html](downloads/widget/coinjar/index.html), coinmatch). |
+| **IMG** | Console spam đỏ `drawImage ... 'broken' state` (coin-jar.js) mỗi frame | Ảnh quà/avatar (CDN signed URL hết hạn) load fail → broken → canvas `drawImage` throw InvalidStateError | Proxy ảnh trả **transparent PNG (200)** khi upstream fail thay vì status lỗi → ảnh không bao giờ broken ([index.js](backend-node/src/index.js) `cdnProxyFetch` opts.fallbackImage). |
+| **CDN** | Phụ thuộc CDN gốc `tikfinity-assets.b-cdn.net` (credit.png/icons), `assets.tikfinity.com` | Hardcode trong bundle minified, không sửa được | Electron intercept 2 host → `/tf-cdn/<host>/<path>` proxy **cache xuống DISK** `downloads/tf-assets-cache/` → local vĩnh viễn ([electron/main.js](electron/main.js) + [index.js](backend-node/src/index.js)). Pattern giống Gate 33 (tiktokcdn). |
+| **DELOG** | Console widget ngập spam | Debug `console.log` lỡ để trong widget (cannon.html Overcrowding/Non-resting mỗi frame) | Gỡ debug log trong `downloads/widget/*.html` khi gặp. |
+
+**⚑ "Đổi setting KHÔNG ăn liền" (lỗi tái phát nhiều nhất) — KẾT LUẬN sau khi trace tận gốc:**
+
+Chuỗi settings-live **ĐÚNG trên giấy**, KHÔNG có bug nhận setting:
+- Đổi Customize → `initDxInput.onValueChanged` (app deob:66972) → `settings.set('widget_<id>_<name>', v)` + `obsoverlays.onInputChange()` (modules:19440) → `refreshPublicSettings()` → emit `widgetSettings` (key đã strip prefix → `cannon_ballSize`) → relay → widget.
+- **+ đường HTTP:** `tfOverlaySettingsAutosave` (blockScript:465) wrap settings.set → 700ms → POST `/api/updateSettings` → backend `normalizeKey` strip `widget_` → `cannon_ballSize` → `rebuildAndBroadcast`. **Cả 2 đường giao đúng key cho widget.**
+- ⚠️ **BẪY:** comment "BLOCK updateSettings" trong blockScript:3648/3980 là **STALE/SAI** — code thật KHÔNG block updateSettings; chỉ chặn `POST /api/me settings.restore` (cái gây reload loop). Đừng nghi nhầm updateSettings bị chặn.
+
+**Cái user tưởng "không ăn" thường là BEHAVIOR GỐC, không phải bug:**
+- `ballSize / maxBalls / intensity` (cannon) → đọc lại `window.*` LÚC TẠO BÓNG (cannon.html) → chỉ áp **bóng MỚI**, KHÔNG resize bóng đang bay. Đổi rồi nhìn bóng cũ → tưởng không ăn. Verify: đổi → bắn quà MỚI.
+- `showCannon / showGiftPictures` → áp **LIVE** (showCannon có `setInterval` 250ms re-apply opacity).
+- **Preview iframe nhỏ** làm cannon overcrowding (xoá bớt bóng) + sàn nhích lên (canvas height theo `window.innerHeight` của iframe vs stretchIframe phóng to) → **CHỈ preview, OBS full màn ĐÚNG.**
+
+**Quy trình debug settings-live (KHÔNG probe iframe lung tung):** thêm log backend `[WS-relay]` trong distributeEvent handler ([socket-manager.js](backend-node/src/services/socket-manager.js)) + `[Broadcast] widgetSettings delivered=N` đã có sẵn; HOẶC thêm `console.log('[<WIDGET> SETTINGS]', ...)` trong `updateSettings()` của widget để in giá trị nhận được. Đổi setting → so giá trị log với cái chỉnh. Khớp = ăn (chỉ là bóng-mới). Không nhảy = đứt đẩy live.
+
+**Standalone/OBS vs Preview:** preview (Electron, `&preview=1`) bypass isPro guard + bị stretchIframe; standalone/OBS (plain browser) dùng SharedIO + KHÔNG có Electron CDN intercept (ảnh tiktokcdn load trực tiếp). Test thật phải ở **standalone full màn**.
+
+---
+
+#### §35-MECH: Cơ chế RESET / ACCUMULATION / STATE từng overlay — tra theo trang (đọc cơ chế gốc trước khi sửa)
+
+> **Mục tra cứu nhanh.** Đang ở trang overlay nào → tìm overlay đó ở đây để biết: nút reset làm gì, state sống ở đâu (FE widget vs BE), có chống-lag không. Khi RE thêm overlay khác → thêm 1 mục con cùng format. **Nguyên tắc chung (áp cho mọi overlay loại physics):** state hiệu ứng (coin/ball/body) sống 100% trong **widget client (ephemeral)**, backend chỉ **relay event** + route HTTP optional, KHÔNG persist. Reset = dọn màn FE, KHÔNG đụng DB, KHÔNG ảnh hưởng overlay khác, an toàn tuyệt đối.
+
+##### ▸ Coin Jar (`coinjar`) — reset & lag (RE gốc 2026-06-04)
+
+**Chuỗi RESET (gốc):** nút "Reset Jar" (icon `fa-rotate-left`, text `obsoverlays_coinjarPro_reset`, trong `#widgetCoinjarProControls`) → `coinJar.resetJar()` = **CHỈ** `socketiowrapper.emitSocketEvent("coin-jar:reset")` (app deob:79938-79952). Không DB write, không persist. **3 đường trigger reset** đều dẫn về cùng 1 socket event:
+1. Nút trên card overlay — `coinJar.setupControls` (app:79941).
+2. `postMessage({type:'coin-jar-action', action:'reset'})` từ cửa sổ pop-out `coinjarcontrols.html` (app:80136-80143).
+3. HTTP `POST /api/widget/coinjar/reset` → `broadcast('coin-jar:reset', {})` (widget.js:95) — cho DAPI/external. ⚠ tên event PHẢI hyphen `coin-jar:reset` (widget chỉ nghe tên này); sai tên = HTTP 200 nhưng overlay không reset.
+
+**Widget nhận** `io.on("coin-jar:reset")` (coinjar/index.html:51) → `window.resetJar()`. Trong `coin-jar.js`, `window.resetJar` xóa **4 thứ**: `l.reset()` (gift QUEUE) + `i.value=0` (counter tổng) + `o.reset()` (last-gift display) + `t.reset()` (leaderboard top gifters) + `n.value?.resetJar()` (xóa **TẤT CẢ physics bodies** trong canvas).
+
+**FE/BE impact (câu trả lời gốc):** Reset **100% FE/widget-side, ephemeral**. Backend **KHÔNG lưu nội dung jar** — coin tích lũy sống hoàn toàn trong widget client. Reset KHÔNG đụng DB, KHÔNG xóa setting/data đã lưu, KHÔNG ảnh hưởng overlay khác — chỉ "dọn màn hình". Jar cũng **tự mất khi widget reload** (không persist) → reset chỉ chủ động làm điều reload vốn tự làm. Backend cho coin-jar là **stateless** (chỉ relay `coin-jar:gift`/`coin-jar:reset` qua RC-1 whitelist + route HTTP optional).
+
+**ACCUMULATION / nguồn LAG-CRASH (user thấy "nhiều quá lag screen"):** `window.addGift(p)` → `l.addGift(p)` push vào **QUEUE**. Gốc có **2 cơ chế chống-lag**:
+- **#1 Spawn throttle:** loop `setInterval(o, Ss)`, mỗi tick `i.value.shift()` lấy **1 gift FIFO** → spawn **1 body / `Ss` ms**; `if(now - last < Ss) return`. → quà ồ ạt KHÔNG spawn cùng lúc.
+- **#2 Sleeping bodies:** physics (Matter.js-like) coin lắng đáy → `Sleeping.set(body, true)` ngủ, không simulate → CPU thấp; `wakeAllBodies` chỉ wake khi cần.
+- **❌ KHÔNG có cap tổng số coin (gốc):** jar KHÔNG auto-xóa coin cũ → body tích lũy **vô hạn** đến khi reset thủ công. Stream dài / test bắn nhiều → hàng nghìn body (dù ngủ vẫn tốn RAM + **mỗi frame vẫn `drawImage` ảnh quà** — cộng hưởng lỗi IMG nếu ảnh broken, xem hàng IMG bảng trên). → lag/crash. **Reset là escape-hatch DUY NHẤT của gốc.**
+- 🔧 **Nếu user muốn auto-chống-lag:** đây là **deviation khỏi gốc** (READ-GỐC-FIRST gate → PHẢI báo user trước khi thêm). Cách: thêm FIFO cap trong `n.value` physics — `bodies.length > MAX` → `removeBody` con cũ nhất (giống cannon `maxBalls`). Gốc KHÔNG làm → chỉ thêm khi user yêu cầu rõ.
