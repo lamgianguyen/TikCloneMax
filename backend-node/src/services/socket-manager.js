@@ -122,6 +122,9 @@ function bind(ioServer) {
         if (eventName === 'widgetSettings' && payload && typeof payload === 'object') {
           logger.info(`[WS-relay] LIVE widgetSettings cid=${cid} cannon_ballSize=${payload.cannon_ballSize} cannon_maxBalls=${payload.cannon_maxBalls} cannon_showCannon=${payload.cannon_showCannon}`);
         }
+        if (eventName.startsWith('coin-jar:') || eventName.startsWith('coin-match:')) {  // [INSTR-2026-06-04] coinjar-reset-diag
+          logger.info(`[WS-relay] RECV ${eventName} from socket appType="${socket.data.appType}" cid=${cid} (${cid > 0 ? 'will relay→widget' : 'DROPPED cid<=0'})`);
+        }
         if (cid > 0) {
           broadcastToChannel(eventName, payload, cid, 'widget');
         }
@@ -358,7 +361,8 @@ function broadcastToChannel(eventName, data, channelId, appType = '') {
   // Diagnostic log — only for events we care about during TTS debugging.
   // Comment out the `if` to log EVERYTHING (warning: chat-heavy rooms spam).
   if (eventName === 'chat' || eventName === 'connected' || eventName === 'disconnected' || eventName === 'channelStatus'
-      || eventName === 'widgetSettings' || eventName === 'goalStatus' || eventName === 'giftGoalStatus') {  // [INSTR-2026-06-02] settings-diag
+      || eventName === 'widgetSettings' || eventName === 'goalStatus' || eventName === 'giftGoalStatus'
+      || eventName.startsWith('coin-jar:') || eventName.startsWith('coin-match:')) {  // [INSTR-2026-06-04] coinjar-reset-diag
     logger.info(`[Broadcast] ${eventName} channelId=${channelId} appType="${appType}" delivered=${delivered} to=[${deliveredTo.join(',')}]`);
   }
 }

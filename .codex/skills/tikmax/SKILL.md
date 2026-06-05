@@ -482,6 +482,31 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
 - Document regression as new Gate
 - Hỏi user direction before continuing
 
+### §5.1 TEST DISCIPLINE — sổ SUCCESS/LOG + "tại sao OK rồi chạy lại lỗi" (user directive 2026-06-05)
+
+**2 sổ song song (đọc CẢ HAI trước khi test/fix):**
+- ✅ **[TEST_STATUS.md](../../../TEST_STATUS.md)** = SUCCESS registry — mục nào ĐÃ verify chạy + bằng chứng (log dòng / DB query / nhìn). PASS chỉ ghi khi CÓ BẰNG CHỨNG, không cảm tính.
+- ⚠️ **[FIXLOG.md](../../../FIXLOG.md)** = LOG — lỗi + dead-end đã thử + fix (luật 3-strike §6.1 CLAUDE.md).
+- **Cái mới đáng tái dùng** → ghi vào skill này (mục tương ứng) hoặc Gate CLAUDE.md.
+
+**⚠️ TẠI SAO TEST OK LÚC ĐẦU MÀ CHẠY LẠI LỖI (8 nguyên nhân, evidence-backed — đây là thủ phạm "fix đi fix lại"):**
+1. **Sửa backend/blockScript nhưng KHÔNG restart** → reload widget KHÔNG nạp blockScript/backend mới. "Test OK" = code CŨ vẫn chạy; lỗi chỉ lộ sau restart. (Save-fix tốn nhiều vòng vì cái này.)
+2. **Cache `?v=` widget** — `socketioclient.js?v=10`. Sửa widget HTML nhưng iframe/browser serve bản CACHED → fix không áp khi re-test. Backend `[Cache] HTTP cache cleared on boot` chỉ chạy lúc RESTART. → hard-reload (Ctrl+Shift+R) hoặc bump `?v`.
+3. **State tích lũy** — coin-jar/cannon đầy dần. Fresh (rỗng) OK; chạy lâu (đầy) lag/crash. KHÔNG phải regression — phụ thuộc state. Phải test cả fresh LẪN sau-tích-luỹ.
+4. **`settings.restored` flip false** — `settings.save()` chạy lần đầu (restored=true sau restore), lần sau restored=false → save im lặng skip → "lưu được rồi tự nhiên hết lưu". (Đã fix autosave tự set restored=true.)
+5. **Race condition** — vd ranking `template.clone()` null: tuỳ ajax-success có thắng template-init không → non-deterministic, lúc pass lúc fail. → test ≥3 lần.
+6. **Socket reconnect/handshake** — connect đầu OK; reload/reconnect widget có thể KHÔNG re-push settings (RC-A) → widget hiện giá trị cũ → "đổi setting không ăn". 
+7. **Profile switch** — đổi profile = DB values khác (profile 2/3 có `cannon_ballsize` khác profile 1) → behavior khác.
+8. **App close/reopen** — in-memory reset nhưng localStorage persist → trạng thái lai.
+
+**✅ CHECKLIST RE-TEST DETERMINISTIC (chạy trước khi claim PASS):**
+- [ ] Sửa `backend-node/` hoặc `blockScript/earlyCss/socket-manager/index.js` → **RESTART Electron** (`taskkill /F /IM electron.exe` + relaunch). Reload widget KHÔNG đủ.
+- [ ] Sửa `downloads/widget/**` → reload widget; nghi cache → **Ctrl+Shift+R** / bump `?v`.
+- [ ] Stateful widget (coin-jar/cannon/wheel) → test **fresh** + **sau khi đầy**.
+- [ ] Settings → clear `localStorage cachedSettings`, query DB xác nhận persist, **note profile đang dùng**.
+- [ ] Verify bằng **bằng chứng cụ thể** (log dòng / DB / nhìn) → ghi TEST_STATUS. KHÔNG "cảm giác OK".
+- [ ] Renderer `console.log` KHÔNG forward (electron main.js level<2) → diagnostic phải `console.warn`.
+
 ---
 
 ## §6 War-room quick reference
@@ -508,11 +533,13 @@ Cross-agent links: `[[scout-app#section-id]]` markdown anchors.
 - doc-updater — docs
 - performance-optimizer, database-reviewer, silent-failure-hunter — specialists
 
-**Superpower skills** (use as framework, not replacement):
-- `systematic-debugging` — bug, test fail, unexpected behavior
-- `test-driven-development` — feature, bugfix, refactor
-- `writing-plans` — multi-step / high-risk
-- `verification-before-completion` — before claim done
-- `receiving-code-review` — when user says fix isn't right
+**Framework skills THẬT đang cài** (đã verify tồn tại 2026-06-05 — "superpower skills" cũ như `systematic-debugging`/`test-driven-development`/`verification-before-completion` **KHÔNG tồn tại**, đã gỡ reference):
+- `tdd-workflow` — feature / bugfix / refactor (test-first)
+- `verification-loop` — trước khi claim done
+- `agent-introspection-debugging` — khi agent/loop fail, self-debug
+- `council` — quyết định mơ hồ / nhiều phương án tradeoff
+- `iterative-retrieval` — refine context cho subagent
+- `code-tour` / `code-explorer` — giải thích kiến trúc 1 feature
+- **Debug TikMax cụ thể KHÔNG cần skill ngoài** → dùng quy trình nội bộ: [FIXLOG.md](../../../FIXLOG.md) (3-strike) + [TEST_STATUS.md](../../../TEST_STATUS.md) + §5.1 (8 nguyên nhân pass-then-fail) + §2 Hot-reload matrix.
 
 This is THE skill file for TikMax. Old split files (tikmax-core, tikmax-doctrine, tikmax-tts-debug, tikmax-debug-locale, tikmax-profile-switch, tikmax-bundle-update) **DEPRECATED** as of 2026-05-28 — content merged here.

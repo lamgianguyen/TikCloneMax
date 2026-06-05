@@ -42,7 +42,7 @@ function logError(obj) {
 
 var channelId = 0;
 var screenId = 1;
-var settings = JSON.parse(localStorage.getItem("cachedSettings"));
+var settings = JSON.parse(localStorage.getItem("cachedSettings") || "{}");
 var widgetId = document.location.pathname.split("/")[2];
 var lastFontType = null;
 
@@ -53,7 +53,6 @@ screenId = urlParams.get("screen") ? parseInt(urlParams.get("screen")) : 1;
 
 
 if (typeof SharedIO === "function" && typeof SharedWorker === "function" && urlParams.get("disableSharedIO") !== "1") {
-    console.info("[SOCKET] Using SharedIO connection");
 
     try {
         window.io = new SharedIO();
@@ -71,7 +70,6 @@ if (typeof SharedIO === "function" && typeof SharedWorker === "function" && urlP
     }
 
 } else {
-    console.info("[SOCKET] Using native SocketIO connection");
 
     logError({ component: "WidgetIO", message: "SharedIO not supported", sharedWorkerSupported: typeof SharedWorker === "function" });
 
@@ -143,10 +141,9 @@ io.on("widgetSettings", function (data) {
     // first value — and combined with the framePreviewPing re-feed below it
     // caused a 500ms empty/reload flip-flop ("nothing loads on click").
     if (location.href.includes('preview=1') && (data == null) && localStorage.getItem("cachedSettings")) {
-        data = JSON.parse(localStorage.getItem("cachedSettings"));
+        data = JSON.parse(localStorage.getItem("cachedSettings") || "{}");
     }
 
-    console.log("widget settings received");
     reportState({ event: "widgetSettingsAck" });
     var hasChanges = JSON.stringify(settings) !== JSON.stringify(data);
     localStorage.setItem("cachedSettings", JSON.stringify(data));
@@ -227,24 +224,20 @@ function setFontSettings() {
         if (widgetId === "myactions") {
             let percent = 100 + ((fontSize - 50) * 3);
             $("text").css("zoom", percent + "%");
-            console.log(widgetId, "zoom", percent);
         } else {
             let em = 1 + ((fontSize - 50) * 0.01);
             $("html").css("font-size", em + "em");
-            console.log(widgetId, "em", em);
         }
 
     } else {
         $("body").css("zoom", "");
         $("text").css("zoom", "");
         $("html").css("font-size", "");
-        console.log(widgetId, "default size");
     }
 
     if (fontLineSpacing) {
         if (fontLineSpacing != 50) {
             let em = 1 + ((fontLineSpacing - 50) * 0.03);
-            console.log("fontLineSpacing em", em)
             $("body").css("line-height", em + "em");
         } else {
             $("body").css("line-height", "");
@@ -254,7 +247,6 @@ function setFontSettings() {
     if (fontLetterSpacing) {
         if (fontLetterSpacing != 50) {
             let em = 0 + ((fontLetterSpacing - 50) * 0.01);
-            console.log("fontLetterSpacing em", em);
             $("body").css("letter-spacing", em + "em");
         } else {
             $("body").css("letter-spacing", "");

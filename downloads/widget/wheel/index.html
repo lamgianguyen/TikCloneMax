@@ -231,7 +231,6 @@
         // Called when the spin animation has finished by the callback feature of the wheel because I specified callback in the parameters.
         // -------------------------------------------------------
         function alertPrize(indicatedSegment) {
-            console.log(winSegment);
             spinRunning = false;
 
             var winSum = 0;
@@ -265,7 +264,6 @@
                 }, 10)
             });
 
-            console.log(winSum);
 
             setTimeout(() => {
                 if (spinRunning) return;

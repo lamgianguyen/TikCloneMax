@@ -466,19 +466,31 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
   var ready = false;
   setTimeout(function(){ ready = true; }, 5000);   // ignore the boot settings-restore burst
   var saveTimer = null;
+  var DEBOUNCE_MS = 1200;   // [save-lag fix A] widen so a whole slider drag coalesces into ONE POST
+  function hasFullBag(){
+    var n = 0;
+    for (var i = 0; i < localStorage.length; i++) {
+      if ((localStorage.key(i) || '').indexOf('setting_') === 0) { n++; if (n > 30) return true; }
+    }
+    return false;
+  }
+  function doSave(tag){
+    try {
+      if (!window.settings || typeof window.settings.save !== 'function') { try { console.warn('[SAVE-DIAG] autosave: settings.save MISSING'); } catch(_){} return; }
+      if (!hasFullBag()) { try { console.warn('[SAVE-DIAG] autosave SKIPPED — settings bag not loaded (<=30 keys)'); } catch(_){} return; }
+      // [restored fix] settings.save() returns early when !restored; force it true (belt-and-braces,
+      // same as force-save) so a slider change ALWAYS persists, not just when restore() happened to run.
+      window.settings.restored = true;
+      try { console.warn('[SAVE-DIAG] autosave→save() firing (' + (tag||'') + ') restored=' + window.settings.restored); } catch(_){}
+      window.settings.save();
+    } catch(e){ try { console.warn('[SAVE-DIAG] autosave save() threw: ' + (e && e.message)); } catch(_){} }
+  }
   function scheduleSave(){
     if (saveTimer) { clearTimeout(saveTimer); }
-    saveTimer = setTimeout(function(){
-      try {
-        if (window.settings && typeof window.settings.save === 'function') {
-          try { console.log('[INSTR-FE] tfOverlaySettingsAutosave → settings.save() firing (should POST /api/updateSettings)'); } catch(_){}
-          window.settings.save();
-        } else {
-          try { console.log('[INSTR-FE] settings.save MISSING — window.settings=', window.settings); } catch(_){}
-        }
-      } catch(e){ try { console.log('[INSTR-FE] settings.save() threw', e); } catch(_){} }
-    }, 700);
+    saveTimer = setTimeout(function(){ saveTimer = null; doSave('debounced'); }, DEBOUNCE_MS);
   }
+  // [save-lag fix B] let force-save cancel a pending autosave so ĐƯỢC RỒI doesn't double-POST.
+  window.__tfCancelAutosave = function(){ if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; } };
   function install(){
     if (!window.settings || typeof window.settings.set !== 'function') return false;
     if (window.settings.__tfAutosaveWrapped) return true;
@@ -486,15 +498,17 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
     window.settings.set = function(key){
       var r = origSet.apply(null, arguments);
       try {
-        if (typeof key === 'string' && key.indexOf('widget_') === 0) {
-          try { console.log('[INSTR-FE] settings.set', key, ready ? '(ready→scheduleSave)' : '(boot-skip)'); } catch(_){}
-          if (ready) scheduleSave();
+        if (typeof key === 'string') {
+          // [SAVE-DIAG] log EVERY post-boot settings.set so we see the EXACT key the
+          // Ball Size input writes (broadened from widget_-only to catch any prefix).
+          if (ready) { try { console.warn('[SAVE-DIAG] settings.set key="' + key + '" val=' + JSON.stringify(arguments.length>1?arguments[1]:undefined)); } catch(_){} }
+          if (ready && key.indexOf('widget_') === 0) scheduleSave();
         }
       } catch(_){}
       return r;
     };
     window.settings.__tfAutosaveWrapped = true;
-    try { console.log('[TF-overlay-autosave] settings.set wrapped — widget_ changes auto-save+broadcast to preview'); } catch(_){}
+    try { console.warn('[SAVE-DIAG] autosave wrapper INSTALLED on settings.set'); } catch(_){}
     return true;
   }
   var t = setInterval(function(){ if (install()) clearInterval(t); }, 500);
@@ -515,28 +529,117 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
    ───────────────────────────────────────────────────────────────────── */
 (function tfForceSaveOnCustomizeClose(){
   document.addEventListener('click', function(e){
-    var modal = document.getElementById('widgetSettingsModal');
-    if (!modal || !e.target || !e.target.closest) return;
+    if (!e.target || !e.target.closest) return;
     var btn = e.target.closest('.dx-button, .dx-closebutton');
-    if (!btn || !modal.contains(btn)) return;
+    if (!btn) return;
+    // [SAVE-DIAG 2026-06-04] Log EVERY dx-button click ANYWHERE — reveal what "ĐƯỢC RỒI" is + where it lives
+    // (dxPopup portals its toolbar/close button OUTSIDE #widgetSettingsModal, so the old modal.contains() missed it).
+    var popup = btn.closest('.dx-popup, .dx-overlay-content');
+    var modalEl = document.getElementById('widgetSettingsModal');
+    var inModal = !!(modalEl && modalEl.contains(btn));
+    try { console.warn('[SAVE-DIAG] dx-button click text="' + ((btn.textContent||'').trim().slice(0,24)) + '" inModal=' + inModal + ' inPopup=' + !!popup); } catch(_){}
+    // Force-save when the button is inside the modal OR any dxPopup (the Customize modal IS a dxPopup).
+    if (!inModal && !popup) return;
     setTimeout(function(){
       try {
-        if (!window.settings || typeof window.settings.save !== 'function') return;
-        // Only force-save once localStorage actually holds the settings bag
-        // (post-boot it has hundreds of `setting_` keys) — never POST an empty
-        // or half-restored bag.
+        if (!window.settings || typeof window.settings.save !== 'function') { try { console.warn('[SAVE-DIAG] window.settings.save MISSING'); } catch(_){} return; }
         var n = 0;
         for (var i = 0; i < localStorage.length; i++) {
           if ((localStorage.key(i) || '').indexOf('setting_') === 0) { n++; if (n > 30) break; }
         }
+        try { console.warn('[SAVE-DIAG] force-save check: setting_keys=' + n + ' restored(before)=' + window.settings.restored); } catch(_){}
         if (n > 30) {
-          try { console.log('[TF-customize-save] modal button clicked → forcing settings.save()'); } catch(_){}
+          if (window.__tfCancelAutosave) { try { window.__tfCancelAutosave(); } catch(_){} }  // [save-lag B] no double-POST
           window.settings.restored = true;   // never block on a stale restored flag
           window.settings.save();
+          try { console.warn('[SAVE-DIAG] settings.save() CALLED (should POST /api/updateSettings)'); } catch(_){}
+        } else {
+          try { console.warn('[SAVE-DIAG] SKIPPED — only ' + n + ' setting_ keys (need >30)'); } catch(_){}
         }
-      } catch (err) { try { console.log('[TF-customize-save] failed', err && err.message); } catch(_){} }
+      } catch (err) { try { console.warn('[SAVE-DIAG] force-save threw: ' + (err && err.message)); } catch(_){} }
     }, 200);
   }, true);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfCoinJarResetReliable (Gate 35 §35-MECH, 2026-06-04).
+   The "Đặt lại Jar" reset button calls coinJar.resetJar() → emitSocketEvent
+   ("coin-jar:reset"). Runtime audit showed clicking it produced ZERO
+   coin-jar:reset arrivals at the backend (the socket emit queues/drops on the
+   control page), so the OBS/preview jar never clears. Belt-and-braces: hook
+   coinJar.resetJar so it ALSO POSTs /api/widget/coinjar/reset — the HTTP route
+   broadcasts coin-jar:reset to every widget reliably (proven path), regardless
+   of the control-page socket state. Idempotent: clearing an already-empty jar
+   is a no-op on the widget.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfCoinJarResetReliable(){
+  var t = setInterval(function(){
+    try {
+      if (window.coinJar && typeof window.coinJar.resetJar === 'function' && !window.coinJar.__tfResetHooked) {
+        var orig = window.coinJar.resetJar;
+        window.coinJar.resetJar = function(){
+          try { console.warn('[RESET-DIAG] coinJar.resetJar CALLED → orig emit + HTTP fallback'); } catch(_){}
+          try { orig.apply(this, arguments); } catch(_){}
+          try { fetch('/api/widget/coinjar/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' } }).catch(function(){}); } catch(_){}
+        };
+        window.coinJar.__tfResetHooked = true;
+        clearInterval(t);
+        try { console.warn('[RESET-DIAG] coinJar.resetJar hooked (HTTP fallback armed)'); } catch(_){}
+      }
+    } catch(_){}
+  }, 500);
+  setTimeout(function(){ try { clearInterval(t); } catch(_){} }, 30000);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfStretchIframesNonBlocking (slow-render fix, 2026-06-05).
+   Trang Overlay Library mở → obsoverlays.init() tạo ~28 iframe → stretchIframes()
+   chạy 1 while-loop ĐỒNG BỘ mỗi iframe: while(clientHeight===initial && h<700){ h+=5;
+   iframe.style.height=h } — đọc clientHeight mỗi vòng = FORCED REFLOW × ~140 vòng ×
+   28 iframe = block main thread vài giây TRƯỚC khi render (user: "chạy cái j lâu lắm
+   xong mới render"). (decompiled modules:19360-19422, confirmed 8-agent audit.)
+   FIX: override = GIỮ NGUYÊN logic gốc (grow tới khi clientHeight đổi hoặc 700px) nhưng
+   chạy qua requestAnimationFrame (yield mỗi frame, KHÔNG block) + song song các container.
+   KHÁC Gate 30d (vốn đổi GIÁ TRỊ height bằng CSS, bị revert) — đây chỉ đổi CÁCH áp, height
+   cuối ±20px. Reversible qua __tfStretchPatched.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfStretchIframesNonBlocking(){
+  function install(){
+    if (!window.obsoverlays || typeof window.obsoverlays.stretchIframes !== 'function' || window.obsoverlays.__tfStretchPatched) return false;
+    window.obsoverlays.stretchIframes = function(){
+      try {
+        var arr = Array.prototype.slice.call(document.getElementsByClassName('obsOverlayOnPage'));
+        var t0 = (window.performance && performance.now) ? performance.now() : 0;
+        var pending = arr.length;
+        if (!pending) { window.obsoverlays.stretchDone = true; return; }
+        function finish(){
+          window.obsoverlays.stretchDone = true;
+          try { console.warn('[STRETCH-DIAG] non-blocking stretch done in ' + Math.round(((window.performance&&performance.now)?performance.now():0)-t0) + 'ms for ' + arr.length + ' iframes'); } catch(_){}
+        }
+        arr.forEach(function(cont){
+          var initialH = cont.clientHeight;
+          var iframe = cont.querySelector('iframe');
+          if (!initialH || !iframe) { if (--pending === 0) finish(); return; }
+          var h = parseInt((iframe.style.height || '').replace('px','')) || 0;
+          function stepFrame(){
+            if (cont.clientHeight === initialH && h < 700) {
+              h += 20;                                  // 5→20px: ~35 vòng max thay vì 140
+              iframe.style.height = h + 'px';
+              requestAnimationFrame(stepFrame);         // YIELD mỗi frame → render KHÔNG bị chặn
+            } else {
+              if (--pending === 0) finish();
+            }
+          }
+          requestAnimationFrame(stepFrame);
+        });
+      } catch(e){ try { console.warn('[STRETCH-DIAG] override threw: ' + (e && e.message)); } catch(_){} }
+    };
+    window.obsoverlays.__tfStretchPatched = true;
+    try { console.warn('[STRETCH-DIAG] stretchIframes patched → non-blocking (rAF, parallel, 20px step)'); } catch(_){}
+    return true;
+  }
+  var st = setInterval(function(){ if (install()) clearInterval(st); }, 300);
+  setTimeout(function(){ try { clearInterval(st); } catch(_){} }, 30000);
 })();
 
 /* ─────────────────────────────────────────────────────────────────────

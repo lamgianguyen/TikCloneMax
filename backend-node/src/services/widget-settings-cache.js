@@ -156,15 +156,32 @@ function rebuild(channelId = 1) {
   return getForChannel(channelId, true);
 }
 
+// [save-lag fix] Debounce the widget broadcast per channel. A Ball-Size slider
+// drag fires many POST /api/updateSettings in <1s; without this each one emits
+// widgetSettings to every connected widget → visible save-time lag. Persist
+// (writeMany) stays synchronous; only the rebuild+broadcast is coalesced.
+const _broadcastTimers = new Map();
+const BROADCAST_DEBOUNCE_MS = 250;
+
 /**
  * Rebuild from DB and broadcast `widgetSettings` to every connected widget
  * for the channel. Called on boot and whenever POST /api/updateSettings
- * persists fresh values.
+ * persists fresh values. The cache is refreshed synchronously (return value is
+ * current); the socket broadcast is debounced to collapse rapid POST bursts.
  */
 function rebuildAndBroadcast(channelId = 1) {
-  const merged = rebuild(channelId);
-  sockets.broadcastToChannel('widgetSettings', merged, channelId, 'widget');
-  logger.info(`[WidgetSettings] Rebuilt and broadcast (channelId=${channelId})`);
+  const merged = rebuild(channelId);            // sync: cache fresh immediately
+  const existing = _broadcastTimers.get(channelId);
+  if (existing) clearTimeout(existing);
+  _broadcastTimers.set(channelId, setTimeout(() => {
+    _broadcastTimers.delete(channelId);
+    try {
+      sockets.broadcastToChannel('widgetSettings', rebuild(channelId), channelId, 'widget');
+      logger.info(`[WidgetSettings] Rebuilt and broadcast (channelId=${channelId})`);
+    } catch (err) {
+      logger.warn({ err, channelId }, '[WidgetSettings] debounced broadcast failed');
+    }
+  }, BROADCAST_DEBOUNCE_MS));
   return merged;
 }
 

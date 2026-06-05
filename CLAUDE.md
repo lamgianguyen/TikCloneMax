@@ -10,7 +10,10 @@ Mục tiêu số 1: **giữ app ổn định**. Tính năng mới hoặc bug fix
 
 | Surface area | File chính | Phụ trợ |
 |---|---|---|
-| Bundle interception | [backend-node/src/templates/blockScript.txt](backend-node/src/templates/blockScript.txt) | IIFEs: tfI18nPreBake, tfForceProCredits, tfActivateProUI, tfHandleTtsGenerate, tfHandleTtsTikfinityUser, tfHandleTtsTikfinityCom |
+| **Lịch sử fix (ĐỌC TRƯỚC khi fix bug)** | **[FIXLOG.md](FIXLOG.md)** | Dead-ends đã thử + root-cause + luật 3-strike (§6.1). Bug tái phát → bắt đầu từ "Fix that worked" |
+| **Sổ kiểm thử SUCCESS** | **[TEST_STATUS.md](TEST_STATUS.md)** | Mục nào đã verify PASS (+ bằng chứng) vs OPEN. Cặp với FIXLOG. **"OK rồi chạy lại lỗi" → đọc skill §5.1 (8 nguyên nhân)** |
+| **Cơ chế từng widget (đọc trước khi RE 1 overlay)** | **[docs/WIDGET_MECHANISMS.md](docs/WIDGET_MECHANISMS.md)** | render-entry + socket-event/ajax nguồn data mọi widget (team map 2026-06-05) |
+| Bundle interception | [backend-node/src/templates/blockScript.txt](backend-node/src/templates/blockScript.txt) | IIFEs: tfI18nPreBake, tfForceProCredits, tfActivateProUI, tfHandleTtsGenerate, tfHandleTtsTikfinityUser, tfHandleTtsTikfinityCom, tfOverlaySettingsAutosave, tfForceSaveOnCustomizeClose, tfCoinJarResetReliable |
 | Bundle styling overrides | [backend-node/src/templates/earlyCss.txt](backend-node/src/templates/earlyCss.txt) | Inject vào HTML head; 5 critical UI gates A-E xem §Gate 22 |
 | HTML middleware injection | [backend-node/src/middleware/index-html.js](backend-node/src/middleware/index-html.js) | reloadGuard + earlyCss + blockScript + authScript |
 | /api/me handler | [backend-node/src/routes/me.js](backend-node/src/routes/me.js) | Pro shape: proInfo:null, subscription:null, channeluser:object — xem §Gate 23b |
@@ -25,7 +28,8 @@ Mục tiêu số 1: **giữ app ổn định**. Tính năng mới hoặc bug fix
 
 **Workflow chuẩn khi gặp UI bug:**
 
-1. Đọc §Gates trong file này (1.00 - 25) — có 25+ gates đã catalogued
+0. **Đọc [FIXLOG.md](FIXLOG.md) TRƯỚC** — bug/triệu chứng đã có entry → bắt đầu từ "Fix that worked", BỎ QUA "Dead-ends" (luật 3-strike §6.1).
+1. Đọc §Gates trong file này (1.00 - 35) — gates đã catalogued
 2. Nếu gate match → áp fix
 3. Nếu không match → grep `decompiled/modules/deobfuscated.js` cho symbol
 4. Nếu cần shape API → grep `docs/API_CONTRACTS.md`
@@ -191,6 +195,11 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
 > **2 ngoại lệ duy nhất giữ solo:** (1) **true-trivial** — 1 dòng / typo / rename / comment / single config; (2) continuation của mission đang chạy (Commander chỉ reconcile). Mọi thứ khác → 1 team full roster.
 >
 > **Đặc thù project (luôn áp):** bundle obfuscated khổng lồ ⇒ RE **luôn cần ≥3–5 Scout song song**; lịch sử "fix đi fix lại" ⇒ **adversarial verify BẮT BUỘC** cho mọi việc đụng render-bundle / socket-realtime / đã-từng-sai >1 lần.
+>
+> **VAI BẮT BUỘC — Lỗi-Historian (Error Manager, added 2026-06-04 user directive):** mọi mission đụng bug/fix PHẢI có 1 agent (hoặc Commander kiêm) làm Lỗi-Historian:
+> - **Mở mission:** đọc [FIXLOG.md](FIXLOG.md) + grep Gate liên quan → báo Commander "vùng này từng cụt ở X, dead-end đã thử: …" → team KHÔNG lặp lại con đường cụt.
+> - **Đóng mission:** cập nhật FIXLOG (entry mới / +strike / điền root-cause+fix+verify) theo luật §6.1 3-strike.
+> - Đây là người gác cổng chống lặp — ưu tiên cao hơn tốc độ. Spawn role này = Librarian/Scout Haiku đọc FIXLOG, hoặc Commander tự kiêm khi team nhỏ.
 
 | Tier | Criteria | Team size | Composition |
 |---|---|---|---|
@@ -205,7 +214,9 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
 
 Reference Large mission: M-2026-05-26-bundle3-audit (9 agents, 13/13 done).
 
-**Per-role model assignment (MANDATORY pass `model:` param khi spawn — KHÔNG để default Opus inheritance):**
+**Model assignment — DEFAULT = FULL OPUS max-thinking (user directive 2026-06-03, supersedes per-role routing).** Mặc định **mọi agent inherit Opus** (workflow agent() bỏ `model:` = inherit session Opus). Bảng per-role dưới là **OPT-IN cost-fallback** — CHỈ dùng khi user yêu cầu rõ "tiết kiệm / chạy nhanh rẻ" cho mission đó. Khi nghi ngờ → full Opus.
+
+<details><summary>Cost-fallback: per-role model table (opt-in khi user muốn rẻ/nhanh)</summary>
 
 | Role | Model | Rationale |
 |---|---|---|
@@ -232,7 +243,9 @@ Reference Large mission: M-2026-05-26-bundle3-audit (9 agents, 13/13 done).
 - Drop Opus → Sonnet khi task scope narrows mid-mission
 - Bump Haiku → Sonnet khi agent reports "need more context"
 
-**MAX thinking budget — MANDATORY (added 2026-05-28)**: Every Agent prompt MUST include thinking-extension preamble. TikMax involves obfuscated bundle RE + multi-layer state — surface reads mislead. Force agents to think thoroughly BEFORE tool calls. Template (insert at top of every Agent prompt):
+</details>
+
+**MAX thinking budget — MANDATORY (added 2026-05-28, áp MỌI agent kể cả full-Opus default)**: Every Agent prompt MUST include thinking-extension preamble. TikMax involves obfuscated bundle RE + multi-layer state — surface reads mislead. Force agents to think thoroughly BEFORE tool calls. Template (insert at top of every Agent prompt):
 
 ```
 ## Thinking budget
@@ -425,6 +438,16 @@ Khi user yêu cầu sửa lỗi:
    Chạy test/smoke/manual check phù hợp, rồi mới claim.
 
 Nếu user nói "vẫn còn lỗi": không vội patch tiếp. Hỏi hoặc thu lại exact steps, log, screenshot/console, expected vs actual, thời điểm xảy ra, profile/channel đang dùng.
+
+### 6.1 FIXLOG + luật 3-STRIKE (BẮT BUỘC — chống "fix đi fix lại")
+
+> File **[FIXLOG.md](FIXLOG.md)** = lịch sử fix. Ghi mọi bug **đã tốn nhiều vòng**, **đặc biệt các dead-end ĐÃ THỬ MÀ SAI**, để không lặp lại con đường cụt.
+
+0. **TRƯỚC mọi bug fix:** đọc [FIXLOG.md](FIXLOG.md). Bug/triệu chứng tương tự đã có entry → **bắt đầu từ "Fix that worked", BỎ QUA "Dead-ends".**
+1. **Đếm strike:** mỗi lần fix-rồi-user-báo-"vẫn lỗi", HOẶC claim-fixed-mà-sai = **1 strike** trên bug đó.
+2. **Đủ ~3 strike (≈ user hỏi lại 3 lần) → DỪNG patch mù.** Bắt buộc: (a) **ghi/cập nhật entry FIXLOG** (symptom + MỌI dead-end đã thử + status); (b) **đổi chiến lược sang thu RUNTIME EVIDENCE** (instrument log `console.warn` — KHÔNG dùng console.log vì electron drop level<2; probe; query DB), KHÔNG đoán tĩnh tiếp.
+3. **Giải xong / partial:** cập nhật entry — "Root cause" + "Fix that worked" + "Verify".
+4. **Bài học hạ tầng đã ghi sẵn trong FIXLOG** (đọc 1 lần): DB thật ở `tikfinity-data/`; `console.log` renderer KHÔNG forward (dùng `console.warn`); modal Customize là dxPopup (nút ĐƯỢC RỒI `inPopup` không `inModal`); widget HTML nhúng socketioclient INLINE; `settings.save()` guard `!restored`.
 
 ---
 
@@ -2101,3 +2124,20 @@ Chuỗi settings-live **ĐÚNG trên giấy**, KHÔNG có bug nhận setting:
 - **#2 Sleeping bodies:** physics (Matter.js-like) coin lắng đáy → `Sleeping.set(body, true)` ngủ, không simulate → CPU thấp; `wakeAllBodies` chỉ wake khi cần.
 - **❌ KHÔNG có cap tổng số coin (gốc):** jar KHÔNG auto-xóa coin cũ → body tích lũy **vô hạn** đến khi reset thủ công. Stream dài / test bắn nhiều → hàng nghìn body (dù ngủ vẫn tốn RAM + **mỗi frame vẫn `drawImage` ảnh quà** — cộng hưởng lỗi IMG nếu ảnh broken, xem hàng IMG bảng trên). → lag/crash. **Reset là escape-hatch DUY NHẤT của gốc.**
 - 🔧 **Nếu user muốn auto-chống-lag:** đây là **deviation khỏi gốc** (READ-GỐC-FIRST gate → PHẢI báo user trước khi thêm). Cách: thêm FIFO cap trong `n.value` physics — `bodies.length > MAX` → `removeBody` con cũ nhất (giống cannon `maxBalls`). Gốc KHÔNG làm → chỉ thêm khi user yêu cầu rõ.
+
+##### ▸ Console spam / lag toàn bộ overlay — debug log GỐC nhúng INLINE (RE 2026-06-04)
+
+**Triệu chứng:** DevTools widget ngập `widget settings received` / `<widgetId> default size` (từ `cannon?cid=1&preview=1:209`, `likefountain...:209`...) + 950+ message → lag (DevTools render + build chuỗi mỗi event). Kèm lỗi đỏ `onConfigEvent TypeError ... reading 'events'` (eventcarousel) + `play() AbortError` (fallingsnow).
+
+**🔑 BẪY QUAN TRỌNG (suýt sửa nhầm) — mỗi widget HTML NHÚNG INLINE bản copy của `socketioclient.js`:** preview widget (cannon.html, likefountain.html, gifts.html...) **KHÔNG load** `downloads/widget/socketioclient.js` ngoài — chúng có code socketioclient **dán thẳng inline** trong `<script>`. Debug log nằm ở **line ~209** (`console.log("widget settings received")`) + **line ~291** (`console.log(widgetId, "default size")`) của TỪNG file HTML. → **Gỡ ở `socketioclient.js` ngoài KHÔNG có tác dụng**; phải strip trong **mỗi file HTML**. (Screenshot báo đúng `:209` = chỉ thẳng vào dòng inline.) Dùng script Node duyệt đệ quy `downloads/widget/**/*.{html,js}`, filter dòng `.trim()` khớp chính xác → ghi lại. Lưu ý `eventcarousel.html` là **THƯ MỤC** không phải file (EISDIR) → guard `statSync().isFile()`.
+
+**Chuỗi widgetSettings re-push (KHÔNG phải loop vô hạn — đã trace gốc):** widget `io.on("widgetSettings")` (socketioclient inline) → gọi `reportState({event:"widgetSettingsAck"})` → emit `reportWidgetState` → backend RC-A relay `widgetState` → bundle `onWidgetState` **BỎ QUA** state `widgetSettingsAck`/`alive` (app deob:70881-70882 — KHÔNG re-push). Re-push chỉ từ `widgetConnected` → `emitWidgetSettingsToWidgets` (app:70675/70944) và cái này **có debounce** `widgetSettingsTimeout` (gộp nhiều call → 1 emit). `widgetConnected` gated first-seen (`_seenWidgets`, clear on disconnect). → Trên trang Overlay Library ~24 iframe: page-load có **burst** widgetConnected (debounced) rồi **lắng**; chỉ re-push tiếp khi widget reconnect/reload. Nếu sau restart backend log `[Broadcast] widgetSettings delivered=N` vẫn bắn liên tục lúc user KHÔNG đụng gì → widget đang reload-churn (xem reloadGuard) chứ KHÔNG phải emit-loop.
+
+**Fix đã áp (2026-06-04):**
+- Gỡ **51 dòng debug log** spam: `widget settings received` ×24 HTML + `widgetId,"default size"` ×25 (HTML + socketioclient.js) + `Data received` ×2 (eventcarousel) + probe `[CANNON SETTINGS]` (cannon.html — đã xong việc, đã xác nhận settings TỚI widget với ballSize=50/maxBalls=60). **Lưu ý: KHÔNG tạo .bak cho gỡ-log** (rủi ro ~0, chỉ xoá console.log).
+- `onConfigEvent` (eventcarousel/script.js + eventcarousel.html/script.js): `data.events.filter(...)` → `(data?.events || []).filter(...)` (config event đôi khi thiếu `.events`).
+- `fallingsnow.html`: `video.play()` → `video.play().catch(function(){})` (AbortError khi reload cắt play()).
+- flat `coinjar.html` gift-guard cũ `!settings.isPro` → null-safe `!preview && settings && settings.isPro === false` (đồng bộ RC-D bản dir).
+- Instrument tạm (CHƯA gỡ — phục vụ chẩn nút Reset): backend `[WS-relay] RECV coin-jar:*` + `[Broadcast] coin-jar:*/coin-match:* delivered=N` (socket-manager) + widget `[CoinJar FLAT/DIR] RESET received | resetJar defined=?` (coinjar.html + coinjar/index.html). **Gỡ sau khi chốt xong bug Reset.**
+
+**Trạng thái nút Reset coin-jar:** workflow 5-lớp (9 agent) kết luận chuỗi reset **đúng trên giấy** (control emit ✓, relay whitelist ✓, `window.resetJar` define cùng `addGift` ✓, physics `World.clear(world,false)` xoá sạch cả body ngủ ✓) → bug là **RUNTIME**, cần log instrument + 1 click thật để chốt (chưa xong).

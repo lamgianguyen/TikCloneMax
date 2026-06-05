@@ -51,7 +51,6 @@
         function preview() {
             if (!previewEnabled) return;
 
-            console.log("Previewing...");
 
             document.querySelector("iframe").contentWindow.postMessage({
                 type: "config", configData: {

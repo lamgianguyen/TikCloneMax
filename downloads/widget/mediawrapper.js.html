@@ -195,7 +195,6 @@ class ActionItem {
             $("body").append(this.textElement);
         }
 
-        console.info("created id", this.id, this.imageElement, this.textElement, this.audioObj);
     }
 
     getId() {
@@ -220,7 +219,6 @@ class ActionItem {
             this.audioObj = null;
         }
 
-        console.info("destroyed id", this.id);
         this.playing = false;
         this.visible = false;
     }
@@ -383,7 +381,6 @@ class ActionItem {
             }
 
             if (settings.myactions_singleTextLine) {
-                console.log("single line");
                 this.textElement.find(".userHeader").css("display", "inline");
                 this.textElement.find(".username").css("display", "inline");
                 this.jumpingText.css("display", "inline");
@@ -434,7 +431,6 @@ class ActionItem {
         const startFadeOut = (overLen) => {
             this.playing = false;
             this.fadeOut();
-            console.log("overLen", overLen);
         }
 
         setTimeout(() => {
@@ -451,7 +447,6 @@ class ActionItem {
     }
 
     fadeIn() {
-        console.log("fade in", this.id);
 
         if (this.imageElement) this.imageElement.removeClass("hidden").removeClass(this.fadeOutClass).addClass(this.fadeInClass);
 
@@ -470,7 +465,6 @@ class ActionItem {
                 this.videoElement[0].currentTime = this.videoStartTime;
                 this.videoElement.trigger('play');
 
-                console.info("video play, start at", this.videoStartTime);
             } catch (err) {
                 console.error(err);
             }
@@ -482,7 +476,6 @@ class ActionItem {
                 this.audioObj.currentTime = 0;
                 this.audioObj.volume = this.soundVolume;
                 this.audioObj.play();
-                console.info("audio play");
             } catch (err) {
                 console.error(err);
             }
@@ -508,7 +501,6 @@ class ActionItem {
         this.playing = false;
 
         if (!this.visible) return;
-        console.log("fade out", this.id);
 
         this.visible = false;
 
@@ -544,13 +536,11 @@ class ActionItem {
 
                             this.audioObj.pause();
 
-                            console.info("audio fadeout complete");
                             return;
                         }
 
                         this.audioObj.volume -= 0.1;
 
-                        console.log(this.audioObj.volume);
                     } catch (ex) {
                         clearInterval(fadeOutInterval);
                         throw ex;
@@ -583,16 +573,13 @@ class ActionItem {
                             this.videoElement.trigger("pause");
 
                             if (this.videoElement.attr('xsrc-enabled') === 'true') {
-                                console.log("xsrc enabled, remove src");
                                 this.videoElement.removeAttr('src');
                             }
 
-                            console.info("video fadeout complete");
                             return;
                         }
 
                         this.videoElement[0].volume -= 0.1;
-                        console.log(this.videoElement[0].volume);
                     } catch (err) {
                         clearInterval(fadeOutInterval);
                         throw ex;

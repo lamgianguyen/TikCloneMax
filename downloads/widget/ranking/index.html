@@ -219,6 +219,13 @@
 
         function updateRanking(userList) {
             if (!settings) return;
+            // [GUARD-2026-06-05] template null khi updateRanking (ajax/socket success) chạy TRƯỚC dòng
+            // template-init trong $(window).load (race) → "Cannot read properties of null (reading 'clone')".
+            // Lazy-init template ở đây để khỏi crash + chặn render.
+            if (!template || !template.length) {
+                template = $(".rankUser").first().clone();
+                if (!template || !template.length) return;
+            }
 
             var counter = 0;
 
@@ -227,7 +234,6 @@
 
             var currentRankingJson = JSON.stringify(userList);
             if (currentRankingJson === lastSetRanking && forceReload === false) {
-                console.log("currentRankingJson no changes, return...");
                 return;
             }
 

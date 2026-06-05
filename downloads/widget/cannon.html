@@ -26,7 +26,6 @@ class SharedIO {
 
             switch (data.name) {
                 case "connectCallback":
-                    console.info("[SharedIO] Connected!", data.params);
                     if (this.connectTimeout) {
                         clearTimeout(this.connectTimeout);
                     }
@@ -128,7 +127,7 @@ function logError(obj) {
 
 var channelId = 0;
 var screenId = 1;
-var settings = JSON.parse(localStorage.getItem("cachedSettings"));
+var settings = JSON.parse(localStorage.getItem("cachedSettings") || "{}");
 var widgetId = document.location.pathname.split("/")[2];
 var lastFontType = null;
 
@@ -139,7 +138,6 @@ screenId = urlParams.get("screen") ? parseInt(urlParams.get("screen")) : 1;
 
 
 if (typeof SharedIO === "function" && typeof SharedWorker === "function" && urlParams.get("disableSharedIO") !== "1") {
-    console.info("[SOCKET] Using SharedIO connection");
 
     try {
         window.io = new SharedIO();
@@ -157,7 +155,6 @@ if (typeof SharedIO === "function" && typeof SharedWorker === "function" && urlP
     }
 
 } else {
-    console.info("[SOCKET] Using native SocketIO connection");
 
     logError({ component: "WidgetIO", message: "SharedIO not supported", sharedWorkerSupported: typeof SharedWorker === "function" });
 
@@ -203,10 +200,9 @@ function reportState(stateData) {
 
 io.on("widgetSettings", function (data) {
     if (location.href.includes('preview=1') && (data == null) && localStorage.getItem("cachedSettings")) {
-        data = JSON.parse(localStorage.getItem("cachedSettings"));
+        data = JSON.parse(localStorage.getItem("cachedSettings") || "{}");
     }
 
-    console.log("widget settings received");
     reportState({ event: "widgetSettingsAck" });
     var hasChanges = JSON.stringify(settings) !== JSON.stringify(data);
     localStorage.setItem("cachedSettings", JSON.stringify(data));
@@ -734,15 +730,6 @@ if (!location.href.includes('preview=1')) {
             window.intensity = settings?.cannon_intensity || 50;
             window.showGiftPictures = settings?.cannon_showGiftPictures !== false;
             window.showCannon = settings?.cannon_showCannon !== false;
-            // [SETTINGS-PROBE] In ra giá trị cannon nhận được MỖI lần widgetSettings tới.
-            // Đổi setting ở app → nếu dòng này nhảy + giá trị KHỚP cái bạn chỉnh = setting ĐÃ tới widget.
-            // Nếu không nhảy / giá trị cũ = setting KHÔNG tới (lỗi đẩy live). settings==null = chưa có bag.
-            console.log('%c[CANNON SETTINGS]', 'color:#00e5ff;font-weight:bold',
-                'ballSize=' + window.ballSize + ' maxBalls=' + window.maxBalls +
-                ' intensity=' + window.intensity + ' showCannon=' + window.showCannon +
-                ' showGiftPic=' + window.showGiftPictures +
-                ' | raw cannon_ballSize=' + (settings && settings.cannon_ballSize) +
-                ' settingsObj=' + (settings ? 'OK' : 'NULL'));
         }
 
         updateSettings();

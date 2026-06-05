@@ -34,7 +34,8 @@
     let spinning = false;
 
     io.on("onSpinWheel", (data) => {
-      if(!settings.isPro && !location.href.includes('preview=1')) {
+      // [GUARD-2026-06-05] null-safe + all-pro (settings có thể null lúc cold socket)
+      if(!location.href.includes('preview=1') && settings && settings.isPro === false) {
         return;
       }
 

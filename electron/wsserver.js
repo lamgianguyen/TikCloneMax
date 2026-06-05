@@ -30,7 +30,9 @@ function start({ port = 21213, host = '127.0.0.1', onConnection } = {}) {
                 try { onConnect(ws); } catch (e) { console.error('[DAPI] onConnection threw:', e); }
             }
             ws.on('close', () => {
-                console.log(`[DAPI] client disconnected; total=${wss.clients.size}`);
+                // [GUARD-2026-06-05] on app shutdown wss is nulled but a pending conn's
+                // 'close' still fires → `wss.clients` threw uncaughtException. Null-safe.
+                console.log(`[DAPI] client disconnected; total=${(wss && wss.clients) ? wss.clients.size : 0}`);
             });
             ws.on('error', (e) => console.error('[DAPI] client error:', e.message));
         });

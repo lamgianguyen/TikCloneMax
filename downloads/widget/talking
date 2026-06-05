@@ -570,7 +570,7 @@
 
         function previewUrl(url, hasPro) {
             const extensions = ['.webm', '.png']
-                if (!settings.isPro && hasPro) {
+                if (settings && !settings.isPro && hasPro) {
                     for (const ext of extensions) {
                     if (url.endsWith(ext)) {
                         return url.replace(ext, `_wm${ext}`);

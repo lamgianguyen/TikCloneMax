@@ -10,7 +10,6 @@ class SharedIO {
 
             switch (data.name) {
                 case "connectCallback":
-                    console.info("[SharedIO] Connected!", data.params);
                     if (this.connectTimeout) {
                         clearTimeout(this.connectTimeout);
                     }

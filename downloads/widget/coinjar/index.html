@@ -49,7 +49,10 @@
       });
 
       io.on("coin-jar:reset", () => {
-        window.resetJar?.();
+        // [INSTR-2026-06-04] coinjar-reset-diag — find where reset dies at runtime
+        console.log('%c[CoinJar DIR] RESET received', 'color:#ff9800;font-weight:bold', '| resetJar defined=', !!window.resetJar);
+        if (!window.resetJar) { console.error('[CoinJar DIR] window.resetJar UNDEFINED — Vue not mounted?'); return; }
+        window.resetJar();
       });
 
       function preview() {

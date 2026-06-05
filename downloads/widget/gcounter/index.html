@@ -346,12 +346,9 @@
 
                     // if diff small wait longer (calulate)
                     if (diff > 3) {
-                        console.log("fast step", step);
                     } else if (diff > 2) {
-                        console.log("medium step", step);
                         await new Promise(resolve => setTimeout(resolve, 75));
                     } else {
-                        console.log("slow step", step);
                         await new Promise(resolve => setTimeout(resolve, 150));
                     }
                 } else {

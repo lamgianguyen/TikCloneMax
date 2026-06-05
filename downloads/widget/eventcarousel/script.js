@@ -46,7 +46,6 @@ function connect() {
 
     websocket.onmessage = (event) => {
         let parsedData = JSON.parse(event.data);
-        console.log("Data received", parsedData);
 
         // Only log events if debug mode is enabled
         if (debugMode) {
@@ -147,7 +146,8 @@ function onConfigEvent(data) {
         currentAnimationFrame = null;
     }
 
-    allEventsData = data.events.filter(event => event.trigger?.imageUrl && event.actions?.length);
+    // [GUARD-2026-06-04] config event sometimes arrives without .events → TypeError. Null-safe.
+    allEventsData = (data?.events || []).filter(event => event.trigger?.imageUrl && event.actions?.length);
     generateCarouselCards();
 }
 
