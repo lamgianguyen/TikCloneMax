@@ -400,7 +400,7 @@ if (!location.href.includes('preview=1')) {
 
     <script>
         io.on("onLikeReceived", (payload) => {
-            if (!payload.isTest && !settings.isPro && !location.href.includes('preview=1')) {
+            if (!payload.isTest && !(settings && settings.isPro) && !location.href.includes('preview=1')) {
                 return;
             }
             document.querySelector("iframe").contentWindow.postMessage({ type: "onLikeReceived", payload }, "*");

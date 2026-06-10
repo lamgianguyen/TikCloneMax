@@ -1,0 +1,59 @@
+{
+  "runId": "20260608-151540",
+  "startedAt": "2026-06-08 15:15",
+  "backendUp": false,
+  "durationMs": 14,
+  "mode": "read-only",
+  "results": [
+    {
+      "id": "mod.api-contract",
+      "area": "api-contract",
+      "status": "SKIP",
+      "evidence": "module file not built yet",
+      "severity": "LOW"
+    },
+    {
+      "id": "mod.socket-relay",
+      "area": "socket-relay",
+      "status": "SKIP",
+      "evidence": "module file not built yet",
+      "severity": "LOW"
+    },
+    {
+      "id": "mod.widget-smoke",
+      "area": "widget-smoke",
+      "status": "SKIP",
+      "evidence": "module file not built yet",
+      "severity": "LOW"
+    },
+    {
+      "id": "mod.perf-sample",
+      "area": "perf-sample",
+      "status": "SKIP",
+      "evidence": "module file not built yet",
+      "severity": "LOW"
+    },
+    {
+      "id": "mod.gate-health",
+      "area": "gate-health",
+      "status": "SKIP",
+      "evidence": "module file not built yet",
+      "severity": "LOW"
+    },
+    {
+      "id": "mod.live-id-finder",
+      "area": "live-id-finder",
+      "status": "SKIP",
+      "evidence": "module file not built yet",
+      "severity": "LOW"
+    }
+  ],
+  "perf": null,
+  "metrics": {},
+  "summary": {
+    "pass": 0,
+    "fail": 0,
+    "skip": 6,
+    "total": 6
+  }
+}

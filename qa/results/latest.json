@@ -1,0 +1,501 @@
+{
+  "runId": "20260610-150511",
+  "startedAt": "2026-06-10 15:05",
+  "backendUp": true,
+  "durationMs": 67,
+  "mode": "read-only",
+  "results": [
+    {
+      "id": "gate.06.aivoiceprefix",
+      "area": "L4 Gate-drift",
+      "name": "gate.06.aivoiceprefix",
+      "status": "PASS",
+      "evidence": "Gate Gate 6/7 anchor 'tts_api__' present (3 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 6/7"
+    },
+    {
+      "id": "gate.07.resolvevoicecfg",
+      "area": "L4 Gate-drift",
+      "name": "gate.07.resolvevoicecfg",
+      "status": "PASS",
+      "evidence": "Gate Gate 7 anchor 'resolveVoiceConfigFromId' present (1 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 7"
+    },
+    {
+      "id": "gate.08.hasbackendctx",
+      "area": "L4 Gate-drift",
+      "name": "gate.08.hasbackendctx",
+      "status": "PASS",
+      "evidence": "Gate Gate 8a anchor 'getAiTtsBackendContext' present (4 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 8a"
+    },
+    {
+      "id": "gate.09b.currentusagemode",
+      "area": "L4 Gate-drift",
+      "name": "gate.09b.currentusagemode",
+      "status": "PASS",
+      "evidence": "Gate Gate 23b anchor 'currentUsageMode' present (1 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 23b"
+    },
+    {
+      "id": "gate.23b.subcredits",
+      "area": "L4 Gate-drift",
+      "name": "gate.23b.subcredits",
+      "status": "PASS",
+      "evidence": "Gate Gate 23b anchor 'sub_credits' present (1 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 23b"
+    },
+    {
+      "id": "gate.09a.ttsauthtoken",
+      "area": "L4 Gate-drift",
+      "name": "gate.09a.ttsauthtoken",
+      "status": "PASS",
+      "evidence": "Gate Gate 9a anchor 'ttsAuthToken' present (9 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 9a"
+    },
+    {
+      "id": "gate.25.loadaivoicestate",
+      "area": "L4 Gate-drift",
+      "name": "gate.25.loadaivoicestate",
+      "status": "PASS",
+      "evidence": "Gate Gate 25 anchor 'loadAiVoiceState' present (5 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 25"
+    },
+    {
+      "id": "gate.25.ensureauthtoken",
+      "area": "L4 Gate-drift",
+      "name": "gate.25.ensureauthtoken",
+      "status": "PASS",
+      "evidence": "Gate Gate 25 anchor 'ensureAiAuthToken' present (6 hits in modules/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 25"
+    },
+    {
+      "id": "gate.25.aivoicecooldown",
+      "area": "L4 Gate-drift",
+      "name": "gate.25.aivoicecooldown",
+      "status": "PASS",
+      "evidence": "Gate Gate 25 anchor 'aiVoiceStateLastLoadedAt' present (3 hits in modules/deobfuscated.js)",
+      "severity": "LOW",
+      "gate": "Gate 25"
+    },
+    {
+      "id": "gate.23.ispro",
+      "area": "L4 Gate-drift",
+      "name": "gate.23.ispro",
+      "status": "PASS",
+      "evidence": "Gate Gate 23 anchor 'userFeatures' present (118 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 23"
+    },
+    {
+      "id": "gate.23.proinfo",
+      "area": "L4 Gate-drift",
+      "name": "gate.23.proinfo",
+      "status": "PASS",
+      "evidence": "Gate Gate 23b anchor 'proInfo' present (52 hits in modules/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 23b"
+    },
+    {
+      "id": "gate.30a.proChip",
+      "area": "L4 Gate-drift",
+      "name": "gate.30a.proChip",
+      "status": "PASS",
+      "evidence": "Gate Gate 30a anchor 'TTSProDropdown' present (4 hits in app/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 30a"
+    },
+    {
+      "id": "gate.30a.freeChip",
+      "area": "L4 Gate-drift",
+      "name": "gate.30a.freeChip",
+      "status": "PASS",
+      "evidence": "Gate Gate 30a anchor 'TTSFreeDropdown' present (1 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30a"
+    },
+    {
+      "id": "gate.30b.switchlanguage",
+      "area": "L4 Gate-drift",
+      "name": "gate.30b.switchlanguage",
+      "status": "PASS",
+      "evidence": "Gate Gate 30b anchor 'switchLanguage' present (4 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30b"
+    },
+    {
+      "id": "gate.30c.streamprofile",
+      "area": "L4 Gate-drift",
+      "name": "gate.30c.streamprofile",
+      "status": "PASS",
+      "evidence": "Gate Gate 30c anchor 'streamProfileId' present (5 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30c"
+    },
+    {
+      "id": "gate.30c.switchprofile",
+      "area": "L4 Gate-drift",
+      "name": "gate.30c.switchprofile",
+      "status": "PASS",
+      "evidence": "Gate Gate 30c anchor 'switchProfile' present (4 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30c"
+    },
+    {
+      "id": "gate.30d.stretchiframe",
+      "area": "L4 Gate-drift",
+      "name": "gate.30d.stretchiframe",
+      "status": "PASS",
+      "evidence": "Gate Gate 30d anchor 'stretchIframe' present (3 hits in modules/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30d"
+    },
+    {
+      "id": "gate.30d.obsoverlays",
+      "area": "L4 Gate-drift",
+      "name": "gate.30d.obsoverlays",
+      "status": "PASS",
+      "evidence": "Gate Gate 30d anchor 'lazy-frame' present (1 hits in modules/deobfuscated.js)",
+      "severity": "LOW",
+      "gate": "Gate 30d"
+    },
+    {
+      "id": "gate.34.refreshdatasource",
+      "area": "L4 Gate-drift",
+      "name": "gate.34.refreshdatasource",
+      "status": "PASS",
+      "evidence": "Gate Gate 34 anchor 'refreshDataSource' present (4 hits in modules/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 34"
+    },
+    {
+      "id": "gate.34.loadtriggers",
+      "area": "L4 Gate-drift",
+      "name": "gate.34.loadtriggers",
+      "status": "PASS",
+      "evidence": "Gate Gate 34 anchor 'loadTriggers' present (4 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 34"
+    },
+    {
+      "id": "gate.34.triggerdatasource",
+      "area": "L4 Gate-drift",
+      "name": "gate.34.triggerdatasource",
+      "status": "PASS",
+      "evidence": "Gate Gate 34 anchor 'triggerDataSource' present (9 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 34"
+    },
+    {
+      "id": "gate.34.onEditorPreparing",
+      "area": "L4 Gate-drift",
+      "name": "gate.34.onEditorPreparing",
+      "status": "PASS",
+      "evidence": "Gate Gate 34 anchor 'onEditorPreparing' present (1 hits in modules/deobfuscated.js)",
+      "severity": "LOW",
+      "gate": "Gate 34"
+    },
+    {
+      "id": "gate.35.distribute",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.distribute",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'distributeEvent' present (11 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.coinjarreset",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.coinjarreset",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'coin-jar:reset' present (1 hits in app/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.coinmatchstart",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.coinmatchstart",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'coin-match:start' present (1 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.spinwheel",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.spinwheel",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'onSpinWheel' present (1 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.widgetstate",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.widgetstate",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'onWidgetState' present (4 hits in modules/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.emitwidgetsettings",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.emitwidgetsettings",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'emitWidgetSettingsToWidgets' present (16 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.resetjar",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.resetjar",
+      "status": "PASS",
+      "evidence": "Gate Gate 35-MECH anchor 'resetJar' present (3 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35-MECH"
+    },
+    {
+      "id": "gate.18.chipbg",
+      "area": "L4 Gate-drift",
+      "name": "gate.18.chipbg",
+      "status": "PASS",
+      "evidence": "Gate Gate 18 anchor 'D435554D' present (4 hits in templates/earlyCss.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 18"
+    },
+    {
+      "id": "gate.18.prochipbg",
+      "area": "L4 Gate-drift",
+      "name": "gate.18.prochipbg",
+      "status": "PASS",
+      "evidence": "Gate Gate 18 anchor 'FFB54D14' present (3 hits in templates/earlyCss.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 18"
+    },
+    {
+      "id": "gate.22e.pagessrcontent",
+      "area": "L4 Gate-drift",
+      "name": "gate.22e.pagessrcontent",
+      "status": "PASS",
+      "evidence": "Gate Gate 22 (E) anchor 'pageSSRContent' present (2 hits in templates/earlyCss.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 22 (E)"
+    },
+    {
+      "id": "gate.16.livestate",
+      "area": "L4 Gate-drift",
+      "name": "gate.16.livestate",
+      "status": "PASS",
+      "evidence": "Gate Gate 16 anchor 'data-tf-live-state' present (7 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 16"
+    },
+    {
+      "id": "gate.01.tfi18nprebake",
+      "area": "L4 Gate-drift",
+      "name": "gate.01.tfi18nprebake",
+      "status": "PASS",
+      "evidence": "Gate Gate 3/4 anchor 'tfI18nPreBake' present (2 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 3/4"
+    },
+    {
+      "id": "gate.17.forceprocredits",
+      "area": "L4 Gate-drift",
+      "name": "gate.17.forceprocredits",
+      "status": "PASS",
+      "evidence": "Gate Gate 17 anchor 'tfForceProCredits' present (4 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 17"
+    },
+    {
+      "id": "gate.23.activateproui",
+      "area": "L4 Gate-drift",
+      "name": "gate.23.activateproui",
+      "status": "PASS",
+      "evidence": "Gate Gate 23 anchor 'tfActivateProUI' present (3 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 23"
+    },
+    {
+      "id": "gate.30a.piniaprotrap",
+      "area": "L4 Gate-drift",
+      "name": "gate.30a.piniaprotrap",
+      "status": "PASS",
+      "evidence": "Gate Gate 30a anchor 'tfPiniaProTrap' present (3 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 30a"
+    },
+    {
+      "id": "gate.30b.patchswitchlang",
+      "area": "L4 Gate-drift",
+      "name": "gate.30b.patchswitchlang",
+      "status": "PASS",
+      "evidence": "Gate Gate 30b anchor 'tfPatchSwitchLanguage' present (2 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 30b"
+    },
+    {
+      "id": "gate.30b.langtolocale",
+      "area": "L4 Gate-drift",
+      "name": "gate.30b.langtolocale",
+      "status": "PASS",
+      "evidence": "Gate Gate 30b anchor 'LANG_TO_LOCALE' present (4 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30b"
+    },
+    {
+      "id": "gate.30d.triggeroverlays",
+      "area": "L4 Gate-drift",
+      "name": "gate.30d.triggeroverlays",
+      "status": "PASS",
+      "evidence": "Gate Gate 30d anchor 'tfTriggerOverlaysOnVisible' present (3 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30d"
+    },
+    {
+      "id": "gate.overlaycard.coinmatchbg",
+      "area": "L4 Gate-drift",
+      "name": "gate.overlaycard.coinmatchbg",
+      "status": "PASS",
+      "evidence": "Gate Overlay-Layout anchor '/widget/coinmatch' present (2 hits in templates/earlyCss.txt)",
+      "severity": "HIGH",
+      "gate": "Overlay-Layout"
+    },
+    {
+      "id": "gate.34.wrappreloadtrig",
+      "area": "L4 Gate-drift",
+      "name": "gate.34.wrappreloadtrig",
+      "status": "PASS",
+      "evidence": "Gate Gate 34 anchor 'tfWrapAndPreloadTriggers' present (2 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 34"
+    },
+    {
+      "id": "gate.06.bootstraptoken",
+      "area": "L4 Gate-drift",
+      "name": "gate.06.bootstraptoken",
+      "status": "PASS",
+      "evidence": "Gate Gate 6 anchor 'tfBootstrapWindowToken' present (1 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 6"
+    },
+    {
+      "id": "gate.09b.quotapayload",
+      "area": "L4 Gate-drift",
+      "name": "gate.09b.quotapayload",
+      "status": "PASS",
+      "evidence": "Gate Gate 23b anchor 'tfBuildQuotaPayload' present (4 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 23b"
+    },
+    {
+      "id": "gate.09b.ttsuserhandler",
+      "area": "L4 Gate-drift",
+      "name": "gate.09b.ttsuserhandler",
+      "status": "PASS",
+      "evidence": "Gate Gate 9b anchor 'tfHandleTtsTikfinityUser' present (2 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 9b"
+    },
+    {
+      "id": "gate.09c.ttscomhandler",
+      "area": "L4 Gate-drift",
+      "name": "gate.09c.ttscomhandler",
+      "status": "PASS",
+      "evidence": "Gate Gate 9c anchor 'tfHandleTtsTikfinityCom' present (2 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 9c"
+    },
+    {
+      "id": "gate.16.patchlivebadge",
+      "area": "L4 Gate-drift",
+      "name": "gate.16.patchlivebadge",
+      "status": "PASS",
+      "evidence": "Gate Gate 16 anchor 'tfPatchLiveBadge' present (2 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 16"
+    },
+    {
+      "id": "gate.35.overlayautosave",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.overlayautosave",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'tfOverlaySettingsAutosave' present (1 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.coinjarreset.iife",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.coinjarreset.iife",
+      "status": "PASS",
+      "evidence": "Gate Gate 35-MECH anchor 'tfCoinJarResetReliable' present (2 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35-MECH"
+    },
+    {
+      "id": "gate.06.normalizevoice",
+      "area": "L4 Gate-drift",
+      "name": "gate.06.normalizevoice",
+      "status": "PASS",
+      "evidence": "Gate Gate 7 anchor 'tfNormalizeMockVoice' present (4 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 7"
+    },
+    {
+      "id": "gate.07.ttsgenerate",
+      "area": "L4 Gate-drift",
+      "name": "gate.07.ttsgenerate",
+      "status": "PASS",
+      "evidence": "Gate Gate 7 anchor 'tfHandleTtsGenerate' present (4 hits in templates/blockScript.txt)",
+      "severity": "LOW",
+      "gate": "Gate 7"
+    },
+    {
+      "id": "gate.30c.bridgesessionme",
+      "area": "L4 Gate-drift",
+      "name": "gate.30c.bridgesessionme",
+      "status": "PASS",
+      "evidence": "Gate Gate 30c anchor 'tfBridgeSessionMe' present (4 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30c"
+    },
+    {
+      "id": "gate.32.giftitemtemplate",
+      "area": "L4 Gate-drift",
+      "name": "gate.32.giftitemtemplate",
+      "status": "PASS",
+      "evidence": "Gate Gate 32/33 anchor 'tfRewriteGiftImagesToCache' present (6 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 32/33"
+    }
+  ],
+  "perf": null,
+  "metrics": {
+    "gate-health": {
+      "gatesChecked": 53,
+      "drifted": [],
+      "present": 53,
+      "missingArtifacts": 0
+    }
+  },
+  "summary": {
+    "pass": 53,
+    "fail": 0,
+    "skip": 0,
+    "total": 53
+  }
+}

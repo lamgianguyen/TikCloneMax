@@ -3,6 +3,29 @@
   "last_updated": "2026-06-03",
   "compaction_checkpoint": true,
   "active_mission": null,
+  "m_qa_harness": {
+    "status": "DONE — self-maintaining QA harness + team built, wired (npm run qa), integration-verified (full sweep runs end-to-end)",
+    "date": "2026-06-08",
+    "user_ask": "tạo đội agent chuyên test, auto ghi lỗi/fix mọi tính năng, sống sót qua bundle update (bổ sung chứ không viết lại), tìm id đang live, đo lag/crash/ram/cpu/đồng bộ, xài full agent",
+    "deliverable": "qa/ harness: lib/{config,http,socket,perf,results} + registry.js (extensible source-of-truth) + run-all.js (orchestrator, --mutating/--only/--json, exit 0/1/2, auto-writes TEST_STATUS QA-AUTO block + FIXLOG QA-AUTO-FAILURES block + qa/results/*.json) + 6 modules (api-contract, socket-relay, widget-smoke, perf-sample, gate-health, live-id-finder). Docs: qa/README.md, qa/BUNDLE_UPDATE.md, .codex/team/qa-team.md. Workflow: .claude/workflows/qa-sweep.js (sweep→triage→opt-in repair→verify).",
+    "durability": "Tests STABLE layers (L1 API + L2 socket + L3 widget + perf = OUR code). L4 gate-health only FLAGS bundle drift (6 gate anchors checked; baseline ALL PRESENT zero-drift). New bundle → run-all → gate-health FAILs on drift → re-anchor needle in registry.js per BUNDLE_UPDATE.md. NEVER rewrite test code.",
+    "team": "8 agents full-Opus parallel (Engineer-API/Socket/Widget/Perf/LiveID/GateHealth + Librarian-QA + Commander). File-ownership absolute, no overlap. All node --check PASS.",
+    "baseline_findings": "First sweep (backend DOWN): 59 PASS / 27 FAIL / 30 SKIP. FAILs = REAL pre-existing issues harness surfaced: 21 widgets pull external CDN (code.jquery.com webcam/overlay/talking, cdnjs matter-js cannon, gsap wheel, lottie myactions, fonts.googleapis ×15) → 'hang OBS' class + Gate35 CDN policy (mostly known-DEFERRED TEST_STATUS row 9). 6 widgets unguarded !settings.isPro (cannon/firework/likefountain/webcam/overlay/talking) → crash when settings null in OBS standalone (Gate35 RC-D — was applied to coinjar/coinmatch only). api/socket SKIP (backend down).",
+    "live_id_finder": "tiktok-live-connector@2.1.1-beta1 TikTokLiveConnection.fetchRoomId(); confirmed @handsome.run52 WAS LIVE during build (roomId=7648924148912032533) → qa/results/live-id.json. Strategy A=/api/tiktok/status when backend up; B=probe candidates.",
+    "nullguard_fix_2026_06_08": "DONE — user approved. Fixed 5 real unguarded !settings.isPro → !(settings && settings.isPro) (behavior-identical, null-safe): cannon.html:691, likefountain.html:403, webcam:86, overlay:81, talking:86 (backups .bak-2026-06-08-pre-qa-nullguard). firework was a COMMENT (false-positive) → improved widget-smoke to skip commented derefs. Harness re-verified: null-guard 25/25 PASS, 0 FAIL. Full sweep 65 PASS / 21 FAIL / 30 SKIP — remaining 21 FAIL = external-libs ONLY (CDN/font localization, known-DEFERRED).",
+    "next": "CDN localization (21 widgets: code.jquery.com/matter-js/gsap/lottie/fonts.googleapis → local) = separate mission, High-Risk, needs user greenlight. Run live sweep when backend UP (api/socket relay tests fire).",
+    "files_new": "qa/** (all new, no backups needed); additive edits: package.json (+qa scripts), CLAUDE.md §0.0 (+QA row), TEST_STATUS.md/FIXLOG.md (auto-managed blocks)."
+  },
+  "m_disconnect_reconnect": {
+    "status": "FIXED static-verified (node --check + module load OK); PENDING runtime verify (needs app up + a drop)",
+    "date": "2026-06-08",
+    "symptom": "kết nối TikTok chạy ~15-20 phút rồi Disconnected dù vẫn live → phải bấm Connect lại tay",
+    "rca": "workflow wf_91e6c62e 8-agent, 3/3 verifier CONFIRMED. Measured: connect 01:15:20 → disconnected 01:30:00 (14m41s); last event 01:27:57 → silence 123.6s < 240s EVENT_SILENCE_TIMEOUT_MS so watchdog mathematically excluded; 0 watchdog/streamEnd/reconnect lines in 12736-line log. Root cause = tiktok-live-connector emits one 'disconnected' on TikTok WS rotation/drop then stops; bridge handler only set connected=false + broadcast, NO auto-reconnect, discarded close code/reason; bridge.connect() sole caller = manual POST.",
+    "fix": "tiktok-bridge.js (backup .bak-2026-06-08-pre-reconnect): (1) disconnected handler logs info.code/reason; (2) scheduleReconnect() backoff 4-8-16-32-60-60s cap 6, guarded by _state.username (user disconnect/profile-switch changes it → stale reconnect skips), clearReconnectTimer in disconnect()/connect(userClick)/watchdog, reset attempts in connected handler. No generation-token (username guard simpler/robust). user-disconnect/watchdog/profile-switch removeAllListeners before disconnect so handler never reaches them → reconnect only on real drops.",
+    "no_double_fire": "reconnect funnels through connect()->disconnect()->wireEvents (old conn removeAllListeners), single conn; points are per-event deltas no replay.",
+    "verify_pending": "app up → drop once (or force-drop) → log: 'disconnected … code= reason=' → 'scheduling auto-reconnect 1/6' → 'auto-reconnect succeeded'; chat after reconnect increments +1 not +2; profile-switch within backoff window → 'obsolete … skip'; manual disconnect → no reconnect line.",
+    "edits": "8 in tiktok-bridge.js: constants(263), module-state+clearReconnectTimer(380), connect userClick reset(386), disconnect clearTimer(229), scheduleReconnect fn(after _connectImpl), connected reset(493), disconnected log+schedule(510), watchdog clearTimer(891)."
+  },
   "doctrine_2026_06_03": {
     "team": "1 TEAM full roster ~8-11 agent mặc định (user: '1 team, nạp mọi agent'). Solo chỉ cho true-trivial. CLAUDE.md §2.1 updated.",
     "model": "FULL OPUS + max-thinking cho MỌI agent (user: 'full opus max thinking context'). Supersedes tiered Opus/Sonnet/Haiku routing.",

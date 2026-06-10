@@ -607,12 +607,17 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
   function install(){
     if (!window.obsoverlays || typeof window.obsoverlays.stretchIframes !== 'function' || window.obsoverlays.__tfStretchPatched) return false;
     window.obsoverlays.stretchIframes = function(){
+      // [re-entrancy guard 2026-06-06] gốc gọi stretchIframes NHIỀU lần (onVisible + 500ms + re-call);
+      // mỗi lần kick N rAF chain → CHỒNG CHẤT (log cũ: stretch 1766ms). Chỉ cho 1 run tại 1 thời điểm.
+      if (window.obsoverlays.__tfStretching) { try { console.warn('[STRETCH-DIAG] SKIP — đang stretch (chống chồng rAF)'); } catch(_){} return; }
       try {
         var arr = Array.prototype.slice.call(document.getElementsByClassName('obsOverlayOnPage'));
         var t0 = (window.performance && performance.now) ? performance.now() : 0;
         var pending = arr.length;
         if (!pending) { window.obsoverlays.stretchDone = true; return; }
+        window.obsoverlays.__tfStretching = true;
         function finish(){
+          window.obsoverlays.__tfStretching = false;
           window.obsoverlays.stretchDone = true;
           try { console.warn('[STRETCH-DIAG] non-blocking stretch done in ' + Math.round(((window.performance&&performance.now)?performance.now():0)-t0) + 'ms for ' + arr.length + ' iframes'); } catch(_){}
         }
@@ -632,7 +637,7 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
           }
           requestAnimationFrame(stepFrame);
         });
-      } catch(e){ try { console.warn('[STRETCH-DIAG] override threw: ' + (e && e.message)); } catch(_){} }
+      } catch(e){ window.obsoverlays.__tfStretching = false; try { console.warn('[STRETCH-DIAG] override threw: ' + (e && e.message)); } catch(_){} }
     };
     window.obsoverlays.__tfStretchPatched = true;
     try { console.warn('[STRETCH-DIAG] stretchIframes patched → non-blocking (rAF, parallel, 20px step)'); } catch(_){}
@@ -1739,10 +1744,17 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
   }
   function refreshStatus(){
     fetch('/api/tiktok/status').then(function(r){ return r.json(); }).then(function(d){
-      var live = !!(d && d.account && d.account.isLive);
+      // Key off `connected` (the real session state), NOT the strict `isLive`
+      // (connected && roomId && roomInfo.status===2). The topbar button + Pinia
+      // nav corner (tf-connect.js) track `connected`, so keying this badge off
+      // `isLive` re-opened the LIVE-vs-Disconnected desync whenever connected
+      // but not strictly broadcasting. One canonical signal = all 3 converge.
+      // (Stream-end is still caught: the bridge watchdog clears `connected` on
+      // 4-min silence + streamEnd, so this won't lie "LIVE" after a real end.)
+      var live = !!(d && d.connected);
       if (live !== lastIsLive) {
         lastIsLive = live;
-        try { console.log('[TF-live-badge] isLive=' + live + ' connected=' + (d.connected) + ' roomId=' + d.roomId); } catch(_){}
+        try { console.log('[TF-live-badge] connected=' + live + ' isLive=' + (d && d.isLive) + ' roomId=' + (d && d.roomId)); } catch(_){}
       }
       setState(live);
     }).catch(function(){});
@@ -2493,6 +2505,9 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
     var POPUP_DEBOUNCE_MS = 5000;  // Min 5s between error popups
     var STARTUP_GRACE_MS = 10000;  // Don't show errors in first 10s
     var pageLoadTime = Date.now();
+    // Fallback-popup state: baseline of bridge.lastErrorAt captured on the first
+    // poll so a STALE pre-load error never fires; -1 = not yet captured.
+    var baselineErrorAt = -1;
     window.__tfPopup = { ready: true, polls: 0, lastState: null };
     console.log('[tf-popup] script loaded');
 
@@ -2663,29 +2678,43 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
       icon.textContent = '📡';
 
       var msg = message || 'Unable to connect to TikTok LIVE.';
-      var isOffline = /offline|not.*live|live has ended/i.test(msg);
+      // Treat "room id / all sources / not found" as offline-or-network too:
+      // the bridge reports a not-live channel (or a network block of TikTok)
+      // as "Failed to retrieve Room ID from all sources".
+      var isOffline = /offline|not.*live|live has ended|room id|all sources|not.*found|user.*not.*exist|econn|etimedout|enotfound|getaddrinfo|fetch failed|network/i.test(msg);
       // Short error code for the "Details:" line — match Tikfinity gốc.
       var detailCode = msg;
       if (/rate.*limit|429/i.test(msg)) detailCode = 'rateLimited';
       else if (/missing.*extension|missingextension/i.test(msg)) detailCode = 'missingExtension';
       else if (/timed?.*out|timeout/i.test(msg)) detailCode = 'connectTimeout';
-      else if (/not.*found|user.*not.*exist/i.test(msg)) detailCode = 'userNotFound';
       else if (/ip.*block|403/i.test(msg)) detailCode = 'ipBlocked';
-      else if (isOffline) detailCode = 'LIVE has ended';
+      else if (/econn|enotfound|getaddrinfo|fetch failed|network/i.test(msg)) detailCode = 'networkBlocked';
+      else if (/room id|all sources|not.*found|user.*not.*exist/i.test(msg)) detailCode = 'channelOfflineOrBlocked';
+      else if (isOffline) detailCode = 'channelOffline';
 
       var title = document.createElement('h3');
-      title.textContent = isOffline ? 'Your stream is offline' : 'Failed to access your LIVE stream!';
+      title.textContent = isOffline ? 'Không kết nối được TikTok LIVE' : 'Lỗi kết nối TikTok LIVE';
 
+      // Escape username before innerHTML — it comes from the user's own Setup
+      // field (only .toString().trim() server-side) so a value like
+      // `<img onerror=...>` would otherwise execute. Self-XSS, local app → LOW,
+      // but cheap to neutralise while the code is open.
+      var safeUser = String(username || '').replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+      var who = username ? ('<b>@' + safeUser + '</b>') : 'kênh của bạn';
       var body = document.createElement('p');
-      if (isOffline && username) {
+      if (isOffline) {
         body.innerHTML =
-          'Unable to connect to your TikTok channel <b>@' + username + '</b> because your TikTok LIVE stream is currently offline!<br><br>' +
-          'Please start your stream and click the connect button again. ' +
-          'Note that you can also set up TikFinity while you are offline.<br><br>' +
-          'If you have any questions, please contact support.';
+          'Không kết nối được tới ' + who + '. Thường do MỘT trong các lý do sau — hãy kiểm tra rồi bấm <b>Kết nối</b> lại:<br><br>' +
+          '• Kênh <b>chưa/đang KHÔNG phát LIVE</b> → mở TikTok bắt đầu phát trực tiếp trước.<br>' +
+          '• <b>Mạng đang chặn TikTok</b> → thử mở tiktok.com trên trình duyệt; nếu không vào được thì đổi mạng / bật-tắt VPN.<br>' +
+          '• <b>Sai tên kênh</b> → kiểm tra tên trong "Cài đặt" đúng @handle của bạn.<br><br>' +
+          'Could not connect: your channel may be <b>offline</b>, your <b>network may be blocking TikTok</b>, or the <b>username is wrong</b>.';
       } else {
         body.innerHTML =
-          'Please make sure that the username entered under "Setup" corresponds to your TikTok profile @ handle.';
+          'Không kết nối được tới TikTok LIVE. Kiểm tra: tên kênh trong "Cài đặt" đúng @handle chưa, kênh có đang phát LIVE không, và mạng có vào được tiktok.com không.<br><br>' +
+          'Please make sure the username under "Setup" matches your TikTok @ handle, that the channel is live, and that your network can reach tiktok.com.';
       }
 
       var details = document.createElement('p');
@@ -2764,6 +2793,24 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
         if (connected) setStatusPill('live', username);
         else if (connecting) setStatusPill('connecting', username);
         else setStatusPill('disconnected', username);
+
+        // FALLBACK popup (the socket `connectFailed` event is the fast path, but
+        // it can be MISSED — dropped frame, socket not yet connected, or a
+        // connect path that didn't emit). `lastErrorAt` only advances on a
+        // USER-initiated attempt (userClick), so this stays silent for auto /
+        // bootstrap reconnects. Baseline on first poll → never fire on a stale
+        // pre-load error. Debounced against the socket path so we never double.
+        var errAt = Number(s && s.lastErrorAt) || 0;
+        if (baselineErrorAt < 0) {
+          baselineErrorAt = errAt;
+        } else if (errAt > baselineErrorAt && !connecting && !connected) {
+          baselineErrorAt = errAt;
+          if (Date.now() - pageLoadTime > STARTUP_GRACE_MS &&
+              Date.now() - lastPopupShownTime > POPUP_DEBOUNCE_MS) {
+            lastPopupShownTime = Date.now();
+            showPopup((s && s.lastError) || 'Unable to connect to TikTok LIVE.', username);
+          }
+        }
       } catch (e) {}
     }
 
@@ -2783,6 +2830,8 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
           var user = (payload && payload.username) || '';
           console.log('[tf-popup] connectFailed event:', msg);
           removeToast();
+          if (Date.now() - lastPopupShownTime <= POPUP_DEBOUNCE_MS) return; // poll fallback already showed it → no flicker
+          lastPopupShownTime = Date.now(); // coordinate with the poll fallback → no double-popup
           showPopup(msg, user);
         });
         console.log('[tf-popup] connectFailed listener attached');

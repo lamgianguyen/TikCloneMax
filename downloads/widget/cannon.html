@@ -688,7 +688,7 @@ if (!location.href.includes('preview=1')) {
             let giftStreaks = {};
 
             async function handleOnGift(giftData) {
-                if (!giftData.isTest && !settings.isPro && !location.href.includes('preview=1')) {
+                if (!giftData.isTest && !(settings && settings.isPro) && !location.href.includes('preview=1')) {
                     return;
                 }
 

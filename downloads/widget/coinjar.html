@@ -20,6 +20,43 @@
     <script src="sharedio/sharedio.js"></script>
     <script src="socketioclient.js?v=10"></script>
 
+    <!-- TikMax widget hardening (wf_806eb47d): img→proxy shim · addGift pre-mount queue · promise-noise guard. MUST run before coin-jar.js. -->
+    <script>
+      (function () {
+        if (window.__tikmaxCoinjarShim) return;
+        window.__tikmaxCoinjarShim = true;
+        // FIX-B: route *.tiktokcdn.com images through the local proxy → a valid
+        // (transparent) PNG instead of a broken texture. Covers coin-jar's
+        // off-DOM new Image() textures + standalone/OBS (no Electron intercept).
+        var CDN = /^[a-z0-9-]+\.tiktokcdn\.com$/i; // ONLY tiktokcdn; leave assets.tikfinity.com/local/data/blob alone
+        function rewrite(v) {
+          if (typeof v !== "string") return v;
+          if (v.indexOf("/tiktok-img-cache/") !== -1) return v;
+          if (v.lastIndexOf("data:", 0) === 0 || v.lastIndexOf("blob:", 0) === 0) return v;
+          try { var u = new URL(v, location.href); if (CDN.test(u.hostname)) return "/tiktok-img-cache/" + u.hostname + u.pathname + u.search; } catch (e) {}
+          return v;
+        }
+        var dsc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
+        if (dsc && dsc.set) {
+          Object.defineProperty(HTMLImageElement.prototype, "src", {
+            get: dsc.get, set: function (v) { dsc.set.call(this, rewrite(v)); },
+            configurable: true, enumerable: dsc.enumerable,
+          });
+        }
+        // FIX-C: queue gifts that arrive before coin-jar.js (Vue setup) assigns
+        // the real window.addGift (unconditional assignment → overwrites this stub);
+        // the load handler drains the queue right after mount.
+        window.__giftQueue = window.__giftQueue || [];
+        if (typeof window.addGift !== "function") {
+          window.addGift = function (d) { window.__giftQueue.push(d); };
+        }
+        // FIX-D′: mute image-promise rejection noise ONLY (real Error rejections still surface).
+        window.addEventListener("unhandledrejection", function (e) {
+          if (e.reason instanceof Event) e.preventDefault();
+        });
+      })();
+    </script>
+
     <script
       type="module"
       crossorigin
@@ -33,6 +70,10 @@
       window.addEventListener("load", () => {
         const CoinJar = window.createCoinJar();
         CoinJar.mount("#app");
+        // Drain gifts queued before mount — window.addGift is now the real one.
+        try {
+          (window.__giftQueue || []).splice(0).forEach((d) => { try { window.addGift(d); } catch (e) {} });
+        } catch (e) {}
       });
 
       let triggered = false;

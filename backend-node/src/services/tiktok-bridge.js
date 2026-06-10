@@ -227,6 +227,7 @@ setInterval(flushPendingPoints, PENDING_POINTS_FLUSH_MS).unref?.();
 // ── Connection orchestration ───────────────────────────────────────────────
 
 async function disconnect() {
+  clearReconnectTimer(); // cancel any pending auto-reconnect on teardown
   if (_state.connection) {
     try {
       // Strip event handlers BEFORE disconnect so the old connection's
@@ -261,6 +262,15 @@ async function disconnect() {
 // almost always lands on a working signer within that budget.
 const MAX_CONNECT_ATTEMPTS = 5;
 const RETRY_DELAY_MS = 3000;
+
+// ── Auto-reconnect on mid-stream WS drop (RCA wf_91e6c62e: ws-drop-no-reconnect) ─
+// TikTok rotates/closes the live WebSocket periodically (~15-20 min observed).
+// The connector emits ONE `disconnected` and stops; without this the session
+// stays dead until the user clicks Connect again. Bounded, backed-off reconnect
+// for the SAME username only — see scheduleReconnect (§8: idempotent, capped).
+const RECONNECT_BASE_DELAY_MS = 4000; // first retry wait; doubles each attempt
+const RECONNECT_MAX_DELAY_MS = 60000; // backoff ceiling
+const RECONNECT_MAX_ATTEMPTS = 6; // ~4+8+16+32+60+60s then give up
 
 // Read roomId/roomInfo off the live connection instance. tiktok-live-connector
 // v2 exposes them as getters (`get roomId()`, `get roomInfo()`) that are set
@@ -379,12 +389,33 @@ async function tryConnectOnce(clean, channelId, attempt) {
 let _connectInFlight = null;
 let _connectAbortRequested = false;
 
+// Auto-reconnect timer + attempt counter (see scheduleReconnect). The pending
+// reconnect is identified by the target username — a user disconnect / profile
+// switch changes `_state.username`, so a stale reconnect skips itself at fire
+// time. clearReconnectTimer() cancels the pending timer (does NOT reset attempts,
+// so an auto-reconnect's own internal disconnect() can't reset its own backoff).
+let _reconnectTimer = null;
+let _reconnectAttempts = 0;
+function clearReconnectTimer() {
+  if (_reconnectTimer) {
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = null;
+  }
+}
+
 async function connect(username, channelId, opts) {
   if (!username || typeof username !== 'string') {
     throw new Error('username required');
   }
   const userClick = !!(opts && opts.userClick);
   const clean = username.trim().replace(/^@+/, '');
+
+  // A user-initiated connect is a fresh session intent → drop any pending
+  // auto-reconnect from a previous drop and reset its backoff counter.
+  if (userClick) {
+    _reconnectAttempts = 0;
+    clearReconnectTimer();
+  }
 
   // Already connected to the SAME username — short-circuit. Bundle re-POSTs
   // frequently (focus events, status polls); answering "already done"
@@ -472,6 +503,56 @@ async function _connectImpl(clean, channelId, userClick) {
   throw lastErr || new Error('Connection failed after retries');
 }
 
+// Schedule a bounded, backed-off auto-reconnect for `username` after a connector-
+// side WS drop. Only ever scheduled from the LIVE `disconnected` handler — user
+// disconnect / profile switch / watchdog all removeAllListeners() before
+// disconnect(), so they never reach the handler. Guards (§8): a user disconnect /
+// profile switch changes `_state.username` → a stale reconnect skips at fire time;
+// attempt cap + exponential backoff stop hammering a genuinely-ended stream;
+// single timer + funnel through connect()'s mutex → never two connections.
+function scheduleReconnect(channelId, username) {
+  if (_reconnectAttempts >= RECONNECT_MAX_ATTEMPTS) {
+    logger.warn(`[TikTokBridge] auto-reconnect giving up @${username} after ${_reconnectAttempts} attempts`);
+    _reconnectAttempts = 0;
+    _state.connecting = false; // give up → status reports Disconnected, not stuck "Connecting"
+    return;
+  }
+  // Report `connecting:true` for the WHOLE reconnect window (backoff + attempts)
+  // so the UI shows a continuous "Connecting..." instead of flashing idle
+  // "Disconnected" between the drop and the next attempt.
+  _state.connecting = true;
+  const attempt = (_reconnectAttempts += 1);
+  const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** (attempt - 1), RECONNECT_MAX_DELAY_MS);
+  logger.warn(`[TikTokBridge] scheduling auto-reconnect ${attempt}/${RECONNECT_MAX_ATTEMPTS} @${username} in ${delay}ms`);
+  clearReconnectTimer();
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    if (_state.connected) return; // already revived by something else
+    if (_state.username !== username) {
+      // user disconnected or switched profile → this reconnect is obsolete
+      logger.info(`[TikTokBridge] auto-reconnect @${username} obsolete (now @${_state.username}) — skip`);
+      _reconnectAttempts = 0;
+      return;
+    }
+    if (_connectInFlight || _connectAbortRequested) return;
+    logger.warn(`[TikTokBridge] auto-reconnect attempt ${attempt} @${username}`);
+    // userClick:false → silent (no error popup). Reuses full connect() path.
+    connect(username, channelId, { userClick: false })
+      .then(() => {
+        _reconnectAttempts = 0;
+        logger.info(`[TikTokBridge] auto-reconnect succeeded @${username}`);
+      })
+      .catch((err) => {
+        logger.warn({ err: err?.message || err }, `[TikTokBridge] auto-reconnect attempt ${attempt} failed @${username}`);
+        // Re-arm the next backoff step only if still the current dead session.
+        if (!_state.connected && _state.username === username && !_connectInFlight) {
+          scheduleReconnect(channelId, username);
+        }
+      });
+  }, delay);
+  _reconnectTimer.unref?.();
+}
+
 function wireEvents(conn, channelId, username) {
   // Ignore events from a stale connection. When the bundle re-POSTs
   // /api/tiktok/connect, the previous `conn` may still fire `disconnected`
@@ -492,6 +573,7 @@ function wireEvents(conn, channelId, username) {
 
   conn.on('connected', (state) => {
     if (isStale()) return;
+    _reconnectAttempts = 0;           // healthy connection → reset reconnect backoff
     _state.lastEventAt = Date.now();  // arm watchdog on connect
     broadcast(channelId, 'connected', {
       username, roomId: state.roomId, roomInfo: state.roomInfo || {},
@@ -507,12 +589,21 @@ function wireEvents(conn, channelId, username) {
     try { aggregates.emitInitialState(channelId); } catch { /* ignore */ }
   });
 
-  conn.on('disconnected', () => {
+  conn.on('disconnected', (info) => {
     if (isStale()) return;
+    // Log the close reason the connector emits (was silently discarded) so the
+    // drop class is diagnosable: code 1000 = clean/heartbeat-timeout, else abnormal.
+    const code = info?.code ?? info?.closeCode ?? null;
+    const reason = info?.reason ?? info?.message ?? '';
+    logger.warn(`[TikTokBridge] disconnected @${username} code=${code} reason="${reason}" roomId=${_state.roomId}`);
     broadcast(channelId, 'disconnected', { username, reason: 'disconnected' });
     sockets.broadcast('status', { connected: false, tiktok: false, connecting: false });
     sockets.broadcast('stats', { viewers: 0, likes: 0, gifts: 0, diamonds: 0, followers: 0 });
     _state.connected = false;
+    // Mid-stream WS drop (the bug this fixes). user-disconnect / profile-switch /
+    // watchdog strip listeners before disconnect, so they never reach here → it's
+    // safe to attempt a bounded auto-reconnect for the same username.
+    scheduleReconnect(channelId, username);
   });
 
   // Don't broadcast `connectFailed` from per-error event — the connector
@@ -889,6 +980,7 @@ setInterval(() => {
   _state.connecting = false;
   // Reset event clock so the next connection round starts fresh.
   _state.lastEventAt = 0;
+  clearReconnectTimer(); // watchdog declared the stream dead → no auto-reconnect
   // Tear down the (likely-dead) connection. removeAllListeners first so the
   // late-firing `disconnected` event doesn't clobber a fresh state.
   if (_state.connection) {

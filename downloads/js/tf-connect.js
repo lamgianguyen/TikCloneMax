@@ -7,6 +7,17 @@
   var _connected = false;
   var _connecting = false;
   var _currentUsername = '';
+  // While a USER-initiated connect/disconnect is settling, the continuous
+  // backend monitor must NOT reconcile (it would stomp the in-flight action
+  // back to a stale backend value). Timestamp window, cleared by time.
+  var _uiBusyUntil = 0;
+  // A user click (topbar CTA or native setup button) opens this short window;
+  // the browserbridge.connect hook reads it so a connect routed through the
+  // bundle's opaque tryConnect still counts as userClick → the failure popup
+  // fires. Auto / bootstrap connects (no recent click) stay userClick:false →
+  // silent (no popup), preserving the no-mis-fire guarantee.
+  var _userConnectIntentUntil = 0;
+  var USER_CONNECT_INTENT_MS = 4000;
 
   // ── Helpers ──
 
@@ -237,6 +248,7 @@
 
     console.log('[TF] Connecting to @' + user + '... userClick=' + !!userClick);
     updateUI(user, 'connecting');
+    _uiBusyUntil = Date.now() + 3000; // hold the monitor off until startPolling owns it
 
     return fetch('/api/tiktok/connect', {
       method: 'POST',
@@ -260,6 +272,9 @@
   function doDisconnect() {
     console.log('[TF] Disconnecting from @' + _currentUsername);
     stopPolling();
+    // Hold the monitor off so it can't snap the button back to "Disconnect"
+    // before the backend has processed the async disconnect POST.
+    _uiBusyUntil = Date.now() + 5000;
     updateUI(_currentUsername, 'disconnected');
     return fetch('/api/tiktok/disconnect', { method: 'POST' }).catch(function() {});
   }
@@ -279,7 +294,9 @@
       if (channelInfo) {
         user = channelInfo.username || channelInfo.uniqueId || channelInfo.channelName || channelInfo.tiktokUsername || '';
       }
-      return doConnect(normalize(user) || getTikTokUsername());
+      // Propagate user-intent: a connect routed here within the click window is
+      // a real user click → userClick:true so a failure surfaces the popup.
+      return doConnect(normalize(user) || getTikTokUsername(), Date.now() < _userConnectIntentUntil);
     };
     bridge.disconnect = function() { return doDisconnect(); };
     bridge.reconnect = bridge.connect;
@@ -298,6 +315,7 @@
 
     // Small delay: let the bridge hook fire first if bundle calls browserbridge.connect
     setTimeout(function() {
+      _userConnectIntentUntil = Date.now() + USER_CONNECT_INTENT_MS; // user clicked a connect button
       var username = getTikTokUsername(btn);
 
       if (_connected) {
@@ -396,13 +414,14 @@
           if (window.isTosViolation) {
             return window.showTosViolationWarning && window.showTosViolationWarning();
           }
+          _userConnectIntentUntil = Date.now() + USER_CONNECT_INTENT_MS; // user-initiated → failure popup allowed
           if (window.broadcastlistener && window.broadcastlistener.tryConnect) {
             window.broadcastlistener.tryConnect(true, true, true);
           } else {
             var u = (window.session.me.channel.channelName || '').replace(/^@+/, '');
             fetch('/api/tiktok/connect', {
               method:'POST', headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ username: u })
+              body: JSON.stringify({ username: u, userClick: true })  // userClick → failure popup fires
             }).catch(function(){});
           }
           try {
@@ -505,6 +524,39 @@
     }).catch(function() {});
   }
   setTimeout(function() { checkBackendStatus(3); }, 1500);
+
+  // ── Continuous backend-status monitor (fixes LIVE/Disconnected desync) ──
+  // checkBackendStatus above runs ONCE on load; startPolling stops the moment
+  // a connect settles. So after a mid-stream backend WS drop (connected→false),
+  // the frontend used to stay STALE — button kept "Disconnect", Pinia nav corner
+  // kept "LIVE" — while the under-avatar status pill (which polls every 1s)
+  // correctly showed "Disconnected". This loop keeps _connected/_connecting (and
+  // therefore the button + nav corner + central LIVE pill, all driven by them)
+  // BÁM the backend's real /api/tiktok/status, so all indicators stay in sync.
+  // Only acts when a fresh value DIFFERS from the current UI state → no flicker,
+  // no re-showing the connect status bar. Yields to an in-flight connect poll.
+  function monitorBackendStatus() {
+    if (_pollTimer || Date.now() < _uiBusyUntil) return; // connect/disconnect owns the UI
+    fetch('/api/tiktok/status', { cache: 'no-store' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (_pollTimer || Date.now() < _uiBusyUntil) return; // re-check after async (race guard)
+        var beConnected = !!(d && d.connected);
+        var beConnecting = !!(d && d.connecting);
+        var user = (d && d.username) || _currentUsername;
+        if (beConnected && !_connected) {
+          updateUI(user, 'connected');      // backend (re)connected → sync to LIVE
+        } else if (!beConnected && _connected) {
+          updateUI(user, beConnecting ? 'connecting' : 'disconnected'); // drop → stop lying
+        } else if (!beConnected && !_connected && beConnecting && !_connecting) {
+          updateUI(user, 'connecting');     // backend started (re)connecting
+        } else if (!beConnected && !beConnecting && _connecting) {
+          updateUI(user, 'disconnected');   // backend gave up connecting
+        }
+      })
+      .catch(function() {});
+  }
+  setInterval(monitorBackendStatus, 3000);
 
   // ── Topbar chip avatar — pull the connected TikTok account's avatar from
   // /api/tiktok/account and paint it into the topright chip. Tikfinity's

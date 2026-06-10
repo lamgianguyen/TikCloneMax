@@ -26,19 +26,40 @@ const _seenWidgets = new Map(); // channelId -> Set<widgetId>
  *
  * @param {import('socket.io').Server} ioServer
  */
+// [TTS-FIX 2026-06-06] Default channel for sockets that connect but never send a
+// valid channelId. ROOT CAUSE (runtime log): the control-page socket (bundle main
+// window) CONNECTS (emits distributeEvent fine) but NEVER emits `login` with
+// appType=controlpage — backend-debug.log shows 25 `login ok` all appType=widget,
+// ZERO controlpage. So its socket.data.channelId stays 0 → broadcastToChannel
+// (channelId=1) skips it → chat/gift never reach broadcastlistener.onChat →
+// tts.onChat never runs → TTS Logs empty + no live FX on control page. Single-
+// channel clone ⇒ defaulting any unset socket to the default channel is correct
+// (widgetSettings stays appType='widget'-scoped, so no reload-loop on the main app).
+function defaultChannelId() {
+  try {
+    const channels = require('../db/models/channels');
+    const def = channels.findDefault();
+    return def ? def.ChannelId : 0;
+  } catch { return 0; }
+}
+
 function bind(ioServer) {
   io = ioServer;
 
   io.on('connection', (socket) => {
-    socket.data.channelId = 0;
+    socket.data.channelId = defaultChannelId();   // was 0 → control-page (no login) got filtered out
     socket.data.appType = '';
-    logger.info(`[SocketManager] Client connected: ${socket.id} (total: ${io.engine.clientsCount})`);
+    logger.info(`[SocketManager] Client connected: ${socket.id} (total: ${io.engine.clientsCount}) defaultChannel=${socket.data.channelId}`);
 
     // Bundle sends `setContext` after connect with { channelId, appType }.
     socket.on('setContext', (payload) => {
       if (payload && typeof payload === 'object') {
-        socket.data.channelId = Number(payload.channelId) || 0;
+        // [TTS-FIX] fallback to default channel when payload.channelId<=0 (mirror handleLogin) —
+        // the control page sends channelId=0 in the single-channel clone, which used to reset to 0.
+        const cid = Number(payload.channelId) || 0;
+        socket.data.channelId = cid > 0 ? cid : defaultChannelId();
         socket.data.appType = String(payload.appType || '');
+        logger.info(`[SocketManager] setContext socket=${socket.id} channelId=${socket.data.channelId} appType=${socket.data.appType}`);
       }
     });
 

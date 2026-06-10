@@ -1,53 +1,57 @@
 # Current Mission
 
 ## Mission ID
-M-2026-06-01-011-overlay-switch-fullteam
+M-QA-HARNESS (2026-06-08) — Self-maintaining QA team + harness
+
+**Commander:** current session (Opus 4.8) · **Tier:** Large (durable infra, multi-subsystem)
 
 ## Objective
-PURE IN-APP PREVIEW bug (KHÔNG liên quan live/OBS): trang Webcam Frames, bấm ‹ › đổi style →
-counter + title ĐỔI nhưng **preview frame KHÔNG nhảy** (giữ frame cũ). User đã test nhiều vòng,
-qua nhiều fix + restart, VẪN chưa switch được. User yêu cầu full team.
+Build a permanent, self-maintaining QA harness + agent team that auto-tests EVERY feature,
+records errors+fixes, measures perf (RAM/CPU/lag/crash), finds a live TikTok ID for real-event
+tests, and **survives bundle updates** (extends, never restarts from scratch).
 
-## Đã thử (mà CHƯA giải quyết được — nghi điểm mù / cache)
-- Fix #1: widget-settings-cache.js aliasGraphicOverlayKeys → broadcast mang `webcam_pure_variation`
-  (non-prefixed). VERIFIED: probe cho thấy iframe window.settings['webcam_pure_variation'] = giá trị đúng.
-- Fix #2a: socketioclient.js override (139) → `(data==null)` fallback (ưu tiên broadcast tươi).
-- Fix #2b (ĐÃ REVERT): framePreviewPing re-feed — sai vì framePreviewPing TẮT khi isLive (modules:19269).
-- Fix #2c: socketioclient.js generic widgetSettings handler (line ~155-164) thêm
-  `if(preview && io.fakeEmit) io.fakeEmit('widgetSettings', data)` → ép updateWidgetSettings(fresh) mỗi broadcast.
-- Cache bump: downloads/widget/{webcam,overlay,talking} socketioclient.js?v=10 → ?v=11.
+## Why (user directive 2026-06-08)
+> "tạo 1 đội ngũ agent chuyên test, ghi lỗi cách fix... auto hết mọi tính năng... sau này file
+> bundle mã hoá phiên bản mới vẫn BỔ SUNG chứ không phải mỗi lúc code mỗi khác... tự làm tự kiểm
+> duyệt tự tạo module test... tìm id đang live, test mọi chức năng, coi lag/crash/đồng bộ giao
+> diện/ram/cpu/hiệu năng... làm project chạy không lỗi. xài full agent."
 
-## PROVEN facts (đừng phủ nhận, hãy build lên)
-- `io.fakeEmit('widgetSettings', w.settings)` chạy tay trong iframe → preview RE-RENDER đúng (before
-  pure-greenscreen-blank → after pure-greenscreen-2panels). Tức render + bag ĐÚNG; chỉ thiếu trigger.
-- Probe #slot: bag = giá trị HIỆN TẠI đúng, nhưng <video><source src> = giá trị CŨ (stale). 0 errors.
-- broadcastlistener.isLive=false, navStore.isLive=false (lúc probe). Backend /api/tiktok/status đúng.
-- backend POST /updateSettings = 200, persist OK (P2 widget_webcam_pure_variation đổi theo probe).
-- SharedIO (sharedio.js:18-22) dispatch eventData cho MỌI listener; webcam đăng ký
-  io.on('widgetSettings', updateWidgetSettings) ở webcam:657 (qua wrapper preview 264-272).
-- Widget = gőc (M-009 fetch). render() webcam:566; updateWidgetSettings webcam:618; ASSET_MAP đủ.
+## Durability principle (the differentiator)
+Test the **STABLE contract layers**, not obfuscated bundle internals:
+- L1 backend HTTP API — OUR backend → stable.
+- L2 Socket.IO relay/event layer — OUR socket-manager → stable.
+- L3 widget standalone HTML — OUR widget files → semi-stable.
+- L4 bundle integration — thin DOM probes + **gate-health** that *flags drift* instead of breaking.
 
-## NGHI VẤN HÀNG ĐẦU (team phải làm rõ)
-1. **CODE MỚI CÓ ĐƯỢC NẠP KHÔNG?** /widget/* + socketioclient.js cache rất lì trong Electron; v=11
-   chỉ ăn nếu HTML widget tự reload. Có thể user toàn chạy code CŨ → mọi fix "không ăn". Cần cách
-   FORCE-LOAD chắc chắn + probe xác minh version đang chạy.
-2. Switch style có THỰC SỰ phát broadcast tới iframe không, hay bag update qua đường khác?
-3. updateWidgetSettings có ĐƯỢC GỌI trên broadcast switch không? (probe trước: render stale ⇒ nghi KHÔNG).
-4. fakeEmit→callbacks['widgetSettings'] có trỏ đúng updateWidgetSettings không (đăng ký nhiều lần?).
-5. Nguyên nhân HOÀN TOÀN MỚI chưa xét: iframe bị recreate khi switch? nhiều iframe? hasChanges bug?
-   replaceWithVideo <source> không reload? carousel KHÔNG save khi state===0?
+New obfuscated bundle → L1–L3 unchanged; L4 runs RE pipeline (Gate 22) + diff → reports which
+Gates broke. Runbook: `qa/BUNDLE_UPDATE.md`.
 
-## Team (Workflow full — Large tier)
-Strategist[O] + Scout-CacheLoad[S] + Scout-ChainTrace[S] + Scout-AltCause[S] + Scout-Instrument[S]
-→ Reconciler[O] → Critic[O].
+## Roster (full Opus, max-thinking)
+| Agent | Owns (one file each) |
+|---|---|
+| Commander | `qa/lib/*`, `qa/registry.js`, `qa/run-all.js`, package.json, CLAUDE.md, `.claude/workflows/qa-sweep.js` |
+| Engineer-API | `qa/modules/api-contract.test.js` |
+| Engineer-Socket | `qa/modules/socket-relay.test.js` |
+| Engineer-Widget | `qa/modules/widget-smoke.test.js` |
+| Engineer-Perf | `qa/modules/perf-sample.test.js` |
+| Engineer-LiveID | `qa/modules/live-id-finder.js` |
+| Engineer-GateHealth | `qa/modules/gate-health.test.js` |
+| Librarian | `qa/BUNDLE_UPDATE.md`, `qa/README.md`, `.codex/team/qa-team.md` |
+| Lỗi-Historian | Commander-kept (results.js auto-writes FIXLOG/TEST_STATUS blocks) |
 
-## Deliverable bắt buộc
-(a) Cách FORCE-LOAD code mới chắc chắn 100% + probe xác minh version đang chạy.
-(b) Bản webcam widget CÓ INSTRUMENT (log updateWidgetSettings + render + generic handler) để 1 lần
-    switch lộ ra toàn bộ chain — HOẶC fix bulletproof nếu root cause chắc.
-(c) Adversarial review các fix đã apply (đúng/thừa/hại?).
+File ownership absolute — no two agents touch the same file.
+
+## Status — ✅ DONE (2026-06-08)
+- [x] Mission declared
+- [x] Foundation (Commander) — qa/lib + registry + run-all, all node --check PASS
+- [x] Modules (team) — 6 modules, 8 full-Opus agents parallel, all node --check PASS
+- [x] qa-sweep workflow — `.claude/workflows/qa-sweep.js`
+- [x] Integrated + sweep green — 59 PASS / 27 FAIL (real findings) / 30 SKIP, exit-coded
+- [x] Wired — package.json (`npm run qa`), CLAUDE.md §0.0, TEST_STATUS/FIXLOG auto-blocks, memory
+
+**Outcome:** see `.codex/team/current_state.json::m_qa_harness`. 27 FAIL = real pre-existing
+issues the harness surfaced (21 widget external-CDN + 6 unguarded settings.isPro). Offered to
+user: fix 6 null-guards (low-risk) + plan CDN localization (High-Risk, known-DEFERRED).
 
 ## Backups
-widget-settings-cache.js.bak-2026-06-01-pre-overlay-variation-alias;
-socket-manager.js.bak-2026-06-01-pre-m010-diag;
-socketioclient.js.bak-2026-06-01-pre-preview-refeed.
+N/A — all-new files under `qa/`. Edits to package.json/CLAUDE.md are additive (append section).

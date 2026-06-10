@@ -11,7 +11,10 @@
     "install:all": "npm --prefix backend-node install && npm --prefix electron install",
     "build:installer": "npm --prefix electron run build:installer",
     "reverse": "node scripts/decompile/run-all.js",
-    "reverse:no-decompile": "node scripts/decompile/run-all.js --skip-decompile"
+    "reverse:no-decompile": "node scripts/decompile/run-all.js --skip-decompile",
+    "qa": "node qa/run-all.js",
+    "qa:mutating": "node qa/run-all.js --mutating",
+    "qa:json": "node qa/run-all.js --json"
   },
   "author": "",
   "license": "ISC"

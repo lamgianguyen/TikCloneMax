@@ -507,6 +507,17 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
 - [ ] Verify bằng **bằng chứng cụ thể** (log dòng / DB / nhìn) → ghi TEST_STATUS. KHÔNG "cảm giác OK".
 - [ ] Renderer `console.log` KHÔNG forward (electron main.js level<2) → diagnostic phải `console.warn`.
 
+### §5.2 BẪY CHẨN ĐOÁN — đo/đọc SAI → kết luận SAI (validate 2026-06-05: nhóm tốn TIME nhất, hơn cả bug thật)
+
+> Phân tích lại mọi lỗi đã gặp: nhóm 🔴 flaky đã có §5.1 lo; nhưng các vòng lặp phí nhiều nhất đến từ **chẩn đoán sai** — không phải bug khó, mà tôi **đo nhầm/đọc nhầm** rồi kết luận lệch. 4 bẫy (mỗi cái là 1 vụ thật):
+
+1. **Đọc nhầm NGUỒN DATA.** Query DB `tikfinity-desktop/tikfinity.db` (172KB stale) thay vì THẬT `%APPDATA%/tikfinity-desktop/tikfinity-data/tikfinity.db` → kết luận "save không persist" (SAI). → **LUÔN xác nhận path** (config `TIKMAX_DATA_DIR`, boot log `[BOOT] DB path:`) trước khi tin số liệu.
+2. **LOG VÔ HÌNH.** `console.log` renderer KHÔNG forward (electron main.js `console-message` level<2 drop) → "0 log = code không chạy" (SAI, chỉ là không thấy). → diagnostic renderer **phải `console.warn`**; backend log luôn thấy.
+3. **"ĐÚNG TRÊN GIẤY" (static misled).** Đọc code thấy chuỗi đúng (reset 5-lớp / settings-chain) → kết luận OK, runtime lại fail. → **bug runtime PHẢI có runtime evidence** (instrument log/probe/DB), đừng tin 100% static-trace. Workflow 5-lớp "đúng trên giấy" = tín hiệu PHẢI chuyển sang runtime.
+4. **SỬA NHẦM BẢN COPY.** Gỡ log ở `socketioclient.js` (file chung) trong khi mỗi widget **NHÚNG INLINE** bản copy → vô dụng. → **xác nhận file THẬT được serve/load** (`curl <url> | grep`) trước khi sửa; nhớ flat-vs-dir + inline-embed.
+
+**Quy tắc rút ra:** trước khi kết luận "X không hoạt động" → hỏi *"mình đang đo ĐÚNG CHỖ không?"* (đúng DB? log có forward? file đang serve là file mình sửa? static hay runtime?). Sai 1 trong 4 = phí nhiều vòng.
+
 ---
 
 ## §6 War-room quick reference

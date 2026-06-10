@@ -1,0 +1,960 @@
+{
+  "runId": "20260608-153149",
+  "startedAt": "2026-06-08 15:31",
+  "backendUp": false,
+  "durationMs": 24,
+  "mode": "read-only",
+  "results": [
+    {
+      "id": "widget.coinjar.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.coinjar.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.coinjar.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.coinjar.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.coinjar.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.coinjar.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.coinjar.serve",
+      "area": "L3 Widget",
+      "name": "widget.coinjar.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.coinmatch.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.coinmatch.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.coinmatch.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.coinmatch.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.coinmatch.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.coinmatch.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.coinmatch.serve",
+      "area": "L3 Widget",
+      "name": "widget.coinmatch.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.cannon.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.cannon.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN cdnjs.cloudflare.com: … <script src=\"https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.1…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.cannon.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.cannon.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.cannon.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.cannon.null-guard",
+      "status": "FAIL",
+      "evidence": "unguarded settings.isPro: …if (!giftData.isTest && !settings.isPro && !lo…",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D",
+      "fixHint": "Guard with `!preview && settings && settings.isPro === false` — settings may be null"
+    },
+    {
+      "id": "widget.cannon.serve",
+      "area": "L3 Widget",
+      "name": "widget.cannon.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.wheel.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.wheel.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN cdnjs.cloudflare.com: … <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/latest/T…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.wheel.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.wheel.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.wheel.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.wheel.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.wheel.serve",
+      "area": "L3 Widget",
+      "name": "widget.wheel.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.wheelofactions.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.wheelofactions.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …econnect\" href=\"https://fonts.googleapis.com\"> <link rel=\"preconne…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.wheelofactions.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.wheelofactions.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.wheelofactions.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.wheelofactions.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.wheelofactions.serve",
+      "area": "L3 Widget",
+      "name": "widget.wheelofactions.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.goal.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.goal.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.goal.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.goal.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.goal.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.goal.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.goal.serve",
+      "area": "L3 Widget",
+      "name": "widget.goal.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.giftgoal.locate",
+      "area": "L3 Widget",
+      "name": "widget.giftgoal.locate",
+      "status": "SKIP",
+      "evidence": "no html file",
+      "severity": "LOW",
+      "gate": "widget-smoke"
+    },
+    {
+      "id": "widget.webcam.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.webcam.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN code.jquery.com: … <script src=\"https://code.jquery.com/jquery-3.5.1.min.js\" cr…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.webcam.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.webcam.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.webcam.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.webcam.null-guard",
+      "status": "FAIL",
+      "evidence": "unguarded settings.isPro: …op; return !settings.isPro && !is…",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D",
+      "fixHint": "Guard with `!preview && settings && settings.isPro === false` — settings may be null"
+    },
+    {
+      "id": "widget.webcam.serve",
+      "area": "L3 Widget",
+      "name": "widget.webcam.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.overlay.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.overlay.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN code.jquery.com: … <script src=\"https://code.jquery.com/jquery-3.5.1.min.js\" cr…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.overlay.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.overlay.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.overlay.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.overlay.null-guard",
+      "status": "FAIL",
+      "evidence": "unguarded settings.isPro: …op; return !settings.isPro && !is…",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D",
+      "fixHint": "Guard with `!preview && settings && settings.isPro === false` — settings may be null"
+    },
+    {
+      "id": "widget.overlay.serve",
+      "area": "L3 Widget",
+      "name": "widget.overlay.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.talking.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.talking.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN code.jquery.com: … <script src=\"https://code.jquery.com/jquery-3.5.1.min.js\" cr…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.talking.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.talking.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.talking.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.talking.null-guard",
+      "status": "FAIL",
+      "evidence": "unguarded settings.isPro: …op; return !settings.isPro && !is…",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D",
+      "fixHint": "Guard with `!preview && settings && settings.isPro === false` — settings may be null"
+    },
+    {
+      "id": "widget.talking.serve",
+      "area": "L3 Widget",
+      "name": "widget.talking.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.chat.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.chat.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.chat.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.chat.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.chat.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.chat.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.chat.serve",
+      "area": "L3 Widget",
+      "name": "widget.chat.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.eventcarousel.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.eventcarousel.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …econnect\" href=\"https://fonts.googleapis.com\"> <link rel=\"precon…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.eventcarousel.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.eventcarousel.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.eventcarousel.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.eventcarousel.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.eventcarousel.serve",
+      "area": "L3 Widget",
+      "name": "widget.eventcarousel.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.fallingsnow.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.fallingsnow.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.fallingsnow.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.fallingsnow.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.fallingsnow.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.fallingsnow.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.fallingsnow.serve",
+      "area": "L3 Widget",
+      "name": "widget.fallingsnow.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.firework.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.firework.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.firework.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.firework.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.firework.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.firework.null-guard",
+      "status": "FAIL",
+      "evidence": "unguarded settings.isPro: …if (!giftData.isTest && !settings.isPro) { …",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D",
+      "fixHint": "Guard with `!preview && settings && settings.isPro === false` — settings may be null"
+    },
+    {
+      "id": "widget.firework.serve",
+      "area": "L3 Widget",
+      "name": "widget.firework.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.ranking.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.ranking.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.ranking.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.ranking.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.ranking.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.ranking.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.ranking.serve",
+      "area": "L3 Widget",
+      "name": "widget.ranking.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.topgifter.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.topgifter.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.topgifter.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.topgifter.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.topgifter.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.topgifter.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.topgifter.serve",
+      "area": "L3 Widget",
+      "name": "widget.topgifter.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.topliker.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.topliker.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.topliker.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.topliker.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.topliker.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.topliker.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.topliker.serve",
+      "area": "L3 Widget",
+      "name": "widget.topliker.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.lastx.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.lastx.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.lastx.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.lastx.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.lastx.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.lastx.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.lastx.serve",
+      "area": "L3 Widget",
+      "name": "widget.lastx.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.viewercount.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.viewercount.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.viewercount.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.viewercount.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.viewercount.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.viewercount.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.viewercount.serve",
+      "area": "L3 Widget",
+      "name": "widget.viewercount.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.myactions.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.myactions.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN cdn.jsdelivr.net: … <script src=\"https://cdn.jsdelivr.net/npm/@lottiefiles/lottie…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.myactions.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.myactions.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.myactions.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.myactions.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.myactions.serve",
+      "area": "L3 Widget",
+      "name": "widget.myactions.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.timer.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.timer.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.timer.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.timer.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.timer.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.timer.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.timer.serve",
+      "area": "L3 Widget",
+      "name": "widget.timer.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.socialmediarotator.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.socialmediarotator.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.socialmediarotator.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.socialmediarotator.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.socialmediarotator.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.socialmediarotator.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.socialmediarotator.serve",
+      "area": "L3 Widget",
+      "name": "widget.socialmediarotator.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.commandinfo.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.commandinfo.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.commandinfo.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.commandinfo.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.commandinfo.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.commandinfo.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.commandinfo.serve",
+      "area": "L3 Widget",
+      "name": "widget.commandinfo.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.userinfo.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.userinfo.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.userinfo.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.userinfo.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.userinfo.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.userinfo.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.userinfo.serve",
+      "area": "L3 Widget",
+      "name": "widget.userinfo.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.transactionviewer.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.transactionviewer.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.transactionviewer.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.transactionviewer.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.transactionviewer.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.transactionviewer.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.transactionviewer.serve",
+      "area": "L3 Widget",
+      "name": "widget.transactionviewer.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.likefountain.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.likefountain.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.likefountain.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.likefountain.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.likefountain.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.likefountain.null-guard",
+      "status": "FAIL",
+      "evidence": "unguarded settings.isPro: … if (!payload.isTest && !settings.isPro && !lo…",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D",
+      "fixHint": "Guard with `!preview && settings && settings.isPro === false` — settings may be null"
+    },
+    {
+      "id": "widget.likefountain.serve",
+      "area": "L3 Widget",
+      "name": "widget.likefountain.serve",
+      "status": "SKIP",
+      "evidence": "backend down",
+      "severity": "LOW",
+      "gate": "Gate 35"
+    }
+  ],
+  "perf": null,
+  "metrics": {
+    "widget-smoke": {
+      "widgetsChecked": 26,
+      "withFile": 25,
+      "externalLibHits": 21,
+      "debugSpamHits": 0
+    }
+  },
+  "summary": {
+    "pass": 48,
+    "fail": 27,
+    "skip": 26,
+    "total": 101
+  }
+}

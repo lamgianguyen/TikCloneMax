@@ -1121,68 +1121,66 @@ function configureSession() {
         '*://*.google-analytics.com/*',
         '*://ph.tikfinity.com/*',
     ];
-    sess.webRequest.onBeforeRequest({ urls: BLOCK_URLS }, (details, callback) => {
-        if (process.env.TIKMAX_NETBLOCK_DEBUG === '1') {
-            console.log('[NetBlock]', details.method, details.url);
-        }
-        callback({ cancel: true });
-    });
-
-    // Redirect *.tiktokcdn.com → local cache proxy. Catches every gift image,
-    // animation, thumbnail used by bundle's obfuscated itemTemplate (native
-    // template fires direct CDN fetch, bypassing our blockScript patch). With
-    // this intercept, every request hits backend /tiktok-img-cache/* route
-    // which serves from _cdnProxyCache Map (pre-warmed 200 popular gifts on
-    // boot via tiktok-image-prewarm service) or falls through to upstream.
-    //
-    // Cache-Control: 86400 from backend → Electron's Chromium HTTP disk cache
-    // persists across restarts. First-time slow, subsequent instant.
-    //
-    // SSRF-safe: regex restricts host to exactly *.tiktokcdn.com (matching
-    // backend proxy's allow-list).
-    const TIKTOK_HOST_RE = /^[a-z0-9-]+\.tiktokcdn\.com$/i;
+    // ── Single MERGED onBeforeRequest (RC-1 keystone, wf_806eb47d) ──────────
+    // Electron uses ONLY the LAST onBeforeRequest registered per session (the
+    // setter REPLACES prior listeners — NOT additive). Three separate calls
+    // (BLOCK / tiktokcdn / tf-cdn) silently clobbered each other ever since the
+    // tf-cdn one was appended 2026-06-03 → the tiktokcdn redirect + telemetry
+    // BLOCK went DEAD → gift/avatar images loaded DIRECT from *.tiktokcdn.com,
+    // broke on network failure (ERR_HTTP2_PING_FAILED), and coin-jar.js
+    // drawImage threw InvalidStateError every frame (~12k errors). Merge into
+    // ONE listener: filter = UNION of all URL sets, dispatch by host with a
+    // STRICT if/else so EXACTLY ONE branch answers (an unanswered
+    // onBeforeRequest hangs the request).
+    const TIKTOK_HOST_RE = /^[a-z0-9-]+\.tiktokcdn\.com$/i; // SSRF-locked, mirrors backend proxy
     const TIKTOK_CACHE_BASE = `${BACKEND_URL}/tiktok-img-cache`;
-    sess.webRequest.onBeforeRequest(
-        { urls: ['https://*.tiktokcdn.com/*', 'http://*.tiktokcdn.com/*'] },
-        (details, callback) => {
-            try {
-                const u = new URL(details.url);
-                if (!TIKTOK_HOST_RE.test(u.hostname)) {
-                    return callback({});  // not a TikTok CDN host — let it through
-                }
-                const redirectURL = `${TIKTOK_CACHE_BASE}/${u.hostname}${u.pathname}${u.search}`;
-                return callback({ redirectURL });
-            } catch (err) {
-                // URL parse failed — let request through unchanged.
-                return callback({});
-            }
-        }
-    );
-    console.log('[Electron] TikTok CDN intercept installed → ' + TIKTOK_CACHE_BASE + '/*');
-
-    // Redirect TikFinity's OWN asset CDNs → local disk-cached proxy so the clone
-    // never depends on tikfinity-assets.b-cdn.net / assets.tikfinity.com at
-    // runtime (credit-chip icon, webcam/overlay frames, etc.). Backend /tf-cdn/*
-    // persists each asset to downloads/tf-assets-cache/ on first fetch → served
-    // locally forever after. SSRF-locked to the explicit host allow-list.
     const TF_CDN_HOSTS = new Set(['tikfinity-assets.b-cdn.net', 'assets.tikfinity.com']);
     const TF_CDN_BASE = `${BACKEND_URL}/tf-cdn`;
+    // Derive host matchers from BLOCK_URLS so the deny-list stays the single
+    // source of truth (no drift): `*://*.x.com/*` → suffix `.x.com` | exact `x.com`.
+    const BLOCK_HOST_MATCHERS = BLOCK_URLS.map((p) => {
+        const h = p.replace(/^[a-z*]+:\/\//i, '').replace(/\/.*$/, '').toLowerCase();
+        if (h.startsWith('*.')) {
+            const suf = h.slice(1); // ".featurebase.app"
+            return (host) => host === suf.slice(1) || host.endsWith(suf);
+        }
+        return (host) => host === h;
+    });
+    const isBlockedHost = (host) => BLOCK_HOST_MATCHERS.some((m) => m(host));
+
     sess.webRequest.onBeforeRequest(
-        { urls: ['https://tikfinity-assets.b-cdn.net/*', 'https://assets.tikfinity.com/*'] },
+        {
+            urls: [
+                ...BLOCK_URLS,
+                'https://*.tiktokcdn.com/*', 'http://*.tiktokcdn.com/*',
+                'https://tikfinity-assets.b-cdn.net/*', 'https://assets.tikfinity.com/*',
+            ],
+        },
         (details, callback) => {
-            try {
-                const u = new URL(details.url);
-                if (!TF_CDN_HOSTS.has(u.hostname.toLowerCase())) {
-                    return callback({});  // not a TikFinity asset host — let it through
+            let u;
+            try { u = new URL(details.url); }
+            catch (_) { return callback({}); } // unparseable → fail-open
+            const host = u.hostname.toLowerCase();
+            // (a) telemetry BLOCK — cancel + STOP (must never fall through)
+            if (isBlockedHost(host)) {
+                if (process.env.TIKMAX_NETBLOCK_DEBUG === '1') {
+                    console.log('[NetBlock]', details.method, details.url);
                 }
-                const redirectURL = `${TF_CDN_BASE}/${u.hostname}${u.pathname}${u.search}`;
-                return callback({ redirectURL });
-            } catch (err) {
-                return callback({});  // URL parse failed — let request through
+                return callback({ cancel: true });
             }
+            // (b) *.tiktokcdn.com → local cache proxy (transparent-PNG 200 fallback on fail)
+            if (TIKTOK_HOST_RE.test(host)) {
+                return callback({ redirectURL: `${TIKTOK_CACHE_BASE}/${host}${u.pathname}${u.search}` });
+            }
+            // (c) TikFinity asset CDNs → local disk-cached proxy
+            if (TF_CDN_HOSTS.has(host)) {
+                return callback({ redirectURL: `${TF_CDN_BASE}/${host}${u.pathname}${u.search}` });
+            }
+            // (d) matched the broad filter but not a precise host → fail-open
+            return callback({});
         }
     );
-    console.log('[Electron] TikFinity asset CDN intercept installed → ' + TF_CDN_BASE + '/*');
+    console.log('[Electron] Merged intercept installed (telemetry-block + tiktokcdn→' + TIKTOK_CACHE_BASE + ' + tf-cdn→' + TF_CDN_BASE + ')');
 
     // Bundle's overlay-gallery UI links to `/widget/<name>?cid=1&preview=1`
     // using an `<a download>` element. Chromium honours `download` attribute

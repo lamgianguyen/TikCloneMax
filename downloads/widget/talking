@@ -83,7 +83,7 @@
 
         function needSplash() {
             const isEmbeddedPreview = location.href.includes('preview=1') && window.self !== window.top;
-            return !settings.isPro && !isEmbeddedPreview;
+            return !(settings && settings.isPro) && !isEmbeddedPreview;
         }
 
         async function maybeToggleSplash(show) {

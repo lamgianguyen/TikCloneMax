@@ -132,9 +132,44 @@
      bundle's natural fixed widths work correctly. DO NOT override card
      widths here — overrides made cards STRETCH to 50% of container,
      which doesn't match gốc and looks "lệch" (off). */
+  /* === Overlay-card iframe FILL (gốc-faithful, "2 khung bằng chiều dài") ======
+     Verified from the gốc TikFinity app screenshot + headless measurement
+     (qa/.measure/measure4.js): cards ARE EQUAL height per row via gốc default flex
+     `align-items:stretch` — so we do NOT override align-items. BUT our stretchIframes
+     sized each `iframe.lazy-frame` to its NATURAL content (e.g. coinmatch 592)
+     BEFORE the flex stretch grew the card → the iframe is shorter than the stretched
+     card → the empty area below it shows the card's inline `#2d0539` purple = the
+     gap the user circled. Measured tree: `.obsOverlayOnPage`(block) > chrome +
+     `#widgetCoinmatch`(block) > buttonRow + `iframe.lazy-frame`. In the gốc app the
+     iframe FILLS the card. So make the card a flex COLUMN → the #widget wrapper and
+     its iframe flex-grow to fill the space under the title/desc/buttons → iframe
+     fills the equal-height card, no purple gap, matches gốc. Scoped to
+     `.obsOverlayOnPage` (overlay cards only — NOT the shared .greyBackgroundSection).
+     This SUPERSEDES the align-items:flex-start / dark-bg attempts. */
   .obsOverlayContainer {
     zoom: 1 !important;                   /* nuke bundle's broken zoom curve */
     max-width: 100% !important;
+  }
+  .obsOverlayOnPage {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  /* ONLY the card-child that HOLDS the iframe fills the free height — NOT the
+     match-control buttons (#widget<X>Controls, measured h=200). `:has` selects the
+     direct child containing the iframe (Electron Chromium ≥105 supports it). */
+  .obsOverlayOnPage > *:has(iframe.lazy-frame) {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .obsOverlayOnPage iframe.lazy-frame {
+    /* flex-basis: auto → uses the inline stretchIframes height (e.g. 592) as the
+       FLOOR, then flex-grow fills the extra height when the card is stretched to
+       the row's tallest. Do NOT set height:auto (an iframe with height:auto
+       collapses to the 150px default → cards shrink). */
+    flex: 1 1 auto !important;            /* grow to fill the stretched card, floor = its content height */
+    min-height: 0 !important;
   }
 
   /* === Start page Live Connection + Quick Access force-show (Gate 30f) ====
