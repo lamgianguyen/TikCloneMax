@@ -15,6 +15,33 @@
 
 ---
 
+## [2026-06-12] TTS NHẬN chat nhưng KHÔNG ra tiếng — ROOT CAUSE: bundle TTSItem play non-AI voice tới endpoint CHẾT (Google key revoked / zerody proxy) — FIX: Electron redirect → /api/tts/generate (chờ user restart verify)
+
+**Status:** PARTIAL (fix applied, chờ user restart Electron + nghe tiếng).
+
+**Symptom (user):** Sau khi fix feed (entry dưới) chạy — TTS Logs ĐẦY chat thật của viewer (`t.ng.tin61`, `Avang: mô phật`...), backend log `[CLIENT][TTS-CHAT]` 13 dòng → **TTS NHẬN chat OK**. Nhưng **"không nghe gì hết"**. Voice Tester (Play "This is a test!") cũng không/khó nghe.
+
+**TRUE root cause (decompiled/app/deobfuscated.js:69214 `var TTSItem`):** engine TTS thật nằm TRONG bundle (app.js), constructor chọn đường audio theo voiceId (@69230-69273), `play()` = `new Audio(apiBaseUrl + params)` GET thẳng cross-origin:
+- `voiceId === "default"` / `google_*` → **`https://www.google.com/speech-api/v2/synthesize?key=AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw&...`** — **Google API key ĐÃ BỊ REVOKE** → 403 → **CÂM**.
+- standard TikTok voice (else, voiceConfig null) → **`https://tikfinity-tts-api.zerody.one/api/voice/generate`** — proxy TikFinity gốc, clone KHÔNG control → câm.
+- CHỈ **AI voice** (voiceConfig != null) → `POST /api/tts/generate` → blockScript `tfHandleTtsGenerate` → audioUrl=`/api/tts/generate?voice=en_us_002` → CHẠY (đường duy nhất sống).
+- User để **Default Voice + Random Voice** → trúng 2 đường chết → câm.
+
+**Trả lời "máy có voice model nào không":** KHÔNG dùng giọng máy (speechSynthesis). Đường sống duy nhất = `/api/tts/generate` (proxy TikTok TTS, đã ĐO ra audio thật: en_us_002=34KB, en_female_f08_salut_damour=118KB, en_male_m03_lobby=100KB — status 200 audio/mpeg).
+
+**Dead-ends (ĐỪNG LẶP):**
+- ❌ **Suýt sửa [downloads/js/tts.js](downloads/js/tts.js)** (file có `speechSynthesis` + class TTSItem/TTSQueue). **ĐÓ LÀ DEAD CODE** — KHÔNG ref trong index.html, backend log KHÔNG có request `/js/tts.js`, app.js+modules.js KHÔNG load nó. READ-GỐC-FIRST cứu: engine THẬT = app.js `var TTSItem=(function(){...})()` (obfuscated), KHÔNG phải file js/tts.js. Sửa js/tts.js = vô tác dụng.
+- ❌ speechSynthesis là RED HERRING — shipped bundle (app.js+modules.js) `grep speechSynthesis = 0`. Bundle dùng `new Audio(url)`, KHÔNG dùng Web Speech.
+- ⚠️ **TTS Logs hiện chat ≠ audio chạy** — `tts.log()` (populate #ttsLogs) ở modules.js:6167 chạy TRƯỚC khi tạo TTSItem (6185) + trước quota gate. Logs đầy chỉ chứng minh `generateTtsItem` chạy, KHÔNG chứng minh play ra tiếng.
+
+**Fix that worked (applied 2026-06-12, [electron/main.js](electron/main.js) merged onBeforeRequest, backup `.bak-2026-06-12-pre-tts-redirect`):** thêm nhánh (c2) + 2 host vào filter → redirect `www.google.com/speech-api/*` + `tikfinity-tts-api.zerody.one/*` → `${BACKEND}/api/tts/generate?voice=<map>&text=<text>` (`buildTtsRedirect`: zerody truyền thẳng ?voice=, Google default→en_us_002, gender=male→en_us_006). Bắt request `new Audio()` ở tầng network (chỗ DUY NHẤT intercept được native Audio GET) — mirror Gate 33 (tiktokcdn). node -c PASS; unit-test redirect PASS (text tiếng Việt + voiceId preserve).
+
+**Verify (PENDING):** main.js đổi → **PHẢI restart Electron** (§11). Sau restart: connect stream + chờ chat → nghe tiếng đọc? DevTools Network: request google/zerody → 307 → localhost/api/tts/generate (audio/mpeg). Nếu vẫn câm → check autoplay policy Electron / TikTok session expired (503 generate).
+
+**Note đường gốc khác:** OBS/standalone widget KHÔNG có Electron intercept — nhưng TTS là feature control-page (chạy trong Electron) nên OK. Nếu sau này cần TTS chạy ngoài Electron → phải wrap `window.Audio` trong blockScript thay vì webRequest.
+
+---
+
 ## [2026-06-11] TTS Chat + in-app Chat page TRỐNG dù chat chảy — ROOT CAUSE: clone bypass connector bundle → broadcastlistener.onChat không được feed — FIX ATTEMPTED (chờ user verify)
 
 **FIX (best-effort, 2026-06-11, reversible):** [blockScript.txt](backend-node/src/templates/blockScript.txt) IIFE `tfChatFeedToModules` — mở 1 feed socket (load `/js/lib/socket.io.min.js` set window.io nếu cần) nghe 'chat' rồi gọi `window.broadcastlistener.onChat(d)` (entry-point đã expose, drives Chat page + TTS). **CHAT-ONLY**: onChat chỉ `distributeEvent("chat")` (backend DROP vì chat ngoài whitelist) + `emitTiktokEventToModules("Chat")`, KHÔNG `emitWsEvent` → KHÔNG double widget/DAPI. Gift/like KHÔNG feed (onGift re-emit DAPI = double overlay). Guard `__tfChatFeedStarted` chống double-start. check-script-syntax: blockScript PASS (2 fail là JSON-LD pre-existing). **CONFIDENCE TRUNG BÌNH** — shape `TikTokObjToYouNowObj` không confirm 100% từ decompiled obfuscated; nếu shape lệch TTS đọc sai/không đọc. **Cần user reopen app (nạp blockScript) + báo:** TTS có đọc chat? Chat page có hiện? Overlay có double không? Nếu hỏng → revert `.bak-2026-06-11-pre-ttschatfeed`.

@@ -1165,6 +1165,37 @@ function configureSession() {
     const TIKTOK_CACHE_BASE = `${BACKEND_URL}/tiktok-img-cache`;
     const TF_CDN_HOSTS = new Set(['tikfinity-assets.b-cdn.net', 'assets.tikfinity.com']);
     const TF_CDN_BASE = `${BACKEND_URL}/tf-cdn`;
+    // ── TTS non-AI voice redirect (no-audio fix, 2026-06-12) ────────────────
+    // The bundle's TTSItem (app.js) plays chat TTS via `new Audio(url)` straight
+    // to two DEAD endpoints for non-AI voices:
+    //   • "default" voice → https://www.google.com/speech-api/v2/synthesize
+    //        (hardcoded Google API key AIzaSy…WBgw is REVOKED → 403 → silence)
+    //   • standard TikTok voice → https://tikfinity-tts-api.zerody.one/.../generate
+    //        (TikFinity's proxy — the clone has no control over it)
+    // Only AI voices reach our working /api/tts/generate (via blockScript's
+    // tfHandleTtsGenerate). Redirect BOTH dead hosts → our local /api/tts/generate
+    // (real TikTok TTS, returns mp3 — verified). This catches the native Audio
+    // GET at the network layer, the only place a `new Audio()` request is
+    // interceptable. Mirrors the tiktokcdn redirect pattern above.
+    const TTS_GENERATE_BASE = `${BACKEND_URL}/api/tts/generate`;
+    const TTS_GOOGLE_HOST = 'www.google.com';
+    const TTS_ZERODY_HOST = 'tikfinity-tts-api.zerody.one';
+    const TTS_TEXT_MAX = 300; // TikTok TTS request-text cap (matches backend route)
+    function buildTtsRedirect(u) {
+        const host = u.hostname.toLowerCase();
+        const text = u.searchParams.get('text') || '';
+        if (!text.trim()) return null; // nothing to speak → let it fail-open
+        // zerody passes the real TikTok voice id as ?voice=; Google's default
+        // path has none → map its gender hint to a matching TikTok voice.
+        let voice = 'en_us_002';
+        if (host === TTS_ZERODY_HOST) {
+            voice = u.searchParams.get('voice') || 'en_us_002';
+        } else if (u.searchParams.get('gender') === 'male') {
+            voice = 'en_us_006';
+        }
+        return `${TTS_GENERATE_BASE}?voice=${encodeURIComponent(voice)}` +
+            `&text=${encodeURIComponent(text.slice(0, TTS_TEXT_MAX))}`;
+    }
     // Derive host matchers from BLOCK_URLS so the deny-list stays the single
     // source of truth (no drift): `*://*.x.com/*` → suffix `.x.com` | exact `x.com`.
     const BLOCK_HOST_MATCHERS = BLOCK_URLS.map((p) => {
@@ -1183,6 +1214,9 @@ function configureSession() {
                 ...BLOCK_URLS,
                 'https://*.tiktokcdn.com/*', 'http://*.tiktokcdn.com/*',
                 'https://tikfinity-assets.b-cdn.net/*', 'https://assets.tikfinity.com/*',
+                // TTS non-AI voice endpoints (see buildTtsRedirect above)
+                'https://www.google.com/speech-api/*', 'http://www.google.com/speech-api/*',
+                'https://tikfinity-tts-api.zerody.one/*', 'http://tikfinity-tts-api.zerody.one/*',
             ],
         },
         (details, callback) => {
@@ -1205,11 +1239,17 @@ function configureSession() {
             if (TF_CDN_HOSTS.has(host)) {
                 return callback({ redirectURL: `${TF_CDN_BASE}/${host}${u.pathname}${u.search}` });
             }
+            // (c2) TTS non-AI voice (Google revoked / zerody proxy) → real TikTok TTS
+            if ((host === TTS_GOOGLE_HOST && u.pathname.startsWith('/speech-api/')) ||
+                host === TTS_ZERODY_HOST) {
+                const r = buildTtsRedirect(u);
+                return callback(r ? { redirectURL: r } : {});
+            }
             // (d) matched the broad filter but not a precise host → fail-open
             return callback({});
         }
     );
-    console.log('[Electron] Merged intercept installed (telemetry-block + tiktokcdn→' + TIKTOK_CACHE_BASE + ' + tf-cdn→' + TF_CDN_BASE + ')');
+    console.log('[Electron] Merged intercept installed (telemetry-block + tiktokcdn→' + TIKTOK_CACHE_BASE + ' + tf-cdn→' + TF_CDN_BASE + ' + tts→' + TTS_GENERATE_BASE + ')');
 
     // Bundle's overlay-gallery UI links to `/widget/<name>?cid=1&preview=1`
     // using an `<a download>` element. Chromium honours `download` attribute
