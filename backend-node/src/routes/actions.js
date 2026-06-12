@@ -39,6 +39,34 @@ function safeParseObject(json) {
   }
 }
 
+// Fields stored as their own DB columns — everything else in the DTO is
+// per-action config that belongs in the ConfigJson blob. The native form
+// (saveActionForm, deobfuscated.js:8766) sends flattened keys (imageUrl,
+// duration, amountToAdd, dynamicConfig, customGoalConfig, ...) verbatim and
+// never builds `configJson` itself, so we must re-serialize those keys here —
+// otherwise create stores '{}' and edits silently revert to the stale blob
+// echoed from GET (all media/duration/points config lost).
+const ACTION_COLUMN_KEYS = new Set([
+  'id', 'name', 'type', 'triggervalue', 'enabled', 'sort', 'configjson', 'channelid',
+]);
+
+function serializeConfigJson(dto, existing) {
+  // Existing blob is the base on edit so untouched config keys survive.
+  const base = existing ? safeParseObject(existing.ConfigJson) : {};
+  // An explicit blob (duplicate-flow copies the row's configJson, or non-bundle
+  // API clients) overlays the base before the flattened form fields.
+  const explicit = dto.ConfigJson ?? dto.configJson;
+  const explicitObj = explicit && String(explicit).trim() ? safeParseObject(explicit) : null;
+  const merged = explicitObj ? { ...base, ...explicitObj } : { ...base };
+  // Flattened DTO fields are the form's source of truth — they win.
+  for (const [key, value] of Object.entries(dto)) {
+    if (value === undefined) continue;
+    if (ACTION_COLUMN_KEYS.has(key.toLowerCase())) continue;
+    merged[key] = value;
+  }
+  return JSON.stringify(merged);
+}
+
 function getString(obj, key) {
   const v = obj?.[key];
   if (v === undefined || v === null) return null;
@@ -214,7 +242,6 @@ router.post('/action', (req, res) => {
   const name = dto.Name ?? dto.name ?? '';
   const type = dto.Type ?? dto.type ?? '';
   const triggerValue = dto.TriggerValue ?? dto.triggerValue ?? null;
-  const configJson = dto.ConfigJson ?? dto.configJson ?? '';
   const enabled = dto.Enabled ?? dto.enabled ?? true;
   const sort = Number(dto.Sort ?? dto.sort ?? 0) | 0;
 
@@ -227,7 +254,7 @@ router.post('/action', (req, res) => {
       Name: name,
       Type: type,
       TriggerValue: triggerValue,
-      ConfigJson: (configJson && String(configJson).trim()) ? configJson : existing.ConfigJson,
+      ConfigJson: serializeConfigJson(dto, existing),
       Enabled: !!enabled,
       Sort: sort,
     });
@@ -240,7 +267,7 @@ router.post('/action', (req, res) => {
     Name: name,
     Type: type,
     TriggerValue: triggerValue,
-    ConfigJson: (configJson && String(configJson).trim()) ? configJson : '{}',
+    ConfigJson: serializeConfigJson(dto, null),
     Enabled: !!enabled,
     Sort: sort,
   });
@@ -265,13 +292,12 @@ router.delete('/action/:id', (req, res) => {
 // response.record. Add those verbs, mirroring the POST handler's field
 // mapping, and return the mapped action/record the callbacks expect.
 function buildActionFields(dto, existing) {
-  const cfg = dto.ConfigJson ?? dto.configJson;
   const en = dto.Enabled ?? dto.enabled;
   return {
     Name: dto.Name ?? dto.name ?? (existing ? existing.Name : ''),
     Type: dto.Type ?? dto.type ?? (existing ? existing.Type : ''),
     TriggerValue: dto.TriggerValue ?? dto.triggerValue ?? (existing ? existing.TriggerValue : null),
-    ConfigJson: cfg && String(cfg).trim() ? cfg : (existing ? existing.ConfigJson : '{}'),
+    ConfigJson: serializeConfigJson(dto, existing),
     Enabled: en === undefined ? (existing ? !!existing.Enabled : true) : !!en,
     Sort: Number(dto.Sort ?? dto.sort ?? (existing ? existing.Sort : 0)) | 0,
   };

@@ -110,7 +110,16 @@ router.get('/rest/transaction', (req, res) => {
 router.put('/rest/transaction', (req, res) => {
   const channelId = resolveChannelId(req);
   const b = req.body || {};
-  const username = String(b.username || b.userId || '').trim();
+  // The Points-page manual grant sends username=null + only a numeric userId
+  // (deobfuscated.js:14095 transaction.put(userId, null, ...)). Resolve it to the
+  // real viewer row via the identity map FIRST so the grant lands on the same
+  // points_user_<username> balance the live-event awards use — keying by the raw
+  // numeric id splits the balance into a junk points_user_<id> row ("cộng điểm
+  // không ăn" + a numeric-username leaderboard entry).
+  let username = String(b.username || '').trim();
+  if (!username && b.userId != null && b.userId !== '') {
+    username = (channelId > 0 && points.findUsernameByUserId(channelId, b.userId)) || String(b.userId).trim();
+  }
   const amount = Number(b.amount) || 0;
   if (!username || channelId <= 0) {
     return res.json({ status: 200, preBalanceValidationPassed: false });

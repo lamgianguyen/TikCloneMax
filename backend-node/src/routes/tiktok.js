@@ -110,7 +110,9 @@ router.post('/connect', (req, res) => {
 });
 
 router.post('/disconnect', async (_req, res) => {
-  await bridge.disconnect();
+  // abortInFlight: a user disconnect during the connecting window must cancel
+  // the in-flight connect retry loop, else the session revives CONNECTED.
+  await bridge.disconnect({ abortInFlight: true });
   res.json({ status: 200, disconnected: true });
 });
 

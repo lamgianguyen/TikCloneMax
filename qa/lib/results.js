@@ -52,6 +52,23 @@ function statusTable(run) {
     })
     .join('\n');
   const p = run.summary;
+  // A subset (--only) run does NOT cover every module, so its "FAIL=0" must never
+  // read as "everything is clean". Flag it loudly; the FIXLOG failures block is
+  // left to the last FULL run (see persist()).
+  const partialBanner = run.partial
+    ? `> ⚠️ **PARTIAL RUN** (only=\`${(run.only || []).join(',')}\`) — KHÔNG phủ hết module. ` +
+      'FAIL count chỉ tính trong subset; FIXLOG failures block phản ánh lần FULL run gần nhất. ' +
+      'Chạy `node qa/run-all.js` (không `--only`) để có ledger đầy đủ.'
+    : null;
+  // Disambiguate the perf line so "backend UP" + "perf not measured" never
+  // contradict each other (perf is null whenever perf-sample is excluded too).
+  const perfLine = run.perf
+    ? `**Perf:** ${JSON.stringify(run.perf)}`
+    : !run.backendUp
+      ? '**Perf:** (backend down — bỏ qua)'
+      : run.partial
+        ? '**Perf:** (perf-sample không nằm trong subset run này)'
+        : '**Perf:** (không đo được — perf module SKIP/non-Windows)';
   return [
     TS_BEGIN,
     '',
@@ -59,15 +76,14 @@ function statusTable(run) {
     '',
     `> Tự sinh bởi \`qa/run-all.js\`. PASS=${p.pass} FAIL=${p.fail} SKIP=${p.skip} · backend ${
       run.backendUp ? 'UP' : 'DOWN'
-    } · ${run.durationMs}ms. Block này bị GHI ĐÈ mỗi run — đừng sửa tay.`,
+    } · ${run.durationMs}ms${run.partial ? ' · PARTIAL' : ''}. Block này bị GHI ĐÈ mỗi run — đừng sửa tay.`,
+    ...(partialBanner ? ['', partialBanner] : []),
     '',
     '| # | Vùng | Status | Bằng chứng |',
     '|---|---|---|---|',
     rows,
     '',
-    run.perf
-      ? `**Perf:** ${JSON.stringify(run.perf)}`
-      : '**Perf:** (không đo được — backend down hoặc non-Windows)',
+    perfLine,
     '',
     TS_END,
   ].join('\n');
@@ -124,13 +140,21 @@ function persist(config, run) {
     out.errors.push(`TEST_STATUS: ${e.message}`);
   }
 
-  try {
-    let fx = fs.existsSync(config.FIXLOG) ? fs.readFileSync(config.FIXLOG, 'utf8') : '# FIXLOG\n';
-    fx = replaceBlock(fx, FX_BEGIN, FX_END, failuresBlock(run));
-    fs.writeFileSync(config.FIXLOG, fx);
-    out.fixlog = true;
-  } catch (e) {
-    out.errors.push(`FIXLOG: ${e.message}`);
+  // The FIXLOG failures block is the doctrine ledger (§6.1 3-strike). It is
+  // AUTHORITATIVE only for a FULL run — a subset (--only) run must NOT overwrite
+  // it, or a gate-only pass silently erases a prior full sweep's real failures
+  // (the "FAIL=0 masks 42 FAIL" bug). Skip it on partial runs.
+  if (run.partial) {
+    out.fixlog = 'skipped';
+  } else {
+    try {
+      let fx = fs.existsSync(config.FIXLOG) ? fs.readFileSync(config.FIXLOG, 'utf8') : '# FIXLOG\n';
+      fx = replaceBlock(fx, FX_BEGIN, FX_END, failuresBlock(run));
+      fs.writeFileSync(config.FIXLOG, fx);
+      out.fixlog = true;
+    } catch (e) {
+      out.errors.push(`FIXLOG: ${e.message}`);
+    }
   }
 
   return out;

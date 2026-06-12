@@ -106,20 +106,33 @@ function buildMerged(channelId) {
 
   // Defaults first (frozen — clone before mutating).
   const merged = { ...DEFAULTS };
-  // The bundle lowercases every settings key before saving (settings.set,
-  // decompiled/app/deobfuscated.js:68305), so the real save is e.g.
-  // `widget_cannon_ballsize`. A stray case-variant row (`widget_cannon_ballSize`)
-  // normalizes to the SAME canonical key and, on a last-write-wins collision,
-  // could shadow the user's actual lowercase write. Prefer the lowercase raw key
-  // so the value the user saved always wins, regardless of row order/Id.
-  const canonSetByLower = {};
+  // Multiple raw rows can normalize to the SAME canonical key:
+  //   - the DIRECT key the current bundle saves (lowercased): `cannon_ballsize`
+  //   - a stray case-variant: `cannon_ballSize`
+  //   - a STALE legacy `widget_`-prefixed row from older versions:
+  //     `widget_cannon_ballsize` / `widget_cannon_ballSize`
+  // normalizeKey() de-prefixes the legacy `widget_` form to the same canonical
+  // key, so a never-cleaned-up legacy row would CLOBBER the user's fresh save on
+  // every read (the "settings save but revert on reload/OBS" bug). Resolve the
+  // collision by precedence (lower tier wins): a direct key always beats a legacy
+  // `widget_`-prefixed key, and within each, the lowercase form (what the bundle
+  // actually writes) beats a case-variant — independent of row order.
+  //   tier 0 = direct, lowercase   1 = direct, case-variant
+  //   tier 2 = widget_, lowercase  3 = widget_, case-variant
+  const canonTier = {};
   for (const [rawKey, value] of Object.entries(rows)) {
     if (value === '' || value === null || value === undefined) continue;
     const canon = normalizeKey(rawKey);
-    const isLower = rawKey === rawKey.toLowerCase();
-    if (canonSetByLower[canon] && !isLower) continue; // a lowercase variant already won
+    const lc = rawKey.toLowerCase();
+    // Legacy only if normalizeKey actually de-prefixed it to a real canonical key
+    // (graphic-overlay `widget_webcam_*` keys stay un-normalized → treated direct,
+    // still handled by aliasGraphicOverlayKeys below).
+    const isLegacyPrefixed = lc.startsWith('widget_') && canon !== rawKey;
+    const isLower = rawKey === lc;
+    const tier = (isLegacyPrefixed ? 2 : 0) + (isLower ? 0 : 1);
+    if (canonTier[canon] !== undefined && tier > canonTier[canon]) continue;
     merged[canon] = coerce(value);
-    if (isLower) canonSetByLower[canon] = true;
+    canonTier[canon] = tier;
   }
   aliasGraphicOverlayKeys(merged);
   return merged;

@@ -266,7 +266,7 @@
         io.on("topGiftData", (data) => {
             if (location.href.includes('cid=0') && location.href.includes('preview')) return;
 
-            if (!location.href.includes('preview') && settings.isPro === false) {
+            if (!location.href.includes('preview') && settings && settings.isPro === false) {
                 document.write('');
                 return;
             }

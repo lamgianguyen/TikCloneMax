@@ -9,16 +9,30 @@
 const express = require('express');
 const notifications = require('../db/models/notifications');
 const channels = require('../db/models/channels');
+const dynamicSettings = require('../db/models/dynamic-settings');
 
 const router = express.Router();
 
 const DEFAULT_AVATAR_URL = '/favicon.ico';
 const HIDDEN_ACTION = Object.freeze({ label: 'hidden', url: 'https://example.com/hidden', target: '_self' });
+// The in-app toggle is a channel-level preference, not per-profile, so pin it to
+// a fixed profile slot — otherwise a profile switch would surface a different row
+// and the toggle would appear to reset.
+const NOTIF_PREF_PROFILE = 1;
+const NOTIF_INAPP_KEY = 'notifications_inapp';
 
 function resolveChannelId(req) {
   if (req.auth && req.auth.channelId > 0) return req.auth.channelId;
   const def = channels.findDefault();
   return def ? def.ChannelId : 0;
+}
+
+// Bundle sends the row id under `notificationId` (deobfuscated.js:75758/76027);
+// older/duplicate call-sites use Id/id/query.id — accept all.
+function resolveNotificationId(req) {
+  return Number(
+    req.body?.notificationId ?? req.body?.Id ?? req.body?.id ?? req.query?.notificationId ?? req.query?.id
+  ) || 0;
 }
 
 function parseAction(obj, key) {
@@ -114,14 +128,23 @@ router.all('/list', (req, res) => {
 router.all('/preferences', (req, res) => {
   // Bundle's in-app notification toggle does PUT notifications/preferences {inApp}
   // and commits only if response.success is truthy (else it snaps the checkbox
-  // back — deobfuscated.js:75837-75844). Echo the requested value + report success.
-  const inApp = req.body && req.body.inApp !== undefined ? !!req.body.inApp : true;
+  // back — deobfuscated.js:75837-75844). On boot it trusts the server value
+  // (75612-75617), so the choice MUST persist or it reverts every reload.
+  const channelId = resolveChannelId(req);
+  if (req.body && req.body.inApp !== undefined && channelId > 0) {
+    dynamicSettings.writeOne(channelId, NOTIF_PREF_PROFILE, NOTIF_INAPP_KEY, String(!!req.body.inApp));
+  }
+  let inApp = true;
+  if (channelId > 0) {
+    const row = dynamicSettings.readOne(channelId, NOTIF_PREF_PROFILE, NOTIF_INAPP_KEY);
+    if (row && row.Value !== undefined && row.Value !== '') inApp = row.Value !== 'false';
+  }
   res.json({ status: 200, message: 'OK', success: true, inApp });
 });
 
 router.post('/markRead', (req, res) => {
   const channelId = resolveChannelId(req);
-  const id = Number(req.body?.Id ?? req.body?.id) || 0;
+  const id = resolveNotificationId(req);
   if (channelId > 0 && id > 0) {
     const n = notifications.findByChannelAndId(channelId, id);
     if (n) notifications.markRead(id);
@@ -131,10 +154,11 @@ router.post('/markRead', (req, res) => {
 
 // Bundle ALSO calls notifications/read (app:75758/76027), /count (75688) and
 // /seen (75923) — all were 404. /read mirrors markRead (single id); /count
-// returns the unread badge number; /seen acks (markRead already sets IsSeen).
+// returns the unread badge number; /seen acks a single notification as seen
+// (weaker than read — don't flip IsRead). All keyed by `notificationId`.
 router.all('/read', (req, res) => {
   const channelId = resolveChannelId(req);
-  const id = Number(req.body?.Id ?? req.body?.id ?? req.query?.id) || 0;
+  const id = resolveNotificationId(req);
   if (channelId > 0 && id > 0) {
     const n = notifications.findByChannelAndId(channelId, id);
     if (n) notifications.markRead(id);
@@ -148,7 +172,29 @@ router.all('/count', (req, res) => {
   res.json({ status: 200, count, unread: count });
 });
 
-router.all('/seen', (_req, res) => {
+router.all('/seen', (req, res) => {
+  const channelId = resolveChannelId(req);
+  const id = resolveNotificationId(req);
+  if (channelId > 0 && id > 0) {
+    const n = notifications.findByChannelAndId(channelId, id);
+    if (n) notifications.markSeenById(id);
+  }
+  res.json({ status: 200, success: true });
+});
+
+// Bundle posts notifications/markAll {state} on every bell-open (state:'seen',
+// app:75501/76105) and on the mark-all-read click (state:'read', :75549).
+// Missing route → 404 → "API Error (404)" toast each time the bell opens.
+router.all('/markAll', (req, res) => {
+  const channelId = resolveChannelId(req);
+  if (channelId <= 0) return res.json({ status: 200, success: true, marked: 0 });
+  const state = String(req.body?.state ?? req.query?.state ?? 'seen').toLowerCase();
+  if (state === 'read') {
+    const before = notifications.countUnread(channelId);
+    notifications.markAllRead(channelId);
+    return res.json({ status: 200, success: true, marked: before });
+  }
+  notifications.markSeen(channelId);
   res.json({ status: 200, success: true });
 });
 

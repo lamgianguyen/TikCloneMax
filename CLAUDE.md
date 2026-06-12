@@ -17,7 +17,7 @@ Mục tiêu số 1: **giữ app ổn định**. Tính năng mới hoặc bug fix
 | Bundle interception | [backend-node/src/templates/blockScript.txt](backend-node/src/templates/blockScript.txt) | IIFEs: tfI18nPreBake, tfForceProCredits, tfActivateProUI, tfHandleTtsGenerate, tfHandleTtsTikfinityUser, tfHandleTtsTikfinityCom, tfOverlaySettingsAutosave, tfForceSaveOnCustomizeClose, tfCoinJarResetReliable |
 | Bundle styling overrides | [backend-node/src/templates/earlyCss.txt](backend-node/src/templates/earlyCss.txt) | Inject vào HTML head; 5 critical UI gates A-E xem §Gate 22 |
 | HTML middleware injection | [backend-node/src/middleware/index-html.js](backend-node/src/middleware/index-html.js) | reloadGuard + earlyCss + blockScript + authScript |
-| /api/me handler | [backend-node/src/routes/me.js](backend-node/src/routes/me.js) | Pro shape: proInfo:null, subscription:null, channeluser:object — xem §Gate 23b |
+| /api/me handler | [backend-node/src/routes/me.js](backend-node/src/routes/me.js) | **CANONICAL Pro shape (đang CHẠY ỔN, đừng "fix"):** `subscription:{isPro:true,plan,active}`, `userFeatures:{isPro:true, proInfo:{plan,active}}`, `channeluser:object`. ⚠️ Gate 23b ghi `proInfo:null/subscription:null` là **lịch sử** (một biến thể cũ) — KHÔNG khớp code hiện tại; theo code, đừng theo Gate 23b literal. Bundle chỉ đọc `userFeatures.isPro`. |
 | Bundle decompiled (read-only) | [decompiled/modules/deobfuscated.js](decompiled/modules/deobfuscated.js) | ~945KB readable Vue app. Grep symbols TRƯỚC khi guess |
 | API contracts captured | [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) | 26 endpoints shape + sample. Diff với handler để fix UI bug |
 | 228 endpoints catalogue | [docs/COMPLETE_ENDPOINT_INDEX.md](docs/COMPLETE_ENDPOINT_INDEX.md) | Full list — dùng cho stub router fallback |
@@ -90,7 +90,7 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
    Serial Key gate ở TikfinityServer startup đã unlock TẤT CẢ tính năng Pro của bundle. Mọi response của `/api/me`, `/api/tts/user`, `/api/tts/auth-token` PHẢI emit user state là Pro:
    - `/api/me` → `isPro: true`, `subscription.isPro: true`, `userFeatures.isPro: true`
    - JWT từ `/api/tts/auth-token` payload có `subscriptionEnabled: true` + `subscriptionPeriodCredits > 0`
-   - `/api/tts/user` quota: `currentUsageMode: 'sub_credits'` (KHÔNG phải `'subscription'` — xem Gate 23b: `'subscription'` không khớp 3 mode bundle check → `tts.proCredits` không set → chip hiện 0), `subscriptionCreditsRemaining: 100000`, `subscriptionCreditsTotal: 100000`
+   - `/api/tts/user` quota: `currentUsageMode: 'sub_credits'` (KHÔNG phải `'subscription'` — xem Gate 23b: `'subscription'` không khớp 3 mode bundle check → `tts.proCredits` không set → chip hiện 0), `subscriptionCreditsTotal: 100000`, `subscriptionCreditsRemaining: <live monthly ledger>` (KHÔNG phải hằng số 100000 — `blockScript.txt` `__tfTtsCredits` refill theo tháng và trả `remaining` thực; chỉ Total là cố định)
 
    Side-effect duy nhất: bundle's topbar chip render TikTok avatar thay vì coin (Pro UX gốc). Fix qua CSS override trong `earlyCss.txt` (force-hide `<img>` + show coin twemoji 1fa99 pseudo-element). Selector dùng `bg-[#D435554D]` (chip's burgundy background) — ổn định qua bundle updates.
 

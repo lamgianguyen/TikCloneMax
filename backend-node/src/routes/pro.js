@@ -89,28 +89,17 @@ router.all('/stripe', (_req, res) => res.json({ status: 200, message: 'OK', url:
 router.all('/xsolla', (_req, res) => res.json({ status: 200, message: 'OK', url: '' }));
 router.all('/lemonsqueezy', (_req, res) => res.json({ status: 200, message: 'OK', url: '' }));
 
+// READ-ONLY. The desktop deployment is ALL-PRO by design (CLAUDE.md §1.0 — the
+// license gate at startup is the source of truth) and the stubs above never
+// deactivate Pro. This endpoint used to upsert IsPro=0/Active=0 to the DB when
+// ProExpireAt lapsed — the ONE path that could persist isPro=false, directly
+// against the ALL-PRO invariant. Report status without ever mutating it.
 router.get('/status', (req, res) => {
   const channelId = resolveChannelId(req);
   const sub = channelId > 0 ? subscriptions.findByChannel(channelId) : null;
-  let isPro = !!(sub && sub.IsPro);
-  // Expire if ProExpireAt is in the past.
-  if (isPro && sub && sub.ProExpireAt) {
-    const exp = new Date(sub.ProExpireAt);
-    if (!Number.isNaN(exp.getTime()) && exp.getTime() < Date.now()) {
-      subscriptions.upsert({
-        channelId,
-        isPro: false,
-        plan: sub.Plan || 'free',
-        active: false,
-        proExpireAt: sub.ProExpireAt,
-        proExpireSetBy: sub.ProExpireSetBy,
-      });
-      isPro = false;
-    }
-  }
   res.json({
     status: 200,
-    isPro,
+    isPro: !!(sub && sub.IsPro),
     plan: (sub && sub.Plan) || 'free',
     active: !!(sub && sub.Active),
     proExpireAt: sub ? sub.ProExpireAt : null,

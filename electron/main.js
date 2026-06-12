@@ -351,7 +351,11 @@ function startBackend() {
         const dataDir = path.join(app.getPath('userData'), 'tikfinity-data');
         try { fs.mkdirSync(dataDir, { recursive: true }); } catch { /* exists */ }
 
-        backendProcess = spawn(cfg.command, cfg.args, {
+        // Capture the spawned child in a local so this exit handler can tell
+        // whether IT is still the current backend. A manual "Khởi động lại
+        // backend" stops the old process then spawns a new one; by the time the
+        // OLD child's exit fires, `backendProcess` already points at the new one.
+        const child = spawn(cfg.command, cfg.args, {
             cwd: cfg.cwd,
             env: {
                 ...process.env,
@@ -363,26 +367,34 @@ function startBackend() {
             },
             stdio: ['ignore', 'pipe', 'pipe']
         });
-        backendProcess.stdout.on('data', d => {
+        backendProcess = child;
+        child.stdout.on('data', d => {
             const m = d.toString();
             try { backendLogStream && backendLogStream.write(m); } catch { /* ignore */ }
             const trimmed = m.trim();
             if (trimmed) console.log(`[Backend] ${trimmed}`);
         });
-        backendProcess.stderr.on('data', d => {
+        child.stderr.on('data', d => {
             const m = d.toString();
             try { backendLogStream && backendLogStream.write('[ERR] ' + m); } catch { /* ignore */ }
             const trimmed = m.trim();
             if (trimmed) console.error(`[Backend ERR] ${trimmed}`);
         });
-        backendProcess.on('exit', code => {
+        child.on('exit', code => {
             console.log(`[Backend] exited with code ${code}`);
-            backendProcess = null;
-            if (backendLogStream) {
-                try { backendLogStream.end(); } catch { /* ignore */ }
-                backendLogStream = null;
+            const wasCurrent = backendProcess === child;
+            if (wasCurrent) {
+                backendProcess = null;
+                if (backendLogStream) {
+                    try { backendLogStream.end(); } catch { /* ignore */ }
+                    backendLogStream = null;
+                }
             }
-            if (isQuitting) return;
+            // Skip the "unexpected exit" dialog for an INTENTIONAL exit: the app
+            // is quitting, OR this process was already superseded by a restart
+            // (a new backend has replaced it). Showing it on every restart — and
+            // nulling the live process reference — was the dialog-spam bug.
+            if (isQuitting || !wasCurrent) return;
             dialog.showMessageBox({
                 type: 'error',
                 title: 'TikFinity Backend Error',
@@ -391,16 +403,18 @@ function startBackend() {
                 defaultId: 0
             }).then(({ response }) => {
                 if (response === 0) {
+                    freeOurPorts();
                     startBackend();
                     waitForBackend(BACKEND_HEALTH_TIMEOUT_S * 4, 250)
                         .then(() => { if (mainWindow) mainWindow.reload(); })
                         .catch((e) => console.error('[Backend] restart failed:', e.message));
                 } else {
+                    isQuitting = true;
                     app.quit();
                 }
             });
         });
-        backendProcess.on('error', err => {
+        child.on('error', err => {
             console.error('[Backend] failed to spawn:', err.message);
         });
     } catch (err) {
@@ -523,18 +537,33 @@ function waitForBackend(maxRetries, delayMs) {
 }
 
 function stopBackend() {
-    if (backendProcess && !backendProcess.killed) {
+    // Capture the child up-front and clear the shared ref immediately, so the
+    // delayed SIGKILL targets THIS process (not a replacement spawned by a
+    // restart) and the exit handler's wasCurrent check sees it as superseded
+    // (→ no "unexpected exit" dialog).
+    const proc = backendProcess;
+    backendProcess = null;
+    if (proc && !proc.killed) {
         console.log('[Electron] Stopping backend...');
-        backendProcess.kill('SIGTERM');
+        proc.kill('SIGTERM');
         setTimeout(() => {
-            if (backendProcess && !backendProcess.killed) backendProcess.kill('SIGKILL');
+            try { if (proc && !proc.killed) proc.kill('SIGKILL'); } catch { /* already gone */ }
         }, 5000);
     }
-    backendProcess = null;
     if (backendLogStream) {
         try { backendLogStream.end(); } catch { /* already closed */ }
         backendLogStream = null;
     }
+}
+
+// Sequenced restart for the tray "Khởi động lại backend": stop → let the OS
+// release port 5285 → force-free any straggler → start. A bare
+// stopBackend()+startBackend() races — the new backend can hit EADDRINUSE and
+// crash-loop while the old one is still releasing the socket, which is what
+// spammed the error dialog.
+function restartBackend() {
+    stopBackend();
+    setTimeout(() => { freeOurPorts(); startBackend(); }, 600);
 }
 
 // ---------------------------------------------------------------------------
@@ -2178,7 +2207,7 @@ function refreshTrayMenu() {
         });
         items.push({ type: 'separator' });
     }
-    items.push({ label: 'Khởi động lại backend', click: () => { stopBackend(); startBackend(); } });
+    items.push({ label: 'Khởi động lại backend', click: () => restartBackend() });
     items.push({ type: 'separator' });
     items.push({ label: 'Thoát', click: () => { isQuitting = true; app.quit(); } });
     tray.setContextMenu(Menu.buildFromTemplate(items));

@@ -4191,4 +4191,71 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
     return _fetch.apply(this,arguments);
   };
 })();
+
+  // ── tfChatFeedToModules (2026-06-11) ─────────────────────────────────────
+  // The clone routes TikTok connect via tf-connect.js (REST -> bridge), which
+  // BYPASSES the bundle's native connector. So broadcastlistener.onChat — the
+  // entry point that drives the in-app Chat page + TTS — never gets fed, and TTS
+  // stays silent even though chat is flowing. Feed it from a dedicated socket.
+  // CHAT-ONLY on purpose: onChat re-distributes via distributeEvent("chat") which
+  // the backend DROPS (chat is not in RELAYABLE_DISTRIBUTE) and does NOT
+  // emitWsEvent, so there is no double-fire of widgets/DAPI. Gift/like are NOT
+  // fed here (onGift re-emits to DAPI = double overlay effects).
+  (function tfChatFeedToModules(){
+    function connectFeed(){
+      if(window.__tfChatFeedStarted) return;
+      if(typeof window.io !== 'function') return;
+      if(!window.broadcastlistener || typeof window.broadcastlistener.onChat !== 'function') return;
+      window.__tfChatFeedStarted = true;
+      var s;
+      try {
+        s = window.io({ transports:['websocket'], upgrade:false, reconnection:true,
+          reconnectionDelay:2000, reconnectionDelayMax:30000, query:{ appType:'controlpage', shared:false } });
+      } catch(e){ window.__tfChatFeedStarted = false; return; }
+      function tlog(tag, msg){
+        try {
+          fetch('/api/_dev/clientlog', { method:'POST', headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({ tag: tag, msg: String(msg).slice(0, 300) }) });
+        } catch(e){}
+      }
+      s.on('connect', function(){
+        try {
+          var cid = (window.session && window.session.channelId) || 1;
+          s.emit('setContext', { channelId: cid, appType:'controlpage' });
+          tlog('FEED', 'chat feed connected cid=' + cid + ' tiktok=' + ((window.session && window.session.tiktokUsername) || localStorage.getItem('setting_tiktokname') || '?'));
+        } catch(e){}
+      });
+      s.on('chat', function(d){
+        try {
+          if(d && typeof d.comment === 'string'){
+            tlog('TTS-CHAT', (d.nickname || d.uniqueId || '?') + ': ' + d.comment);
+            if(window.broadcastlistener && typeof window.broadcastlistener.onChat === 'function'){
+              window.broadcastlistener.onChat(d);
+            }
+          }
+        } catch(e){}
+      });
+      // LOG-ONLY (do NOT feed onGift — it re-emits to DAPI = double overlay).
+      s.on('gift', function(d){
+        try {
+          if(d) tlog('GIFT', (d.nickname || d.uniqueId || '?') + ' sent ' + (d.giftName || d.describe || 'gift') + ' x' + (d.repeatCount || d.repeat_count || 1));
+        } catch(e){}
+      });
+    }
+    function loop(){
+      if(window.__tfChatFeedStarted) return;
+      if(typeof window.io === 'function' && window.broadcastlistener
+         && typeof window.broadcastlistener.onChat === 'function'){ connectFeed(); return; }
+      if(typeof window.io !== 'function' && !window.__tfChatFeedIoLoading){
+        window.__tfChatFeedIoLoading = true;
+        try {
+          var sc = document.createElement('script');
+          sc.src = '/js/lib/socket.io.min.js';
+          (document.head || document.documentElement).appendChild(sc);
+        } catch(e){}
+      }
+      setTimeout(loop, 800);
+    }
+    loop();
+  })();
 </script>

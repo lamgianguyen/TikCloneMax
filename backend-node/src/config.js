@@ -36,18 +36,36 @@ try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch { /* exists */ }
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// JWT secret resolution. Production MUST set TIKMAX_JWT_SECRET — a predictable
-// dev fallback would let anyone forge tokens. Dev keeps the legacy fallback so
-// existing local sessions stay valid, but logs a loud warning.
+// JWT secret resolution. An explicit TIKMAX_JWT_SECRET always wins. A packaged
+// build sets NODE_ENV=production (Electron app.isPackaged) but has no env secret
+// to hand us — previously that THREW and crashed the backend on boot. Instead,
+// generate a strong random secret once and persist it per-install under DATA_DIR
+// (never a predictable hardcoded value that would let anyone forge tokens). Dev
+// keeps the legacy fallback so existing local sessions stay valid.
+function resolvePersistedSecret() {
+  const crypto = require('crypto');
+  const secretFile = path.join(DATA_DIR, 'jwt-secret');
+  try {
+    if (fs.existsSync(secretFile)) {
+      const existing = fs.readFileSync(secretFile, 'utf8').trim();
+      if (existing.length >= 32) return existing;
+    }
+  } catch { /* unreadable → regenerate below */ }
+  const generated = crypto.randomBytes(48).toString('base64url');
+  try {
+    fs.writeFileSync(secretFile, generated, { mode: 0o600 });
+  } catch (e) {
+    console.warn(`[config] could not persist JWT secret (${e.message}) — using ephemeral secret`);
+  }
+  return generated;
+}
+
 function resolveJwtSecret() {
   const fromEnv = process.env.TIKMAX_JWT_SECRET;
   if (fromEnv) return fromEnv;
 
   if (NODE_ENV === 'production') {
-    throw new Error(
-      'TIKMAX_JWT_SECRET environment variable is required in production. ' +
-      'Refusing to start with an insecure hardcoded fallback.'
-    );
+    return resolvePersistedSecret();
   }
 
   console.warn(

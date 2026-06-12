@@ -65,7 +65,7 @@ git diff decompiled/modules/deobfuscated.js  # function nào bundle thêm/sửa/
 node qa/run-all.js
 ```
 
-Nhìn kết quả **L4 gate-health**. Mỗi **DRIFT** (FAIL ở `gate.*`) = anchor của 1 Gate đã **dời chỗ trong bundle** → giả định của Gate đó có thể đã vỡ. (Nếu `gate-health.test.js` chưa build → nó SKIP; build module này là điều kiện để bước 5 chạy được.)
+Nhìn kết quả **L4 gate-health**. Mỗi **DRIFT** (FAIL ở `gate.*`) = anchor của 1 Gate đã **dời chỗ trong bundle** → giả định của Gate đó có thể đã vỡ. (`gate-health.test.js` đã build và sinh toàn bộ ~53 gate row mỗi run.)
 
 ## Bước 5 — Vá từng drift (vòng lặp tới khi gate-health xanh)
 

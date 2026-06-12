@@ -1,57 +1,43 @@
 # Current Mission
 
 ## Mission ID
-M-QA-HARNESS (2026-06-08) — Self-maintaining QA team + harness
+M-REVIEW-FLOW (2026-06-10) — Full clone-flow review (read-only audit)
 
-**Commander:** current session (Opus 4.8) · **Tier:** Large (durable infra, multi-subsystem)
+**Commander:** current session (Opus/Fable) · **Tier:** Large (cross-cutting audit, multi-subsystem)
 
 ## Objective
-Build a permanent, self-maintaining QA harness + agent team that auto-tests EVERY feature,
-records errors+fixes, measures perf (RAM/CPU/lag/crash), finds a live TikTok ID for real-event
-tests, and **survives bundle updates** (extends, never restarts from scratch).
+Review toàn bộ luồng clone xem "có gì không ổn":
+boot/serve → auth/ALL-PRO → TikTok connect/realtime relay → widget/overlay settings chain
+→ actions/points client-side contract → DB/REST verb coverage → QA harness health + doc drift.
 
-## Why (user directive 2026-06-08)
-> "tạo 1 đội ngũ agent chuyên test, ghi lỗi cách fix... auto hết mọi tính năng... sau này file
-> bundle mã hoá phiên bản mới vẫn BỔ SUNG chứ không phải mỗi lúc code mỗi khác... tự làm tự kiểm
-> duyệt tự tạo module test... tìm id đang live, test mọi chức năng, coi lag/crash/đồng bộ giao
-> diện/ram/cpu/hiệu năng... làm project chạy không lỗi. xài full agent."
+**READ-ONLY mission** ~~chỉ báo cáo findings~~ → **NÂNG QUYỀN (user directive 2026-06-10): "thấy cái nào sai cứ sửa thẳng luôn, toàn quyền ở project này"** — sau khi review confirm findings, Commander triển khai fix phase:
+- Backup trước mọi high-risk file (§5), one change at a time (§1.11), verify sau mỗi fix.
+- Fix theo thứ tự CRITICAL → HIGH → MEDIUM (low-risk trước trong cùng severity).
+- Ghi FIXLOG + TEST_STATUS khi đóng mission. User sẽ review code sau.
 
-## Durability principle (the differentiator)
-Test the **STABLE contract layers**, not obfuscated bundle internals:
-- L1 backend HTTP API — OUR backend → stable.
-- L2 Socket.IO relay/event layer — OUR socket-manager → stable.
-- L3 widget standalone HTML — OUR widget files → semi-stable.
-- L4 bundle integration — thin DOM probes + **gate-health** that *flags drift* instead of breaking.
-
-New obfuscated bundle → L1–L3 unchanged; L4 runs RE pipeline (Gate 22) + diff → reports which
-Gates broke. Runbook: `qa/BUNDLE_UPDATE.md`.
-
-## Roster (full Opus, max-thinking)
-| Agent | Owns (one file each) |
+## Roster (full Opus inherit, max-thinking, ~11 agents via Workflow)
+| Agent | Vùng (read-only) |
 |---|---|
-| Commander | `qa/lib/*`, `qa/registry.js`, `qa/run-all.js`, package.json, CLAUDE.md, `.claude/workflows/qa-sweep.js` |
-| Engineer-API | `qa/modules/api-contract.test.js` |
-| Engineer-Socket | `qa/modules/socket-relay.test.js` |
-| Engineer-Widget | `qa/modules/widget-smoke.test.js` |
-| Engineer-Perf | `qa/modules/perf-sample.test.js` |
-| Engineer-LiveID | `qa/modules/live-id-finder.js` |
-| Engineer-GateHealth | `qa/modules/gate-health.test.js` |
-| Librarian | `qa/BUNDLE_UPDATE.md`, `qa/README.md`, `.codex/team/qa-team.md` |
-| Lỗi-Historian | Commander-kept (results.js auto-writes FIXLOG/TEST_STATUS blocks) |
+| Lỗi-Historian | FIXLOG.md + TEST_STATUS.md — known dead-ends, OPEN items, strikes |
+| Scout-Boot | electron/main.js, src/index.js, middleware/*, templates blockScript/earlyCss |
+| Scout-AuthPro | routes/me.js, key-auth.js, auth, services/jwt.js, routes/tts.js — ALL-PRO invariants |
+| Scout-Realtime | routes/tiktok.js, services/tiktok-bridge.js, socket-manager.js — Gate 35, race/reconnect |
+| Scout-WidgetOverlay | routes/widget.js, widget-defaults, widget-settings-cache, settings — settings→preview chain |
+| Scout-ActionsPoints | routes/actions.js, points.js, notifications.js, services/points.js — verb coverage + double-fire |
+| Scout-DB-REST | db models/migrations + remaining routes vs COMPLETE_ENDPOINT_INDEX |
+| Scout-QA-Docs | qa/ harness vs staged bundle captures/bundle-new-2026-06/, TEST_STATUS OPEN, doc drift |
+| Reconciler (Opus) | dedup + cross-check vs Historian + conflict resolution |
+| Verifier × N | adversarial refute-by-default per consolidated finding |
 
-File ownership absolute — no two agents touch the same file.
-
-## Status — ✅ DONE (2026-06-08)
+## Status — ✅ DONE (2026-06-11)
 - [x] Mission declared
-- [x] Foundation (Commander) — qa/lib + registry + run-all, all node --check PASS
-- [x] Modules (team) — 6 modules, 8 full-Opus agents parallel, all node --check PASS
-- [x] qa-sweep workflow — `.claude/workflows/qa-sweep.js`
-- [x] Integrated + sweep green — 59 PASS / 27 FAIL (real findings) / 30 SKIP, exit-coded
-- [x] Wired — package.json (`npm run qa`), CLAUDE.md §0.0, TEST_STATUS/FIXLOG auto-blocks, memory
+- [x] Workflow review-clone-flow chạy (wf_16f80415-bf9, 29 agent → 18 confirmed / 2 refuted)
+- [x] Reconciliation + verified findings
+- [x] **Fix phase: 18/18 finding fixed** (1 CRITICAL + 8 HIGH + 9 MEDIUM) — xem [FIXLOG.md](../../FIXLOG.md) entry [2026-06-11]
+- [x] Verify: node --check 18/18 + require-smoke 13/13 + serializeConfigJson 11/11 + backend boot + full QA sweep (api 45/0, socket 35/0, gate 53/0)
+- [x] FIXLOG + TEST_STATUS (QA-AUTO blocks tự ghi) cập nhật
 
-**Outcome:** see `.codex/team/current_state.json::m_qa_harness`. 27 FAIL = real pre-existing
-issues the harness surfaced (21 widget external-CDN + 6 unguarded settings.isPro). Offered to
-user: fix 6 null-guards (low-risk) + plan CDN localization (High-Risk, known-DEFERRED).
+**Outcome:** 25 sweep FAIL = 21 RC-6 CDN (known-open) + 3 chain.db (DB-path drift standalone) + 1 eventcarousel (refuted EISDIR) — KHÔNG regression. 2 refuted: eventcarousel-EISDIR (Express tự guard), bridge-broadcast-asymmetry (no consumer). Backups: actions/index/tiktok-bridge + 4 widget `.bak-2026-06-11-*`. Cần user restart Electron để áp + runtime-verify (double-fire/disconnect/notifications/action-form).
 
 ## Backups
-N/A — all-new files under `qa/`. Edits to package.json/CLAUDE.md are additive (append section).
+N/A — read-only audit, không edit file ngoài .codex/team/*.

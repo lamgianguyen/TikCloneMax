@@ -331,4 +331,4 @@ function indexHtmlMiddleware() {
   };
 }
 
-module.exports = { buildIndexHtml, invalidateCache, indexHtmlMiddleware };
+module.exports = { buildIndexHtml, invalidateCache, indexHtmlMiddleware, detectLang };

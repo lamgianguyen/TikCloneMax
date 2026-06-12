@@ -125,6 +125,9 @@ function recordIdentity(channelId, username, identity = {}) {
   ) {
     return;
   }
+  // Stamp the write so toChannelUser can surface lastUpsertAt (the Points grid's
+  // declared sort key). Only set on real identity changes — no extra write churn.
+  merged.updatedAt = new Date().toISOString();
   stmt(
     'upsertMeta',
     `INSERT INTO "DynamicSettings" ("ChannelId","ProfileId","Key","Value") VALUES (?,?,?,?)
@@ -164,6 +167,17 @@ function findUsernameByUserId(channelId, userId) {
   return null;
 }
 
+// DevExtreme's ODataStore on the Points page binds key:"id" + sort lastUpsertAt
+// (decompiled/modules:14040-14051). A constant id:0 made every viewer share one
+// store key (duplicate-key selection glitches in the keyed selectboxes); derive a
+// stable, unique-per-username positive int from the balance key instead.
+function channelUserId(username) {
+  const key = pointsKeyFor(username) || String(username || '');
+  let h = 0;
+  for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
 // The ChannelUser shape the bundle expects from rest/channeluser + odata. The
 // clone tracks one running balance, so totalAmount (spendable, used for wheel /
 // transfer cost checks) and totalRewardAmount (lifetime, used for level) are
@@ -171,11 +185,12 @@ function findUsernameByUserId(channelId, userId) {
 function toChannelUser(channelId, username, balance, meta = {}) {
   return {
     userId: meta.userId || '',
-    id: 0,
+    id: channelUserId(username),
     channelId,
     username,
     nickname: meta.nickname || username,
     thumbnailUrl: meta.thumbnailUrl || null,
+    lastUpsertAt: meta.updatedAt || null,
     totalAmount: balance,
     totalRewardAmount: balance,
     challengeStartAmount: 0,

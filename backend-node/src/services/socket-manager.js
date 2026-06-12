@@ -132,6 +132,22 @@ function bind(ioServer) {
       // aggregates / misc overlay
       'updateTopGifter', 'updateTopLiker', 'updateViewerCount', 'topGiftData',
       'newTransaction', 'showCommandResult', 'showCommands', 'showCustomCommands', 'showUserScore',
+      // timer / countdown — timer.html + timer/index.html consume io.on('timerUpdate')
+      // ONLY (no REST path); this is the event the staged Countdown Goal bundle needs.
+      'timerUpdate',
+      // activity-feed dock — activity-feed.html listens for 'dockData' (zero
+      // alternate delivery path; without this the widget is fully dead).
+      'dockData',
+      // last-X overlay (lastx.html) + song-request playlist (songrequests.html).
+      'setLastX', 'setPlaylistItems',
+      // gift-cannon Test button (cannon.html listens 'giftCanonTest'; live FX use
+      // the already-whitelisted 'gift').
+      'giftCanonTest',
+      // NOTE: deliberately NOT relayed here — 'chat' (live chat already reaches
+      // widgets via tiktok-bridge broadcastAll; relaying test-chat risks
+      // double-delivery to chat overlays), 'actionsChanged' (already broadcast by
+      // the backend on REST mutations — me.js/widget.js), and 'christmas-event:*'
+      // (seasonal + needs prefix matching this exact-match Set can't do).
     ]);
     socket.on('distributeEvent', (eventName, payload) => {
       try {

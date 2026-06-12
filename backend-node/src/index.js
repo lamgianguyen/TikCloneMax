@@ -69,12 +69,42 @@ const app = express();
 const server = http.createServer(app);
 
 app.disable('x-powered-by');
-app.use(cors({ origin: true, credentials: true }));
+
+// The bundle + widgets are all served from this same loopback origin, so their
+// requests are same-origin (Origin omitted or set to the loopback host). We must
+// NOT reflect an arbitrary site's Origin back WITH credentials — that lets any
+// page the user opens in a normal browser drive credentialed POSTs to our
+// destructive endpoints (reset/backup-wipe/deleteAllUsers). Allow only loopback.
+function isLoopbackOrigin(origin) {
+  if (!origin) return true; // non-browser (curl/QA harness) or same-origin w/o header
+  try {
+    const h = new URL(origin).hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
+  } catch {
+    return false;
+  }
+}
+app.use(cors({
+  origin: (origin, cb) => cb(null, isLoopbackOrigin(origin)),
+  credentials: true,
+}));
 app.use(compression());
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(optionalAuth);
+
+// Drive-by / CSRF guard. A state-changing request that carries a NON-loopback
+// Origin is a cross-site attempt (browsers send Origin on cross-origin POST/PUT/
+// DELETE, including auto-submitting forms). Block it before it reaches a
+// destructive route. Requests with no Origin (curl/QA/same-origin) pass through.
+app.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (!isLoopbackOrigin(req.headers.origin)) {
+    return res.status(403).json({ status: 403, error: 'cross-origin request blocked' });
+  }
+  next();
+});
 
 // Request log mirroring the C# parent's `[REQ]` format so the Electron host's
 // existing log forwarding picks the lines up unchanged.
@@ -94,6 +124,26 @@ app.use((req, _res, next) => {
 // handlers).
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', version: '1.0.0', backend: 'node', ts: Date.now() });
+});
+
+// Dev-only surface: synthetic chat injection, HTML-cache reload, and the
+// template/static file watcher. These are unauthenticated and let any caller
+// push fake events / force reloads, so they must NOT exist in a packaged build
+// (Electron sets NODE_ENV=production when app.isPackaged). Gated as one block.
+const DEV_ENDPOINTS_ENABLED = config.NODE_ENV !== 'production';
+if (DEV_ENDPOINTS_ENABLED) {
+
+// Client → backend activity log. The bundle's chat/TTS feed (blockScript
+// tfChatFeedToModules) POSTs here so renderer-side activity (what TTS gets fed,
+// gifts seen) lands in backend-debug.log for inspection, instead of only the
+// in-app TTS Logs panel. Connection id + real gifts are already in the bridge's
+// own logs ([TikTokBridge] connected @X / [Bridge] gift event).
+app.post('/api/_dev/clientlog', (req, res) => {
+  const b = req.body || {};
+  const tag = (typeof b.tag === 'string' ? b.tag : 'log').slice(0, 24);
+  const msg = typeof b.msg === 'string' ? b.msg : JSON.stringify(b.msg ?? b);
+  logger.info(`[CLIENT][${tag}] ${msg.slice(0, 400)}`);
+  res.json({ status: 'ok' });
 });
 
 // Dev helper: fire a synthetic chat event with the same shape the TikTok
@@ -167,6 +217,8 @@ try {
 } catch (err) {
   logger.warn({ err: err?.message || err }, '[DEV] file watcher init failed');
 }
+
+} // end DEV_ENDPOINTS_ENABLED
 
 // Real /api/* handlers. Order matters: mount BEFORE express.static so the
 // pre-recorded `downloads/api/*` JSON fixtures only fire as fallback for
@@ -401,8 +453,17 @@ app.use((req, res, next) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.sendFile(candidate);
   }
-  if (fs.existsSync(candidateHtml)) {
+  // Only serve `<name>.html` when it's a real FILE — some bundle downloads ship a
+  // DIRECTORY named `<name>.html` (e.g. eventcarousel.html/) which would EISDIR →
+  // 404 here. In that case fall through to the subdirectory form below.
+  if (fs.existsSync(candidateHtml) && fs.statSync(candidateHtml).isFile()) {
     return res.sendFile(candidateHtml);
+  }
+  // Subdirectory form: `/widget/<name>/` served from `<name>/index.html`.
+  const candidateIndex = path.join(candidate, 'index.html');
+  if (fs.existsSync(candidateIndex) && fs.statSync(candidateIndex).isFile()) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.sendFile(candidateIndex);
   }
   next();
 });

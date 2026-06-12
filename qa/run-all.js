@@ -161,6 +161,10 @@ async function main() {
     backendUp,
     durationMs: Date.now() - started,
     mode: args.mutating ? 'mutating' : 'read-only',
+    // A --only run covers a subset of modules. Recorded so the ledger can flag
+    // partial coverage instead of claiming a clean full sweep.
+    partial: !!(args.only && args.only.length),
+    only: args.only || null,
     results: allResults,
     perf: allMetrics['perf-sample'] || null,
     metrics: allMetrics,
@@ -178,7 +182,9 @@ async function main() {
       log(`\n   Failures:`);
       allResults.filter((r) => r.status === 'FAIL').forEach((r) => log(`   ❌ [${r.severity || '?'}] ${r.id} — ${(r.evidence || '').slice(0, 140)}`));
     }
-    log(`\n   📝 TEST_STATUS.md ${persisted.testStatus ? 'updated' : 'FAILED'} · FIXLOG.md ${persisted.fixlog ? 'updated' : 'FAILED'} · json=${path.basename(persisted.jsonFile || '?')}`);
+    const fxState = persisted.fixlog === true ? 'updated' : persisted.fixlog === 'skipped' ? 'skipped (partial run)' : 'FAILED';
+    log(`\n   📝 TEST_STATUS.md ${persisted.testStatus ? 'updated' : 'FAILED'} · FIXLOG.md ${fxState} · json=${path.basename(persisted.jsonFile || '?')}`);
+    if (run.partial) log(`   ⚠️ PARTIAL RUN (only=${args.only.join(',')}) — KHÔNG phủ hết module; FIXLOG failures KHÔNG refresh. Chạy không --only để có ledger đầy đủ.`);
     if (persisted.errors.length) log(`   ⚠️ persist errors: ${persisted.errors.join('; ')}`);
     log('');
   }

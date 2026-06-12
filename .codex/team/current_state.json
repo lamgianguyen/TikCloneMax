@@ -1,8 +1,20 @@
 {
   "schema_version": 1,
-  "last_updated": "2026-06-03",
+  "last_updated": "2026-06-11",
   "compaction_checkpoint": true,
   "active_mission": null,
+  "m_review_flow": {
+    "status": "DONE — full clone-flow audit + fix. 18 findings fixed (1 CRITICAL + 8 HIGH + 9 MEDIUM), 2 refuted.",
+    "date": "2026-06-11",
+    "user_ask": "review lại project theo flow clone, thấy cái nào sai cứ sửa thẳng (full quyền)",
+    "workflow": "wf_16f80415-bf9 (29 agents: 8 Scout + Reconciler + adversarial Verifiers)",
+    "critical": "rest/action không serialize flattened DTO vào ConfigJson → native create/edit mất config (data loss). Fixed serializeConfigJson merge.",
+    "high": "double-fire points/chat (gỡ queuePointsDelta); disconnect không abort retry loop; streamEnd reconnect storm; RELAYABLE_DISTRIBUTE thiếu 5 event (timerUpdate cho Countdown Goal staged); transaction username=null split balance; notifications markAll/notificationId/preferences; QA --only ledger mask; QA http no-redirect 21 false-pos; destructive endpoints no-auth + CORS mở + packaged JWT crash.",
+    "medium": "channeluser id:0+lastUpsertAt; pro/status read-only; 4 widget isPro guard; chat waveSpeed defaults; spa-fallback lang drift; CLAUDE.md Pro-shape doc; qa/README+BUNDLE_UPDATE doc.",
+    "verify": "node --check 18/18, require-smoke 13/13, serializeConfigJson 11/11, backend boot code-mới OK, full QA sweep api-contract 45/0 + socket-relay 35/0 + gate-health 53/0. 25 sweep FAIL = 21 RC-6 CDN (known) + 3 chain.db (DB-path drift standalone) + 1 eventcarousel (refuted EISDIR) — no regression.",
+    "pending_user": "restart Electron để áp; runtime-verify double-fire/disconnect/notifications/action-form. chatBot.onChat chatCommandFired dead-code GIỮ NGUYÊN (note).",
+    "backups": "actions.js / index.js / tiktok-bridge.js + 4 widget topg/tops .bak-2026-06-11-*"
+  },
   "m_qa_harness": {
     "status": "DONE — self-maintaining QA harness + team built, wired (npm run qa), integration-verified (full sweep runs end-to-end)",
     "date": "2026-06-08",

@@ -26,6 +26,7 @@ module.exports = Object.freeze({
   chat_hideAfter: 0,
   chat_mini: false,
   chat_rightAlignment: true,
+  chat_rightToLeft: false,
   chat_slideEffect: true,
   chat_autoWidth: true,
   chat_showChatNormal: true,
@@ -47,6 +48,13 @@ module.exports = Object.freeze({
   chat_usernameWaveNormal: false,
   chat_usernameWaveMod: false,
   chat_usernameWaveSub: false,
+  // Wave SPEED select (slow/normal/fast). chat.html reads these; without the
+  // defaults the saved key stays prefixed in the bag (normalizeKey only de-prefixes
+  // keys present in DEFAULTS) → the widget reads undefined and the choice reverts
+  // on reload. 'normal' matches the bundle schema default.
+  chat_usernameWaveSpeedNormal: 'normal',
+  chat_usernameWaveSpeedMod: 'normal',
+  chat_usernameWaveSpeedSub: 'normal',
   chat_usernameGlowNormal: true,
   chat_usernameGlowMod: true,
   chat_usernameGlowSub: true,

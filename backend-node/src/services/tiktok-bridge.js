@@ -21,7 +21,6 @@ const chatBot = require('./chat-bot');
 const points = require('./points');
 const goalsModel = require('../db/models/goals');
 const channels = require('../db/models/channels');
-const db = require('../db/conn');
 const config = require('../config');
 const logger = require('../logger');
 
@@ -178,56 +177,36 @@ function refreshGoals(channelId) {
   _goalsCache.delete(channelId);
 }
 
-// ── Points batching ────────────────────────────────────────────────────────
-//
-// Naive path was getBalance + setBalance per chat event = 2 SQLite ops/event.
-// At 200 msg/s burst that's 400 ops/sec — better-sqlite3 handles it, but the
-// WAL writes dominate the hot path and starve other queries.
-//
-// Accumulate deltas in memory keyed by channelId+username (lowercased). Every
-// PENDING_POINTS_FLUSH_MS, run a single transaction that reads the current
-// balance per key, applies the accumulated delta, writes it back, and clears
-// the map. Order semantics within a single key are preserved because deltas
-// are additive — points from chat events only ever sum, never overwrite.
-const _pendingPoints = new Map();          // key = `${channelId}|${username}` → delta number
-const PENDING_POINTS_FLUSH_MS = 3000;
-
-function queuePointsDelta(channelId, username, delta) {
-  if (!username || !delta) return;
-  const key = `${channelId}|${String(username).trim().toLowerCase()}`;
-  _pendingPoints.set(key, (_pendingPoints.get(key) || 0) + delta);
-}
-
-function flushPendingPoints() {
-  if (_pendingPoints.size === 0) return;
-  // Snapshot + clear up-front so events arriving mid-flush queue cleanly
-  // into the next window instead of being included and double-counted on
-  // any partial-failure path.
-  const snapshot = Array.from(_pendingPoints.entries());
-  _pendingPoints.clear();
-  try {
-    const apply = db.transaction((entries) => {
-      for (const [key, delta] of entries) {
-        const sep = key.indexOf('|');
-        if (sep < 0) continue;
-        const channelId = Number(key.slice(0, sep));
-        const username = key.slice(sep + 1);
-        const current = points.getBalance(channelId, username);
-        points.setBalance(channelId, username, current + delta);
-      }
-    });
-    apply(snapshot);
-  } catch (err) {
-    logger.warn({ err: err?.message || err }, '[TikTokBridge] points flush failed');
-  }
-}
-
-setInterval(flushPendingPoints, PENDING_POINTS_FLUSH_MS).unref?.();
+// NOTE (2026-06-11): The backend no longer awards points on live chat events.
+// The bundle owns the viewer-points economy CLIENT-SIDE — its "points per chat
+// minute" feature is gated (enable checkbox + 60s/user throttle) and persists
+// via PUT /rest/transaction. A flat backend +1/message double-fired with that
+// (inflated balances when the feature was on, and granted points even when it
+// was off), violating the "backend must NOT act on live events" doctrine. The
+// in-memory points-batching queue that fed it was removed with its sole caller.
 
 // ── Connection orchestration ───────────────────────────────────────────────
 
-async function disconnect() {
+// `abortInFlight` is set by the user-facing /disconnect route. The internal
+// connect path calls disconnect() with NO args (abortInFlight stays false) so it
+// never awaits the very promise it runs under (no deadlock).
+async function disconnect({ abortInFlight = false } = {}) {
   clearReconnectTimer(); // cancel any pending auto-reconnect on teardown
+  // A user disconnect DURING the connecting window must abort the in-flight
+  // connect retry loop. Otherwise the next attempt re-populates _state and the
+  // session is silently resurrected CONNECTED after the user explicitly killed
+  // it (§8 disconnect idempotency). Mirror the profile-switch pre-emption path.
+  if (abortInFlight && _connectInFlight) {
+    _connectAbortRequested = true;
+    // Force the current attempt to tear down NOW so conn.connect() rejects fast
+    // instead of running out the 25s timeout before the loop sees the abort.
+    if (_state.connection) {
+      try { _state.connection.removeAllListeners?.(); } catch { /* ignore */ }
+      try { _state.connection.disconnect(); } catch { /* ignore */ }
+      _state.connection = null;
+    }
+    try { await _connectInFlight; } catch { /* expected: aborted */ }
+  }
   if (_state.connection) {
     try {
       // Strip event handlers BEFORE disconnect so the old connection's
@@ -306,6 +285,16 @@ async function tryConnectOnce(clean, channelId, attempt) {
     ctorOpts.sessionId = process.env.TIKTOK_SESSIONID;
     ctorOpts.ttTargetIdc = process.env.TIKTOK_TT_TARGET_IDC;
   }
+
+  // Diagnostic: which auth path is in effect. AUTHENTICATED (sessionId) is far more
+  // stable than the free Eulerstream signing. If this logs sessionId=no while the
+  // user IS logged in, the env didn't reach the backend (restart) or the session
+  // store is empty/expired. signApiKey=no + sessionId=no = free tier (flaky).
+  logger.info(
+    `[TikTokBridge] auth mode: sessionId=${ctorOpts.sessionId ? 'YES (authenticated)' : 'no'}`
+    + ` ttTargetIdc=${ctorOpts.ttTargetIdc || '-'}`
+    + ` signApiKey=${ctorOpts.signApiKey ? 'YES' : 'no (free Eulerstream)'}`
+  );
 
   const conn = new TikTokLiveConnection(_state.username, ctorOpts);
   _state.connection = conn;
@@ -625,6 +614,18 @@ function wireEvents(conn, channelId, username) {
     broadcast(channelId, 'streamEnd', { username, actionId });
     sockets.broadcast('status', { connected: false, tiktok: false, connecting: false });
     _state.connected = false;
+    _state.connecting = false;
+    _state.lastEventAt = 0;
+    // The host ENDED the stream — don't auto-reconnect into a dead room. The
+    // connector emits a follow-up `disconnected` right after streamEnd; strip
+    // listeners + tear down so it can't reach the disconnected handler and kick
+    // off a reconnect storm against an offline host (mirrors the watchdog).
+    clearReconnectTimer();
+    if (_state.connection === conn) {
+      try { conn.removeAllListeners?.(); } catch { /* ignore */ }
+      try { conn.disconnect(); } catch { /* ignore */ }
+      _state.connection = null;
+    }
   });
 
   conn.on('chat', async (data) => {
@@ -641,8 +642,9 @@ function wireEvents(conn, channelId, username) {
     // viewer all live on main bundle). Widget-only would starve TTS module.
     broadcastAll(channelId, 'chat', payload);
     aggregates.recordChat(channelId, { userId: u.userId, username: u.uniqueId, nickname: u.nickname, profilePictureUrl: u.profilePictureUrl });
-    // Batched flush every PENDING_POINTS_FLUSH_MS — see _pendingPoints above.
-    queuePointsDelta(channelId, u.uniqueId, 1);
+    // Points are NOT awarded here — the bundle owns chat-points client-side (see
+    // the points-batching removal note above). We still record identity below so
+    // the bundle's by-userId balance read-back resolves.
     // Record identity (userId ⇆ username) so a chat-only viewer's balance is
     // resolvable by numeric userId (the bundle's !points / rest/channeluser
     // read path). recordIdentity no-ops once nothing new is learned, so it does
@@ -980,26 +982,30 @@ setInterval(() => {
   _state.connecting = false;
   // Reset event clock so the next connection round starts fresh.
   _state.lastEventAt = 0;
-  clearReconnectTimer(); // watchdog declared the stream dead → no auto-reconnect
-  // Tear down the (likely-dead) connection. removeAllListeners first so the
+  clearReconnectTimer(); // clear any pending reconnect before re-scheduling below
+  // Tear down the (stalled) connection. removeAllListeners first so the
   // late-firing `disconnected` event doesn't clobber a fresh state.
   if (_state.connection) {
     try { _state.connection.removeAllListeners?.(); } catch { /* ignore */ }
     try { _state.connection.disconnect(); } catch { /* ignore */ }
     _state.connection = null;
   }
-  // Tell widgets + topbar.
+  // Tell widgets + topbar we dropped (status will flip back on reconnect).
   try {
-    sockets.broadcast('status', { connected: false, tiktok: false, connecting: false });
+    sockets.broadcast('status', { connected: false, tiktok: false, connecting: true });
     sockets.broadcast('channelStatus', {
-      channelId, connected: false, connecting: false, tiktok: username,
-      isConnectedToTikTok: false, isConnecting: false,
+      channelId, connected: false, connecting: true, tiktok: username,
+      isConnectedToTikTok: false, isConnecting: true,
       reason: 'watchdog-silence',
     });
-    if (channelId > 0) {
-      sockets.broadcastToChannel('streamEnd', { username, reason: 'watchdog-silence' }, channelId, 'widget');
-    }
   } catch { /* socket may not be bound during shutdown */ }
+  // Event silence on an ACTIVE stream is almost always an Eulerstream/WS stall,
+  // NOT a real stream end (real ends arrive via the `streamEnd` handler, which
+  // tears down WITHOUT reconnect). So attempt a bounded auto-reconnect for the
+  // same user — this is the "để idle một hồi nó tự ngắt rồi nằm chết" fix.
+  // scheduleReconnect's fire-time guards (username unchanged, attempt cap +
+  // exponential backoff) stop it from hammering a genuinely-ended stream.
+  scheduleReconnect(channelId, username);
 }, 30 * 1000).unref?.();
 
 module.exports = {

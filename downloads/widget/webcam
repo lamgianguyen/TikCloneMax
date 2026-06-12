@@ -7,9 +7,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="/js/guard/obf/trc.js"></script>
 
-    <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"
-        crossorigin="anonymous"></script>
+    <script src="/js/lib/jquery.min.js" crossorigin="anonymous"></script>
+    <script src="/js/lib/socket.io.min.js" crossorigin="anonymous"></script>
 
     <script src="sharedio/sharedio.js"></script>
     <script src="socketioclient.js?v=13"></script>
@@ -573,6 +572,10 @@
             const version = `${type}_${variation}`.replace(/\s+/g, "_");
             const isAnimated = state.animation;
             const cfg = ASSET_MAP[version];
+            // Unknown/unset variation (e.g. OBS/browser before settings arrive) → cfg
+            // is undefined; skip render instead of crashing on cfg.pro/cfg.video (which
+            // left the overlay blank). Renders normally once a valid variation is set.
+            if (!cfg) return;
 
             if (cfg.pro) {
                 maybeToggleSplash(needSplash());

@@ -21,7 +21,7 @@ node qa/run-all.js --json           # machine output (JSON ra stdout, im console
 
 **Exit codes:** `0` = không có FAIL · `1` = ≥1 FAIL · `2` = harness tự sập (lỗi không bắt được). **Backend down KHÔNG phải exit 2** — module tự SKIP, sweep vẫn về 0/1 bình thường.
 
-**Planned (chưa wire):** sau khi Commander thêm vào root `package.json`, chạy được `npm run qa`. Hiện tại dùng `node qa/run-all.js` trực tiếp.
+**`npm run qa`** đã wire (root `package.json` → `node qa/run-all.js`). Chạy thẳng `node qa/run-all.js` cũng được. ⚠️ Một `--only` run = PARTIAL: nó KHÔNG ghi đè FIXLOG failures block (giữ ledger của lần FULL run gần nhất) và TEST_STATUS được gắn cờ "PARTIAL" — muốn ledger đầy đủ phải chạy FULL (không `--only`).
 
 ---
 
@@ -41,15 +41,17 @@ qa/
 │   ├── api-contract.test.js   # L1 — chạy specs registry.api (+mutating) → status + jsonHas
 │   ├── socket-relay.test.js   # L2 — handshake + distributeEvent relay (positive/negative)
 │   ├── widget-smoke.test.js   # L3 — file static checks + GET /widget serve
-│   ├── perf-sample.test.js    # perf — RAM/CPU/log (CHƯA build → SKIP)
-│   ├── gate-health.test.js    # L4 — needle-in-bundle drift flag (CHƯA build → SKIP)
-│   └── live-id-finder.js      # tìm TikTok ID đang live cho real-event test (CHƯA build → SKIP)
+│   ├── perf-sample.test.js    # perf — RAM/CPU/log sampling (ĐÃ build)
+│   ├── gate-health.test.js    # L4 — needle-in-bundle drift flag (ĐÃ build; sinh toàn bộ ~53 gate row)
+│   ├── live-id-finder.js      # tìm TikTok ID đang live cho real-event test (ĐÃ build)
+│   └── chain-*.test.js        # E2E chains: settings / tts / points / goals / coinjar (ĐÃ build, wired ở run-all)
+├── .measure/           # Playwright headless ĐO layout overlay thật (chromium cached) — dùng khi fix overlay
 └── results/            # run-<id>.json mỗi lần chạy + latest.json (bản mới nhất, ổn định)
 ```
 
 `qa/` **không có node_modules riêng** — cố ý. Khi cần `ws` / `better-sqlite3`, `config.requireBackend(name)` resolve từ `backend-node/node_modules` để KHÔNG bao giờ lệch version với backend đang chạy.
 
-> ⚠️ **Module chưa build = SKIP, không phải lỗi.** `MODULES` trong `run-all.js` liệt kê cả module chưa viết (`perf-sample`, `gate-health`, `live-id-finder` tính đến 2026-06-08). File thiếu → harness ghi 1 dòng SKIP "module file not built yet" và chạy tiếp. Thêm module = viết file, harness tự nhặt.
+> ⚠️ **Module thiếu file = SKIP, không phải lỗi.** `MODULES` trong `run-all.js` liệt kê mọi module; file thiếu → harness ghi 1 dòng SKIP "module file not built yet" và chạy tiếp. Tính đến 2026-06-11, TẤT CẢ module trong danh sách đã build (api-contract, socket-relay, widget-smoke, perf-sample, gate-health, live-id-finder + 5 chain-*). Thêm module = viết file, harness tự nhặt.
 
 ---
 
@@ -162,7 +164,7 @@ Harness ghi số liệu live mỗi run — đừng tin con số tĩnh ở đây,
 node qa/run-all.js            # rồi đọc TEST_STATUS.md block QA-AUTO + qa/results/latest.json
 ```
 
-Trạng thái build module tính đến 2026-06-08: `api-contract` / `socket-relay` / `widget-smoke` đã có; `perf-sample` / `gate-health` / `live-id-finder` **chưa build** → SKIP. Bảng QA-AUTO trong TEST_STATUS phản ánh đúng những module **tồn tại lúc run đó** — nếu thấy "module file not built yet" cho module bạn biết đã có, đó là snapshot cũ; chạy lại để cập nhật.
+Trạng thái build module tính đến 2026-06-11: TẤT CẢ đã build — `api-contract` / `socket-relay` / `widget-smoke` / `perf-sample` / `gate-health` / `live-id-finder` + 5 `chain-*`. Bảng QA-AUTO trong TEST_STATUS phản ánh đúng những module **tồn tại lúc run đó** — nếu thấy "module file not built yet" cho module bạn biết đã có, đó là snapshot cũ; chạy lại để cập nhật.
 
 ---
 

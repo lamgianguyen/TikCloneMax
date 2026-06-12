@@ -52,6 +52,10 @@ function markSeen(channelId) {
   return stmt('markSeen', `UPDATE "Notifications" SET "IsSeen" = 1 WHERE "ChannelId" = ?`).run(channelId);
 }
 
+function markSeenById(id) {
+  return stmt('markSeenById', `UPDATE "Notifications" SET "IsSeen" = 1 WHERE "Id" = ?`).run(id);
+}
+
 function create(row) {
   const nowIso = row.CreatedAt || new Date().toISOString();
   return stmt('create', `
@@ -77,6 +81,7 @@ module.exports = {
   markAllRead,
   markRead,
   markSeen,
+  markSeenById,
   findByChannelAndId,
   clearAllForChannel,
   create,

@@ -4,7 +4,7 @@
 // (.js/.css/.png/...) get a real 404 so missing files surface fast.
 
 const path = require('path');
-const { buildIndexHtml } = require('./index-html');
+const { buildIndexHtml, detectLang } = require('./index-html');
 const { DEFAULT_CHANNEL_ID, DEFAULT_CHANNEL_NAME } = require('../config');
 
 // Anything resembling a static file gets a real 404. The bundle never asks
@@ -28,35 +28,17 @@ function spaFallback() {
 
     const channels = require('../db/models/channels');
     const ch = channels.findDefault();
-    // Detect lang prefix so SPA-fallback for `/vi/...` serves the VN HTML
-    // instead of the default English one. Cookie fallback when no prefix
-    // — the bundle's client-side router strips /<lang>/ when navigating
-    // to /tiktok/* pages, so we need the cookie to keep serving VN.
-    // Bundle also sets its own `tf_locale=VN|DE|ES|EN` (uppercase, locale not
-    // lang) via the in-app language picker — honor that too, otherwise the
-    // picker's choice doesn't survive once the user navigates back to a
-    // `/tiktok/...` deep-link.
-    const TF_LOCALE_TO_LANG = { VN: 'vi', VI: 'vi', DE: 'de', ES: 'es', EN: '', US: '' };
-    const m = String(req.path || '').match(/^\/([a-z]{2})(\/|$)/);
-    const urlLang = (m && ['vi', 'de', 'es'].includes(m[1])) ? m[1] : '';
-    let lang = urlLang;
-    let hasBundleLocaleChoice = false;
-    const cookieStr = String(req.headers.cookie || '');
-    if (!lang) {
-      const bundleLocale = cookieStr.match(/(?:^|;\s*)tf_locale=([A-Za-z]{2})/);
-      const localeKey = bundleLocale ? String(bundleLocale[1]).toUpperCase() : '';
-      if (localeKey && Object.prototype.hasOwnProperty.call(TF_LOCALE_TO_LANG, localeKey)) {
-        lang = TF_LOCALE_TO_LANG[localeKey];
-        hasBundleLocaleChoice = true;
-      }
-    }
-    if (!lang && !hasBundleLocaleChoice) {
-      const cookieMatch = cookieStr.match(/(?:^|;\s*)tf_lang=([a-z]{2})/);
-      if (cookieMatch && ['vi', 'de', 'es'].includes(cookieMatch[1])) lang = cookieMatch[1];
-    }
-    if (urlLang) {
+    // Use the SAME detection as indexHtmlMiddleware (URL prefix → tf_locale cookie
+    // → tf_lang cookie → Accept-Language, all 12 langs) so SPA-fallback routes
+    // don't silently downgrade the 8 locales beyond vi/de/es to English. Shared to
+    // kill the drift between the two middlewares.
+    const lang = detectLang(req);
+    // Persist an explicit /<lang>/ URL choice so later prefix-less navigations
+    // (the bundle's router strips /<lang>/ on /tiktok/* pages) keep serving it.
+    const urlLangMatch = String(req.path || '').match(/^\/([a-z]{2})(\/|$)/);
+    if (urlLangMatch && lang && urlLangMatch[1] === lang) {
       res.setHeader('Set-Cookie',
-        `tf_lang=${urlLang}; Path=/; Max-Age=31536000; SameSite=Lax`);
+        `tf_lang=${urlLangMatch[1]}; Path=/; Max-Age=31536000; SameSite=Lax`);
     }
     const buf = buildIndexHtml({
       channelId: ch ? ch.ChannelId : DEFAULT_CHANNEL_ID,
@@ -64,6 +46,9 @@ function spaFallback() {
       lang,
     });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    // Match indexHtmlMiddleware — the HTML embeds a per-build cache-buster, so it
+    // must never be cached by the renderer/Electron disk cache.
+    res.setHeader('Cache-Control', 'no-store');
     res.status(200).end(buf);
   };
 }

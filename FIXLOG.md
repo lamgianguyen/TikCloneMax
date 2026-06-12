@@ -15,6 +15,145 @@
 
 ---
 
+## [2026-06-11] TTS Chat + in-app Chat page TRỐNG dù chat chảy — ROOT CAUSE: clone bypass connector bundle → broadcastlistener.onChat không được feed — FIX ATTEMPTED (chờ user verify)
+
+**FIX (best-effort, 2026-06-11, reversible):** [blockScript.txt](backend-node/src/templates/blockScript.txt) IIFE `tfChatFeedToModules` — mở 1 feed socket (load `/js/lib/socket.io.min.js` set window.io nếu cần) nghe 'chat' rồi gọi `window.broadcastlistener.onChat(d)` (entry-point đã expose, drives Chat page + TTS). **CHAT-ONLY**: onChat chỉ `distributeEvent("chat")` (backend DROP vì chat ngoài whitelist) + `emitTiktokEventToModules("Chat")`, KHÔNG `emitWsEvent` → KHÔNG double widget/DAPI. Gift/like KHÔNG feed (onGift re-emit DAPI = double overlay). Guard `__tfChatFeedStarted` chống double-start. check-script-syntax: blockScript PASS (2 fail là JSON-LD pre-existing). **CONFIDENCE TRUNG BÌNH** — shape `TikTokObjToYouNowObj` không confirm 100% từ decompiled obfuscated; nếu shape lệch TTS đọc sai/không đọc. **Cần user reopen app (nạp blockScript) + báo:** TTS có đọc chat? Chat page có hiện? Overlay có double không? Nếu hỏng → revert `.bak-2026-06-11-pre-ttschatfeed`.
+
+**Root cause (decompiled):** tf-connect.js (line 1 "Button→API→Bridge") connect qua REST, bypass connector native (app/deob @2830287 `socket.once("tiktokConnected")` — clone KHÔNG emit). Bundle dùng io NỘI BỘ (socketiowrapper), window.io không sẵn → fix load socket.io.min.js local. Event entry = `broadcastlistener.on{Chat,Gift,...}` (window.broadcastlistener EXPOSED), route qua emitTiktokEventToModules. Chat WIDGET (downloads/widget/chat.html io.on đơn giản) chạy độc lập → không ảnh hưởng.
+
+**Symptom (user):** TTS Logs "No Entries" + Chat page (sidebar) trống, dù đang LIVE `@new.world.019`. Voice Tester (Play) CÓ tiếng + log được ("Testuser: This is a test!") → SpeechSynthesis + TTS module OK.
+
+**Đã loại trừ (ĐO thật):** chat THẬT đang chảy (nghe socket 10s → **12 chat** từ stream: bebymeo/adfhjjkl2…); control page login channelId=1 nhận chat; DAPI 21213 đẩy chat tới (inject fake-chat → frame `event=chat` đúng); relay channelId 0→1 fallback OK (socket-manager:60). → MỌI transport đưa chat tới; SpeechSynthesis OK. KHÔNG phải connection-drop (lúc này đang chảy).
+
+**TRUE root cause (decompiled):** bundle MAIN APP dùng 1 **connector** (app/deobfuscated.js @2830287) `connect()` → `socket.once("tiktokConnected", resolve)` + `.on("chat")` (@2829332) route qua `broadcastlistener.emitTiktokEventToModules`. **Clone KHÔNG emit `tiktokConnected` Ở ĐÂU** (grep backend + downloads/js/tf-connect.js + templates = RỖNG). → connector của bundle main-app không được kích hoạt đúng → Chat page + TTS module (đọc qua connector/modules) KHÔNG consume chat. Chat WIDGET (downloads/widget/chat.html `io.on("chat")` đơn giản, KHÔNG qua connector) → CHẠY. Topbar LIVE đến từ /api/tiktok/status poll (tf-connect.js), đường khác.
+
+**Cần fix (deep, risky — chưa làm):** emit `tiktokConnected` (+ payload roomInfo) từ clone tới socket bundle khi bridge connect, HOẶC feed chat thẳng vào `emitTiktokEventToModules`. RỦI RO: phải biết chính xác connector.connect() có được gọi trong luồng clone không (tf-connect.js có thể bypass), payload tiktokConnected cần gì, và không xung đột với connect-flow hiện tại (topbar LIVE + widget đang chạy ổn). Verify khó (phải drive bundle Chat page). → cần session riêng + đo cẩn thận, KHÔNG blind-patch realtime+bundle.
+
+**Lưu ý ưu tiên:** chat OVERLAY (widget cho OBS) CHẠY → stream không ảnh hưởng. Chỉ TTS + in-app Chat page (feature app) bị. Connection "lúc có lúc không" là vấn đề RIÊNG (watchdog-reconnect + session, đã xử ở entry trên).
+
+---
+
+## [2026-06-11] Chat "kết nối lâu / lúc có lúc không" — ROOT CAUSE = bridge↔TikTok (Eulerstream free flaky), KHÔNG phải widget — DIAGNOSED (fix = config sessionId)
+
+**Triệu chứng (user):** Mở `/widget/chat/?cid=1` ở browser thường, chat lúc hiện lúc không, "kết nối lâu". Stream test: `@new.world.019` LIVE 8.3K viewer, chat đang chạy.
+
+**Loại trừ widget (ĐO Playwright):** chat widget + socket-manager + broadcast hoàn toàn ổn — reliability test inject 6 fake-chat trong 30s → **6/6 render, 0 drop, 0 warning**; fake-chat→render 12-25ms; connect SharedIO/direct đều nhanh. → widget KHÔNG phải nguồn chập chờn.
+
+**TRUE root cause (backend-debug.log):** bridge↔TikTok rớt theo chu kỳ:
+```
+soft success (connect() rejected nhưng vài event lọt, roomId=...)
+→ watchdog: no events for 269s @new.world.019 — marking disconnected   (im ~4.5 phút)
+→ re-hook: connected @new.world.019 (reconnect)  → lặp
+```
+Free **Eulerstream** signing (không SIGN_API_KEY/sessionId) → connect() reject (empty AggregateError) nhưng vài event đầu lọt → bridge nhận "soft success" → WS KHÔNG ổn định → event ngừng sau vài phút → watchdog (EVENT_SILENCE_TIMEOUT 4min) giết → reconnect → **chat lúc có lúc không**. TikTok chủ động chặn kết nối unofficial → free tier vốn flaky.
+
+**Fix (CONFIG, không phải code bug):** signing ổn định:
+- **`TIKTOK_SESSIONID` + `TIKTOK_TT_TARGET_IDC`** (cookie TikTok đã login) → kết nối authenticated, ổn định nhất. Bridge đã support (tiktok-bridge.js ctorOpts).
+- HOẶC **`SIGN_API_KEY`** (Eulerstream trả phí 50k req/tháng).
+Không set → free tier → chấp nhận gián đoạn (reconnect tự lo nhưng có gap).
+
+**Dead-ends (đừng lặp):** ❌ widen EVENT_SILENCE_TIMEOUT / đổ lỗi watchdog 4-phút (FIXLOG cũ ghi). ❌ nghĩ là widget/socket — đã ĐO 6/6 reliable, không phải.
+
+**UPDATE — user ĐÃ login TikTok rồi:** session store `<userData>/tiktok-session.json` HỢP LỆ — sessionId (32 chars) + ttTargetIdc=`alisg` + savedAt 06-10 + expiresAt 07-10 (CÒN HẠN). [auth-flow.js](electron/auth-flow.js) `hydrateEnv()` set `TIKTOK_SESSIONID`+`TIKTOK_TT_TARGET_IDC` TRƯỚC `startBackend()`. Bridge ([tiktok-bridge.js](backend-node/src/services/tiktok-bridge.js):284) dùng nếu CẢ 2 env có. NHƯNG bridge vẫn chạy free-Eulerstream-style → **backend đang chạy có thể KHÔNG inherit env** (bị start trong trạng thái lỗi giữa đợt restart-spam hôm nay). **Thêm log chẩn đoán** tại :289 (`[TikTokBridge] auth mode: sessionId=YES/no …`). **Action: ĐÓNG + MỞ LẠI TOÀN APP** (không chỉ restart backend — restart-backend qua main.js cũ còn spam) → bootstrap chạy lại hydrateEnv → backend mới inherit session → authenticated → ổn định. Log mới sẽ xác nhận `sessionId=YES`. Nếu YES mà vẫn rớt → session stale server-side → re-login.
+
+**Cải tiến code ĐÃ ÁP (2026-06-11, user xác nhận "idle một hồi tự ngắt + nằm im"):** watchdog silence-kill trước đây `clearReconnectTimer()` + KHÔNG reconnect → kết nối chết nằm im tới khi bundle re-hook. **Fix:** watchdog giờ gọi `scheduleReconnect(channelId, username)` sau teardown (im event trên stream ACTIVE = Eulerstream/WS stall, không phải end thật — end thật đi qua streamEnd handler đã tách, teardown-không-reconnect). Bỏ broadcast 'streamEnd' tới widget trong watchdog (đổi sang connecting:true) để widget không clear khi chỉ stall tạm. scheduleReconnect có guard (username unchanged + cap 6 + backoff) → không hammer stream đã end. Cần restart backend để áp. **TTS/Chat-page trống = HỆ QUẢ của drop này:** đã verify delivery chain OK (relay→DAPI relay 'chat' main.js:439→Chat page→TTS; control page login channelId=1 nhận chat; SpeechSynthesis Voice-Tester CÓ tiếng). Khi connected → chat chảy → Chat page hiện → TTS đọc. `/api/tts/user` 404 là bình thường (bundle gọi host external, blockScript chặn client-side).
+
+---
+
+## [2026-06-11] Tổng duyệt FULL overlay (Playwright render audit) — 4 widget fix + 1 hiểu nhầm chat-RGB — SOLVED
+
+> Công cụ: [qa/.measure/widget-audit.js](qa/.measure/widget-audit.js) — load 26 widget headless (chromium cached), bắt console-error + asset-404 + crash + có render DOM không. Tái dùng được cho lần sau ("mỗi lần sai 1 overlay → tổng duyệt full"). Kết quả: 18→**22 OK** sau fix.
+
+**Fix 1 — webcam/overlay/talking CRASH `Cannot read properties of undefined (reading 'pro')`:** render() làm `const cfg = ASSET_MAP[version]` rồi `cfg.pro` — khi `state.variation` chưa set (OBS/browser trước khi settings tới) → version không có trong ASSET_MAP → cfg undefined → crash → blank. **Fix:** thêm `if (!cfg) return;` (3 file phẳng). Render lại bình thường khi variation hợp lệ. Backup `.bak-2026-06-11-pre-cfgguard-cdn`.
+
+**Fix 2 — CDN blocking libs (RC-6) ĐÓNG HẾT (8 widget):** localize mọi lib JS sang `/js/lib/`:
+- webcam/overlay/talking/streambuddies: jQuery + socket.io (local có sẵn).
+- cannon: matter.min.js 0.19.0 (tải về exact). wheel: TweenMax 1.18.0 (tải đúng bản cdnjs "latest" pin — byte-identical, zero compat risk). myactions/songrequests: lottie-player 1.6.3 (tải exact). Sửa cả flat + dir versions.
+- Verify Playwright: window.Matter/TweenMax/jQuery/io + customElements lottie-player đều load, 0 error. Audit tool báo "✓ no external LIBS". Backup `.bak-2026-06-11-pre-cdn-localize` / `-pre-cfgguard-cdn`.
+- **Còn (thấp, KHÔNG phải lib):** external fonts googleapis (~11 widget, non-blocking, font-fallback); external DATA assets — wheel younow demo img, fallingsnow `assets.tikfinity.com` snow.webm, myactions younow gift-lotties (remote animation data). Localize được nhưng là asset data → để sau.
+
+**Doc phòng ngừa (theo yêu cầu user "ghi lại lỗi gì để lần sau không bị"):** [docs/WIDGET_HEALTH.md](docs/WIDGET_HEALTH.md) — 7 lớp lỗi (C1 undefined-deref / C2 dir-shadow-serve / C3 relative-path / C4 CDN-lib / C5 missing-default / C6 unguarded-settings / C7 toggle-override-UX) + checklist thêm/sửa widget. [qa/.measure/widget-audit.js](qa/.measure/widget-audit.js) nâng cấp tự flag CDN → "tổng duyệt" 1 lệnh bắt cả crash/404/CDN.
+
+**Fix 3 — likefountain iframe 404:** `<iframe src="./vite/src/heart-fountain/index.html">` từ `/widget/likefountain/` → 404. Vite thật ở `/widget/vite/src/heart-fountain/index.html` (200). Sửa src thành absolute path.
+
+**Fix 4 — eventcarousel serve 404:** `eventcarousel.html` là 1 DIRECTORY (artifact tải bundle) → [index.js](backend-node/src/index.js) widget-serve làm `res.sendFile(eventcarousel.html)` → EISDIR → 404, không thử `eventcarousel/index.html`. **Fix:** guard `candidateHtml` phải `isFile()` + fallback `<name>/index.html`. **Cần restart backend để áp.**
+
+**KHÔNG phải bug (note):** `giftgoal` = không có file + không có trong decompiled → không phải widget độc lập (gift goal = `goal`/`gcounter`); 404 là artifact qa/registry. `wheel` external img younow.com = placeholder demo (ERR_BLOCKED_BY_ORB), minor. `transactionviewer` empty = idle (no transactions). `socialmediarotator` serve+render OK — blank do chưa cấu hình social link.
+
+**Chat "chưa ăn setting" = HIỂU NHẦM (không phải bug):** persistence ĐÃ fix + verified (màu lưu/broadcast/persist đúng, round-trip ✓). chat.html:291-297 `if (settings.chat_usernameRgb)` gán màu RANDOM mỗi user → đè màu solid `chat_usernameColorNormal` (:271). Toggle gốc tên **"Random username colors"** (decompiled:15022 `usernameRgb` default=true) nằm TRÊN mục "Normal Users". **Playwright proof:** RGB OFF + red → username render `rgb(247,20,20)`=#f71414 ✓ ĂN SETTING. → User chỉ cần tắt "Random username colors" để thấy màu solid.
+
+**Pending user:** restart backend (áp eventcarousel serve fix). webcam/overlay/talking/likefountain = file tĩnh đã live ngay (chỉ reload widget). Persistence fix đã loaded.
+
+---
+
+## [2026-06-11] "Khởi động lại backend" (tray) spam dialog "Backend đã thoát bất ngờ" — SOLVED (electron/main.js, pre-existing bug)
+
+**Symptom (user):** Mỗi lần chuột phải tray → "Khởi động lại backend" → lỗi + spam dialog "Backend đã thoát bất ngờ (code: …)" liên tục.
+
+**Root cause (2 lỗi cộng dồn trong [electron/main.js](electron/main.js)):**
+1. `backendProcess.on('exit')` báo dialog error MỖI lần process exit (chỉ skip khi `isQuitting`). Nhưng restart = `stopBackend()` (SIGTERM → trigger exit) `+ startBackend()`. Restart cố ý cũng bị coi là "thoát bất ngờ" → dialog.
+2. Exit handler set `backendProcess = null` VÔ ĐIỀU KIỆN → khi old child exit (sau khi startBackend đã spawn child mới), nó **clobber** ref child mới → click "Khởi động lại" trên dialog → spawn process thứ 2 → port 5285 đã bị child mới giữ → EADDRINUSE → crash → exit → dialog → **spam loop**. (`freeOurPorts()` chỉ chạy lúc bootstrap, KHÔNG khi restart.)
+
+**Fix that worked:**
+- Spawn: capture `const child = spawn(...)`; bind stdout/stderr/exit/error trên `child`. Exit handler: `wasCurrent = backendProcess === child` — chỉ clear ref + báo dialog khi `wasCurrent && !isQuitting` (crash THẬT của process hiện hành). Restart/superseded (`!wasCurrent`) hoặc quit → return, KHÔNG dialog, KHÔNG clobber.
+- `stopBackend()`: capture `proc` up-front + `backendProcess=null` ngay → SIGKILL timeout target đúng child + exit handler thấy superseded.
+- Thêm `restartBackend()`: `stopBackend()` → `setTimeout(600ms)` → `freeOurPorts()` → `startBackend()` (cho OS release port, force-free straggler trước khi spawn → hết EADDRINUSE). Tray wire sang `restartBackend()`. Dialog "Khởi động lại" cũng gọi `freeOurPorts()` trước startBackend.
+
+**Verify:** `node --check electron/main.js` OK + trace 3 path (restart-tay=no dialog, crash-thật=có dialog, quit=no dialog). Backup `.bak-2026-06-11-pre-restart-fix`. **Pending user: đóng + mở LẠI TOÀN BỘ app Electron** để áp (electron/main.js chạy trong main process, cần restart cả app — §11; restart-backend-tay không đủ).
+
+---
+
+## [2026-06-11] Overlay settings LƯU XONG RELOAD/OBS REVERT VỀ CŨ (mọi widget, không riêng chat) — SOLVED (root xác định bằng instrumented single-process repro)
+
+**Symptom (user):** Mở "Tùy chỉnh" overlay (chat/cannon/…), đổi màu/font/size → bấm ĐƯỢC RỒI lưu (POST /api/updateSettings → 200), NHƯNG reload trang / mở OBS thì widget hiện **giá trị CŨ**. User báo ở chat trước, nhưng repro cho thấy áp **MỌI** overlay.
+
+**TRUE root cause (verify verbatim bằng instrumented probe):** [widget-settings-cache.js](backend-node/src/services/widget-settings-cache.js) `buildMerged` — nhiều row DB cùng `normalizeKey` về 1 canonical key:
+- `cannon_ballsize`=42 (DIRECT, lowercase — **save MỚI của user**, bundle lowercase key khi save)
+- `cannon_ballSize`=55 (direct, case-variant cũ)
+- `widget_cannon_ballsize`=**69** + `widget_cannon_ballSize`=69 (LEGACY `widget_`-prefixed, STALE từ version cũ — `normalizeKey` de-prefix về cùng `cannon_ballSize`)
+
+Logic collision cũ (`canonSetByLower`) chỉ phân biệt lowercase-vs-camelCase, **KHÔNG phân biệt direct-vs-`widget_`-legacy**. Cả `cannon_ballsize`(42) lẫn `widget_cannon_ballsize`(69) đều isLower=true → row legacy **đè** save thật của user theo thứ tự lặp Object.entries. → buildMerged trả 69 (legacy) thay vì 42 (user). Y hệt chat: `widget_chat_fontsize`=90 đè `chat_fontsize`=63.
+
+**Bằng chứng quyết định (single-process, DB copy, no WAL contention):** `readAllAsMap(1,2)` trả ĐÚNG `cannon_ballsize=42 chat_fontsize=63` (write LANDS) nhưng `getForChannel(1,true)` trả `cannon_ballSize=69 chat_fontSize=90`. → lỗi TRONG merge, không phải đọc DB. Dump 4 row cùng-canonical xác nhận `widget_*`=69/90 clobber.
+
+**Dead-ends ĐÃ TRÁNH (bài học multi-process):** ❌ probe DB live từ ngoài khi app chạy → đọc WAL nhiễu cho 77 lúc này 69 lúc khác (memory "DB thật ở tikfinity-data" cảnh báo đúng). ❌ curl updateSettings không-auth — vẫn resolve channelId=1 qua findDefault nên write LANDS, đừng nghĩ là channelId=0. ❌ đoán "thiếu widget-defaults key" — audit cho thấy mọi chat key ĐÃ có default (chỉ thiếu chat_rightToLeft, đã thêm); không phải nguyên nhân. **Repro SẠCH = copy DB (db+wal+shm) ra path TUYỆT ĐỐI (KHÔNG /tmp → node thành C:\\tmp rỗng), chạy backend riêng TIKMAX_DATA_DIR=copy.**
+
+**Fix that worked:** `buildMerged` thay `canonSetByLower` bằng `canonTier` 4 mức ưu tiên (thấp thắng): 0=direct+lowercase, 1=direct+case-variant, 2=`widget_`+lowercase, 3=`widget_`+case-variant. **Direct LUÔN thắng legacy `widget_`.** `isLegacyPrefixed = lc.startsWith('widget_') && canon!==rawKey` (chỉ tính khi normalizeKey thực sự de-prefix) → graphic-overlay `widget_webcam_*` (normalizeKey KHÔNG đổi → canon===rawKey → direct) vẫn qua aliasGraphicOverlayKeys như cũ.
+
+**Verify (fresh copy data thật):** save cannon=42/chat_fontSize=63/chat_backgroundNormal=#abcdef/chat_usernameColorNormal=#112233 → read-back **4/4 ĐÚNG ✓**; re-save cannon=7→read=7 ✓. Regression: graphic-overlay alias OK (variation=3, saturationFilter=120 aliased), legacy-only widget_ key vẫn pass-through, bag 1436 keys không crash. Backup `.bak-2026-06-11-pre-persist-fix`.
+
+**Pending user:** RESTART Electron để áp (widget-settings-cache là service → cần restart). Row `widget_*` stale còn trong DB nhưng giờ VÔ HẠI (direct thắng); có thể dọn sau bằng migration xoá `widget_X` khi có `X` direct (optional, không cần). Lưu ý: Commander có ghi test cannon_ballsize=77/chat_fontSize vào DB LIVE lúc chẩn đoán — save lại 2 setting đó là sạch.
+
+---
+
+## [2026-06-11] Audit toàn flow clone (M-REVIEW-FLOW) — 18 finding fix (1 CRITICAL + 8 HIGH + 9 MEDIUM) — SOLVED (verified backend boot + full QA sweep)
+
+> Workflow review `wf_16f80415-bf9` (29 agent: 8 Scout + Reconciler + adversarial Verifier) → 18 confirmed / 2 refuted. User cấp full quyền sửa thẳng. Verify: 18/18 file `node --check` OK + 13/13 module require sạch + serializeConfigJson logic-test 11/11 + backend boot code-mới + **full QA sweep: api-contract 45/0, socket-relay 35/0, gate-health 53/0**.
+
+**CRITICAL — `rest/action` mất sạch config (data loss):** [routes/actions.js](backend-node/src/routes/actions.js) `buildActionFields`+POST chỉ passthrough `ConfigJson` mà bundle KHÔNG bao giờ gửi (grep `configJson` decompiled=0) → native create lưu `'{}'`, edit revert blob cũ. **Fix:** thêm `serializeConfigJson(dto, existing)` — parse existing blob làm base, overlay mọi flattened key (imageUrl/duration/amountToAdd/dynamicConfig/customGoalConfig…) trừ 6 cột DB. Round-trip test 11/11. Backup `.bak-2026-06-11-pre-configjson`.
+
+**HIGH:**
+- **Double-fire điểm/chat:** [tiktok-bridge.js](backend-node/src/services/tiktok-bridge.js) `:645 queuePointsDelta(+1/chat)` cộng điểm server-side trong khi bundle award client-side (gated) → lạm phát balance + cộng cả khi feature OFF. **Fix:** gỡ call + gỡ machinery points-batching orphan (`_pendingPoints`/`flushPendingPoints`/setInterval + require `db` thành orphan). GIỮ `recordIdentity`. (chatBot.onChat `chatCommandFired` zero-consumer = dead-code, GIỮ NGUYÊN — gỡ có rủi ro feature chat-command, chỉ note.)
+- **disconnect() không abort retry loop:** user bấm Disconnect trong cửa sổ connecting → attempt kế hồi sinh CONNECTED. **Fix:** `disconnect({abortInFlight})` mirror pre-emption path; route `/disconnect` truyền `{abortInFlight:true}`. (param-gated để `_connectImpl`'s internal `disconnect()` không deadlock.)
+- **streamEnd → reconnect storm:** handler chỉ set connected=false → follow-up 'disconnected' kích scheduleReconnect vào host offline. **Fix:** teardown (removeAllListeners+disconnect+null+clearReconnectTimer) như watchdog.
+- **RELAYABLE_DISTRIBUTE thiếu event:** [socket-manager.js](backend-node/src/services/socket-manager.js) thêm `timerUpdate`(staged Countdown Goal), `dockData`(activity-feed), `setLastX`, `setPlaylistItems`, `giftCanonTest` (listener đã verify). Cố tình BỎ `chat`/`actionsChanged`/`christmas-event:*` (đã có đường khác / cần prefix-match). Sync 5 needle vào [registry.js](qa/registry.js) + sửa comment sai (actionsChanged/chat thực ra emittable).
+- **transaction grant username=null split balance:** [data.js](backend-node/src/routes/data.js) Points-page grant gửi userId numeric, username=null → key sai row. **Fix:** `findUsernameByUserId` trước khi fallback raw userId.
+- **notifications 3 lỗ contract:** [routes/notifications.js](backend-node/src/routes/notifications.js) thêm `/markAll` (404 toast mỗi lần mở chuông), parse `notificationId` ở /read//seen (markRead/seen không chạy), persist `/preferences` qua DynamicSettings (toggle revert mỗi reload). + model `markSeenById`.
+- **QA ledger mask FAIL:** [qa/run-all.js](qa/run-all.js)+[results.js](qa/lib/results.js) `--only` run ghi đè FIXLOG "FAIL=0" che 42 FAIL. **Fix:** persist `partial`/`only`, PARTIAL banner ở TEST_STATUS, KHÔNG ghi đè FIXLOG block khi partial, sửa mâu thuẫn perf-line.
+- **QA http không follow redirect:** [qa/lib/http.js](qa/lib/http.js) → 21 false-positive serve-FAIL (dir widget 301/302). **Fix:** follow same-origin redirect (max 3). **Verified: coinjar/coinmatch/wheel 301/184 → 200/5590.**
+- **Destructive endpoint không auth + CORS mở:** [index.js](backend-node/src/index.js) `cors origin:true` + `/api/_dev/*` + fs.watch vô điều kiện. **Fix:** CORS loopback-only, CSRF/Origin-guard cho state-changing methods, gate dev-endpoint+fs.watch sau `NODE_ENV!=='production'`. Backup `.bak-2026-06-11-pre-security-harden`. + [config.js](backend-node/src/config.js) packaged build (NODE_ENV=production thiếu TIKMAX_JWT_SECRET) CRASH → tự sinh+persist secret per-install thay vì throw.
+
+**MEDIUM:** points.js channeluser `id:0`→hash unique + `lastUpsertAt` (recordIdentity stamp updatedAt) · pro.js `/status` read-only (bỏ expiry-deactivate, giữ ALL-PRO) · 4 widget `settings.isPro` null-guard (topg/tops flat+dir, backup `.bak-2026-06-11-pre-ispro-guard`) · widget-defaults thêm `chat_usernameWaveSpeed{Normal,Mod,Sub}` · spa-fallback dùng chung `detectLang` (12 lang, hết drift) + Cache-Control no-store · CLAUDE.md Pro-shape canonical + credits wording · qa/README + BUNDLE_UPDATE doc refresh.
+
+**25 FAIL trong sweep 2026-06-11 = KHÔNG phải regression (đừng re-litigate):**
+- **21 × `widget.*.external-libs`** = RC-6 CDN libs known-OPEN (xem entry RC-6 dưới). Chưa fix (High-risk localize, DEFERRED).
+- **3 × `chain.*.db`** = **DB-path drift**: backend standalone ghi `APPDATA/tikfinity-desktop/tikfinity.db`, harness đọc `…/tikfinity-data/tikfinity.db` → đọc rỗng. Đã verify file backend ghi CÓ row (+ `updatedAt` của fix lastUpsertAt). HTTP-level (api-contract 45/0) pass. Chạy dưới Electron (data-dir có `tikfinity-data`) sẽ khớp.
+- **1 × `widget.eventcarousel.serve` 404** = `eventcarousel.html` là 1 DIRECTORY (artifact tải bundle); chỉ `/widget/eventcarousel/index.html` ra 200. Đây là finding EISDIR đã bị **REFUTE harmless** (user không load qua path đó). Pre-existing, redirect-fix không gây.
+
+**Cần user verify runtime (restart Electron để áp code mới):** double-fire điểm (bật points-per-chat → không nhân đôi), disconnect giữa lúc connecting, overlay timer/countdown/activity-feed test buttons, notifications chuông (không toast 404), tạo/sửa action qua form (config round-trip).
+
+---
+
 ## [2026-06-09] Overlay Library — card "Ghép xu" (Coin Match) chừa khoảng trống TÍM dưới — TÁI PHÁT NHIỀU LẦN — SOLVED (root xác định bằng full-team RCA)
 
 > **Root caused TẬN GỐC** qua workflow wf_9418fde2 (5 Scout + Reconciler + 3 adversarial Verifier, **2 CONFIRMED / 0 refuted**). Bug này **đã đốt Gate 30d M-005→M-007 + nhiều mission** vì **mọi lần đều đánh NHẦM LỚP** (sửa iframe-height thay vì flex cross-axis).
@@ -244,8 +383,110 @@ Reset = FE/widget-only, ephemeral, backend stateless. Lag do jar KHÔNG cap tổ
 
 <!-- QA-AUTO-FAILURES:BEGIN -->
 
-### 🤖 AUTO-DETECTED FAILURES — 2026-06-10 15:05
+### 🤖 AUTO-DETECTED FAILURES — 2026-06-11 08:26 (run 20260611-082628)
 
-_Không có FAIL ở run 20260610-150511. ✅_
+> Tự sinh bởi `qa/run-all.js`. Mỗi FAIL = 1 strike (§6.1). Sau khi fix, ghi root-cause vào
+> entry FIXLOG thường (ngoài block này) rồi re-run để xác nhận PASS.
+
+- **[HIGH] widget.cannon.external-libs** (L3 Widget) — widget.cannon.external-libs
+  - Symptom: CDN cdnjs.cloudflare.com: … <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.1…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.wheel.external-libs** (L3 Widget) — widget.wheel.external-libs
+  - Symptom: CDN cdnjs.cloudflare.com: … <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/latest/T…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.wheelofactions.external-libs** (L3 Widget) — widget.wheelofactions.external-libs
+  - Symptom: CDN fonts.googleapis.com: …econnect" href="https://fonts.googleapis.com"> <link rel="preconne…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.goal.external-libs** (L3 Widget) — widget.goal.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.webcam.external-libs** (L3 Widget) — widget.webcam.external-libs
+  - Symptom: CDN code.jquery.com: … <script src="https://code.jquery.com/jquery-3.5.1.min.js" cr…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.overlay.external-libs** (L3 Widget) — widget.overlay.external-libs
+  - Symptom: CDN code.jquery.com: … <script src="https://code.jquery.com/jquery-3.5.1.min.js" cr…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.talking.external-libs** (L3 Widget) — widget.talking.external-libs
+  - Symptom: CDN code.jquery.com: … <script src="https://code.jquery.com/jquery-3.5.1.min.js" cr…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.eventcarousel.external-libs** (L3 Widget) — widget.eventcarousel.external-libs
+  - Symptom: CDN fonts.googleapis.com: …econnect" href="https://fonts.googleapis.com"> <link rel="precon…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.eventcarousel.serve** (L3 Widget) — widget.eventcarousel.serve
+  - Symptom: status=404 bytes=160
+  - Gate ref: Gate 35
+  - Fix hint: GET /widget/eventcarousel?cid=1&preview=1 must return 2xx HTML — check route + file serving
+- **[HIGH] widget.fallingsnow.external-libs** (L3 Widget) — widget.fallingsnow.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.firework.external-libs** (L3 Widget) — widget.firework.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.ranking.external-libs** (L3 Widget) — widget.ranking.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.topgifter.external-libs** (L3 Widget) — widget.topgifter.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.topliker.external-libs** (L3 Widget) — widget.topliker.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.lastx.external-libs** (L3 Widget) — widget.lastx.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.viewercount.external-libs** (L3 Widget) — widget.viewercount.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.myactions.external-libs** (L3 Widget) — widget.myactions.external-libs
+  - Symptom: CDN cdn.jsdelivr.net: … <script src="https://cdn.jsdelivr.net/npm/@lottiefiles/lottie…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.timer.external-libs** (L3 Widget) — widget.timer.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.commandinfo.external-libs** (L3 Widget) — widget.commandinfo.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.userinfo.external-libs** (L3 Widget) — widget.userinfo.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.transactionviewer.external-libs** (L3 Widget) — widget.transactionviewer.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[HIGH] widget.likefountain.external-libs** (L3 Widget) — widget.likefountain.external-libs
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
+  - Gate ref: widget-external-libs
+  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
+- **[MEDIUM] chain.points.db** (Chain) — DB persist (balance + identity)
+  - Symptom: points_user_qa_pts_2c70lx=null (want 1234); pointsmeta_qa_pts_2c70lx.userId=null (want 991781141187997)
+  - Gate ref: Chain3
+  - Fix hint: services/points.js setBalance writes points_user_<username>@ProfileId=1; recordIdentity writes pointsmeta_<username> JSON.userId.
+- **[HIGH] chain.goals.create.db** (Chain) — Goals row after create
+  - Symptom: Goals row not found for Name='E2E goal' ChannelId=1 ProfileId=2
+  - Gate ref: Chain 4
+  - Fix hint: Verify DB_PATH resolves to the live DB (config.js) and ProfileId scope matches the route.
+- **[HIGH] chain.goals.update.db** (Chain) — Goals row after update
+  - Symptom: expected Target=999; got no row
+  - Gate ref: Chain 4
+  - Fix hint: Check goals model patch() updates Target.
 
 <!-- QA-AUTO-FAILURES:END -->

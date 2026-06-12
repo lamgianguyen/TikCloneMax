@@ -148,11 +148,13 @@ module.exports = {
   // (appType=widget) must receive the inner event within `withinMs`. `expectRelay`
   // false = negative test (event NOT in whitelist → must NOT arrive).
   //
-  // The 27 positive events MIRROR RELAYABLE_DISTRIBUTE in
-  // backend-node/src/services/socket-manager.js:121-135. Lifecycle / server-emitted
-  // events (chat, status, stats, goalsChanged, actionsChanged, aggregates, …) are
-  // NOT controlpage-distributeEvent-triggerable, so they are intentionally OMITTED
-  // here — they need a REST-route / bridge-simulation test path, not this relay harness.
+  // The positive events MIRROR RELAYABLE_DISTRIBUTE in
+  // backend-node/src/services/socket-manager.js. Keep this list 1:1 with the Set.
+  // NOTE: `chat` and `actionsChanged` ARE controlpage-distributeEvent-emittable
+  // (deobfuscated.js:20142 / :6660) but are deliberately NOT relayed via this path:
+  // live chat already reaches widgets through tiktok-bridge.broadcastAll, and
+  // actionsChanged is broadcast by the backend on REST mutations. They are covered
+  // by the negative specs below, not omitted by accident.
   socket: [
     // settings / goals (original whitelist) — sock-manager.js:123
     { id: 'sock.relay.widgetSettings', event: 'widgetSettings', payload: { __qa: true }, expectRelay: true, severity: 'CRITICAL', gate: 'Gate 35 RC-1' },
@@ -186,6 +188,14 @@ module.exports = {
     { id: 'sock.relay.showCommands', event: 'showCommands', payload: { __qa: true }, expectRelay: true, severity: 'MEDIUM', gate: 'Gate 35 RC-1' },
     { id: 'sock.relay.showCustomCommands', event: 'showCustomCommands', payload: { __qa: true }, expectRelay: true, severity: 'MEDIUM', gate: 'Gate 35 RC-1' },
     { id: 'sock.relay.showUserScore', event: 'showUserScore', payload: { __qa: true }, expectRelay: true, severity: 'MEDIUM', gate: 'Gate 35 RC-1' },
+    // timer / activity-feed / lastx / playlist / cannon-test — added 2026-06-11
+    // (widget listeners verified: timer.html, activity-feed.html, lastx.html,
+    // songrequests.html, cannon.html). timerUpdate is needed by the staged Countdown Goal.
+    { id: 'sock.relay.timerUpdate', event: 'timerUpdate', payload: { __qa: true }, expectRelay: true, severity: 'HIGH', gate: 'Gate 35 RC-1' },
+    { id: 'sock.relay.dockData', event: 'dockData', payload: { __qa: true }, expectRelay: true, severity: 'HIGH', gate: 'Gate 35 RC-1' },
+    { id: 'sock.relay.setLastX', event: 'setLastX', payload: { __qa: true }, expectRelay: true, severity: 'MEDIUM', gate: 'Gate 35 RC-1' },
+    { id: 'sock.relay.setPlaylistItems', event: 'setPlaylistItems', payload: { __qa: true }, expectRelay: true, severity: 'MEDIUM', gate: 'Gate 35 RC-1' },
+    { id: 'sock.relay.giftCanonTest', event: 'giftCanonTest', payload: { __qa: true }, expectRelay: true, severity: 'MEDIUM', gate: 'Gate 35 RC-1' },
 
     // NEGATIVE specs — NOT in RELAYABLE_DISTRIBUTE → handler returns at :138, no relay.
     // 'chat' is a real broadcast event (index.js:119) but deliberately NOT whitelisted
