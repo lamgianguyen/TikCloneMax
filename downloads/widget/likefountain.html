@@ -406,18 +406,27 @@ if (!location.href.includes('preview=1')) {
             document.querySelector("iframe").contentWindow.postMessage({ type: "onLikeReceived", payload }, "*");
         });
 
+        // perf audit 2026-06-12: guard was `typeof settings !== undefined` — a
+        // tautology (typeof returns a STRING, never === the value undefined) so this
+        // posted 10×/sec FOREVER. Fixed the typo + only post when settings actually
+        // change (dirty-check) so the nested iframe isn't spammed every 100ms.
+        var __tfLastSettingsJson = '';
         setInterval(() => {
-            if (typeof settings !== undefined) {
-                document.querySelector("iframe").contentWindow.postMessage({
-                    type: "onSettings",
-                    settings: {
-                        randomColor: settings.likefountain_randomColor,
-                        heartColor1: settings.likefountain_heartColor1,
-                        heartColor2: settings.likefountain_heartColor2,
-                        showProfilePictures: settings.likefountain_showProfilePictures,
-                        randomPosition: settings.likefountain_randomPosition !== false,
-                    }
-                }, "*");
+            if (typeof settings !== 'undefined' && settings) {
+                var __tfPayload = {
+                    randomColor: settings.likefountain_randomColor,
+                    heartColor1: settings.likefountain_heartColor1,
+                    heartColor2: settings.likefountain_heartColor2,
+                    showProfilePictures: settings.likefountain_showProfilePictures,
+                    randomPosition: settings.likefountain_randomPosition !== false,
+                };
+                var __tfJson = JSON.stringify(__tfPayload);
+                if (__tfJson !== __tfLastSettingsJson) {
+                    __tfLastSettingsJson = __tfJson;
+                    document.querySelector("iframe").contentWindow.postMessage({
+                        type: "onSettings", settings: __tfPayload
+                    }, "*");
+                }
             }
         }, 100)
 

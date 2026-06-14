@@ -77,23 +77,35 @@ function coerce(value) {
 // (`${WIDGET_ID}_saturationFilter`). So match case-insensitively and re-emit the
 // camelCase form the widget actually reads. (variation/animation are already
 // lowercase on both sides.)
-const GRAPHIC_OVERLAY_ALIAS_RE =
-  /^widget_((?:webcam|overlay|talking)_[a-z0-9]+)_(variation|animation|saturationfilter|huefilter|grayscalefilter)$/i;
-const GRAPHIC_FIELD_CASE = {
+// Widgets read these fields CAMEL-CASED (`${id}_saturationFilter`, `${id}_fontType`)
+// but the bundle persists them LOWERCASED (widget_<id>_saturationfilter). For any
+// merged (de-prefixed, lowercase) key ending in one of these fields, re-emit the
+// camelCase form the widget reads. Generic across ALL overlay groups (webcam/overlay/
+// talking + goal*/gcounter*/etc.) — previously only webcam/overlay/talking were
+// aliased, so goal/gcounter per-style settings reverted on reload/OBS (perf audit
+// 2026-06-12). Additive only (never overwrites an existing key), so it's safe for
+// any group whose widget happens to use these field names.
+const CAMEL_FIELD_CASE = {
   variation: 'variation',
   animation: 'animation',
   saturationfilter: 'saturationFilter',
   huefilter: 'hueFilter',
   grayscalefilter: 'grayScaleFilter',
+  progresscolors: 'progressColors',
+  fonttype: 'fontType',
+  fontsize: 'fontSize',
+  fontlinespacing: 'fontLineSpacing',
+  fontletterspacing: 'fontLetterSpacing',
+  righttoleft: 'rightToLeft',
 };
 
 function aliasGraphicOverlayKeys(merged) {
   for (const [key, value] of Object.entries(merged)) {
-    const m = GRAPHIC_OVERLAY_ALIAS_RE.exec(key);
-    if (!m) continue;
-    const field = GRAPHIC_FIELD_CASE[m[2].toLowerCase()];
-    if (!field) continue;
-    const aliasKey = m[1].toLowerCase() + '_' + field;   // e.g. webcam_sakura_saturationFilter
+    const idx = key.lastIndexOf('_');
+    if (idx <= 0) continue;
+    const camel = CAMEL_FIELD_CASE[key.slice(idx + 1)];
+    if (!camel || camel === key.slice(idx + 1)) continue; // unknown field or already camel
+    const aliasKey = key.slice(0, idx + 1) + camel;
     if (merged[aliasKey] === undefined) merged[aliasKey] = value;
   }
   return merged;

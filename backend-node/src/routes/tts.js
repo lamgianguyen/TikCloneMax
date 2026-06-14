@@ -152,6 +152,10 @@ router.get('/generate', async (req, res) => {
   const rawText = typeof req.query.text === 'string' ? req.query.text : '';
   if (!rawText.trim()) return res.status(400).json({ error: 'text is required' });
 
+  // Diagnostic: confirms the Electron TTS redirect (google/zerody → here) is
+  // firing and which voice/text reach us. Remove once TTS audio is verified.
+  logger.info(`[TTS-GEN] voice=${voice} chars=${rawText.length} text="${rawText.slice(0, 40).replace(/"/g, "'")}"`);
+
   const trimmed = rawText.length > 300 ? rawText.slice(0, 300) : rawText;
   const sessionId = readStoredSessionId();
   if (!sessionId) {
@@ -165,6 +169,7 @@ router.get('/generate', async (req, res) => {
   try {
     const audio = await callTikTokTts(voice, trimmed, sessionId);
     if (!audio) return res.status(502).json({ error: 'tts_upstream_failed' });
+    logger.info(`[TTS-GEN] OK ${audio.length} bytes voice=${voice}`);
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).end(audio);

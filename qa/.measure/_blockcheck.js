@@ -622,16 +622,9 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
           try { console.warn('[STRETCH-DIAG] non-blocking stretch done in ' + Math.round(((window.performance&&performance.now)?performance.now():0)-t0) + 'ms for ' + arr.length + ' iframes'); } catch(_){}
         }
         arr.forEach(function(cont){
-          var iframe = cont.querySelector('iframe');
-          // perf 2026-06-12: SKIP iframes that aren't loaded (lazy-load leaves them
-          // at data-src/about:blank, and tfUnloadOffscreenOverlayIframes blanks
-          // off-screen ones). Sizing an empty iframe is wasted reflow and was the
-          // open-stall cause. They get sized when they scroll in + load — the unload
-          // observer triggers a re-stretch then. Only stretch loaded, on-page iframes.
-          var src = iframe && (iframe.getAttribute('src') || '');
-          if (!iframe || !src || src.indexOf('about:blank') === 0) { if (--pending === 0) finish(); return; }
           var initialH = cont.clientHeight;
-          if (!initialH) { if (--pending === 0) finish(); return; }
+          var iframe = cont.querySelector('iframe');
+          if (!initialH || !iframe) { if (--pending === 0) finish(); return; }
           var h = parseInt((iframe.style.height || '').replace('px','')) || 0;
           function stepFrame(){
             if (cont.clientHeight === initialH && h < 700) {
@@ -1225,9 +1218,7 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
    ───────────────────────────────────────────────────────────────────── */
 (function tfWrapAndPreloadTriggers() {
   if (window.__tfTriggerWrapped) return;
-  var TRUNCATE_LIMIT = 200;  // lowered 500→200 (perf audit 2026-06-12): 500 <img>
-                             // still janks the trigger dropdown, worse on the
-                             // saturated Overlay Library. 200 popular gifts is plenty.
+  var TRUNCATE_LIMIT = 500;
   var MAX_TRIES = 60;  // 60 × 250ms = 15s grace for modules.js load
   var tries = 0;
   var iv = setInterval(function () {
@@ -1818,73 +1809,6 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
   }, 60);
 })();
 
-(function tfProbeVoiceScroll(){
-  // TEMP diagnostic (remove after voice-picker scroll fixed): when the voice modal
-  // is open, log the scroll container's real metrics so we know WHY it won't scroll
-  // (overflowY value, whether our CSS height applied, scrollHeight vs clientHeight,
-  // and the parent's overflow/height). 2026-06-13.
-  function find(){
-    var cands = document.querySelectorAll('div[class*="overflow-y-auto"]');
-    for (var i = 0; i < cands.length; i++) {
-      var c = cands[i];
-      if (c.className.indexOf('600px') > -1) return c;
-      if (c.querySelectorAll('button').length > 4) return c;
-    }
-    return null;
-  }
-  var last = '';
-  setInterval(function(){
-    try {
-      var el = find(); if (!el) return;
-      // FIX (probe-confirmed): the list computes overflow-y:HIDDEN despite its
-      // overflow-y-auto class (something overrides it inline/higher-specificity, so
-      // earlyCss !important didn't win). Force it via JS inline !important — beats
-      // everything + re-applies each tick if the bundle re-sets it. Cap height to
-      // viewport so it fits + scrolls. 2026-06-13.
-      el.style.setProperty('overflow-y', 'auto', 'important');
-      el.style.setProperty('max-height', '70vh', 'important');
-      var cs = getComputedStyle(el);
-      var msg = 'oy=' + cs.overflowY + ' h=' + cs.height + ' sh=' + el.scrollHeight + ' ch=' + el.clientHeight
-        + ' SCROLLABLE=' + (el.scrollHeight > el.clientHeight + 2);
-      if (msg !== last) {
-        last = msg;
-        fetch('/api/_dev/clientlog', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tag: 'VSCROLL', msg: msg.slice(0, 200) }) }).catch(function(){});
-      }
-    } catch(_) {}
-  }, 1000);
-})();
-
-(function tfEnsureIntervalFixDriver(){
-  // CRITICAL (2026-06-12, runtime evidence from [CLIENT][TTSQ] probe): the bundle's
-  // TTS queue ticks via setIntervalFix(tick,100) (combo/app.js deob:69518).
-  // setIntervalFix only REGISTERS the callback (deob:68663); the central DRIVER that
-  // actually fires registered callbacks (deob:68636) is a 500ms setInterval that only
-  // STARTS when initIntervalFix(socketiowrapper.io) runs — inside the bundle's
-  // socketiowrapper 'connect' handler (deob:70707). The clone drives chat via a
-  // SEPARATE feed socket and the bundle's socketiowrapper connect does NOT fire here,
-  // so initIntervalFix is never called → the 500ms driver never starts → the TTS
-  // queue tick NEVER fires → chat items accumulate (qlen grows 3→4→5…) but are never
-  // played (currentItem stays null, zero [TTS-GEN], "TTS queue size exceeded" forever).
-  // Start the driver ourselves. initIntervalFix is idempotent (guarded by an internal
-  // !driver check), so if the bundle ever starts it too this is a harmless no-op. The
-  // socketiowrapper is not a global (verified), so pass a stub — initIntervalFix only
-  // needs obj.on(); the 500ms setInterval IS the driver that runs every setIntervalFix
-  // loop (TTS queue + bundle's own loops that were silently dormant).
-  function ensure(){
-    try {
-      if (window.__tfIntervalFixStarted) return;
-      if (typeof window.initIntervalFix !== 'function') return;
-      var io = (window.socketiowrapper && window.socketiowrapper.io) || { on: function(){} };
-      window.initIntervalFix(io);
-      window.__tfIntervalFixStarted = true;
-      try { console.warn('[TF-intervalfix] setIntervalFix driver started manually (TTS queue + bundle loops)'); } catch(_){}
-    } catch(_){}
-  }
-  ensure();
-  setTimeout(ensure, 800); setTimeout(ensure, 2500); setTimeout(ensure, 6000); setTimeout(ensure, 12000);
-})();
-
 (function tfSeedAiTtsAuthToken(){
   // CRITICAL (2026-06-12, audit Lô 6): getAiTtsBackendContext (combo/app.js
   // deob:69019-69029) gates the AI-voice TTS path on window.appConfig.ttsHost AND
@@ -1923,94 +1847,6 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
   seed();
   setTimeout(seed, 400); setTimeout(seed, 1500);
   setInterval(seed, 4000);
-})();
-
-(function tfProbeTtsQueue(){
-  // TEMP diagnostic (remove after TTS audio verified): logs the chat-TTS queue
-  // state to backend [CLIENT][TTSQ] so we can see WHERE it wedges — whether the
-  // ttsAuthToken seed took, and whether currentItem is stuck on an AI voice
-  // (requestMode=post) with no audio created (= the case-18 head-of-line hang).
-  function post(tag, msg){
-    try {
-      fetch('/api/_dev/clientlog', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tag: tag, msg: String(msg).slice(0, 300) }) }).catch(function(){});
-    } catch(_){}
-  }
-  var last = '';
-  setInterval(function(){
-    try {
-      var tts = window.tts, q = tts && tts.queue, ci = q && q.currentItem;
-      var msg = 'tok=' + (window.ttsAuthToken ? window.ttsAuthToken.length : 'NONE')
-        + ' host=' + (window.appConfig && window.appConfig.ttsHost ? 'set' : 'NONE')
-        + ' qlen=' + (q ? q.getLength() : '?')
-        + ' run=' + (q ? q.running : '?')
-        + ' cur=' + (ci ? ('vid=' + ci.voiceId + ' rmode=' + ci.requestMode
-            + ' src=' + (ci.audio && ci.audio.src ? 'YES' : 'no')) : 'null');
-      if (msg !== last) { last = msg; post('TTSQ', msg); }
-    } catch(e){ post('TTSQ', 'err ' + (e && e.message)); }
-  }, 3000);
-})();
-
-(function tfUnloadOffscreenOverlayIframes(){
-  // PERF (audit 2026-06-12, biggest lag source): the SHIPPED bundle lazy-LOADS
-  // overlay preview iframes (sets src from data-src on enter) but NEVER unloads
-  // them off-screen — so scrolling the Overlay Library leaves all ~24 widget
-  // iframes live forever (each = a socket.io connection + a 60fps render loop) →
-  // "mở Lớp phủ lag màn hình". The NEWER decompiled build re-added an unload
-  // (deobfuscated.js:20091-20096 src='about:blank' on leave) but it is NOT in the
-  // shipped combo (about:blank count=0). Re-add it with OUR OWN IntersectionObserver:
-  // blank an iframe (saving its src to data-tf-src) once it's WELL off-screen, and
-  // restore on re-entry. rootMargin 600px = hysteresis so edge scroll doesn't thrash
-  // load/unload. Does NOT fight the bundle's loader: on re-enter both want data-src.
-  if (!('IntersectionObserver' in window)) return;
-  if (window.__tfIframeUnloadInstalled) return;
-  window.__tfIframeUnloadInstalled = true;
-  // When an iframe is (re)loaded on scroll-in, it needs sizing. The stretch
-  // override (tfStretchIframesNonBlocking) now skips unloaded iframes, so trigger
-  // a debounced re-stretch after a load so the freshly-visible widget gets its
-  // height. Debounced so a burst of scroll-ins collapses into one stretch pass.
-  var stretchTimer = null;
-  function scheduleStretch(){
-    if (stretchTimer) return;
-    stretchTimer = setTimeout(function(){
-      stretchTimer = null;
-      try { if (window.obsoverlays && window.obsoverlays.stretchIframes) window.obsoverlays.stretchIframes(); } catch(_){}
-    }, 350);
-  }
-  var io = new IntersectionObserver(function (entries) {
-    for (var i = 0; i < entries.length; i++) {
-      var el = entries[i].target;
-      try {
-        if (entries[i].isIntersecting) {
-          var restore = el.getAttribute('data-tf-src') || el.getAttribute('data-src');
-          if (restore && (!el.getAttribute('src') || /about:blank/.test(el.getAttribute('src') || ''))) {
-            el.removeAttribute('data-tf-src');
-            el.src = restore;
-            scheduleStretch();
-          }
-        } else {
-          var cur = el.getAttribute('src');
-          if (cur && !/about:blank/.test(cur)) {
-            el.setAttribute('data-tf-src', cur);
-            el.src = 'about:blank';
-          }
-        }
-      } catch (_) {}
-    }
-  }, { root: null, rootMargin: '600px 0px', threshold: 0 });
-  var seen = new WeakSet();
-  function scan() {
-    try {
-      // overlay lazy iframes carry data-src (the bundle's lazy-load marker)
-      var frames = document.querySelectorAll('iframe[data-src]');
-      for (var i = 0; i < frames.length; i++) {
-        if (!seen.has(frames[i])) { seen.add(frames[i]); io.observe(frames[i]); }
-      }
-    } catch (_) {}
-  }
-  scan();
-  // The gallery mounts iframes after navigation; keep picking up new ones.
-  setInterval(scan, 2000);
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -4342,24 +4178,12 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
   }
   function tfHandleTtsPreview(url, opts) {
     if (!/tts\.tikfinity\.com\/api\/tts\/preview/.test(url)) return null;
-    // No real AI TTS engine — the "AI voices" are a cosmetic catalog. The Test
-    // button used to get 503 → red "Voice or Language not supported!" toast.
-    // Return a working sample audioUrl (real TikTok voice en_us_002) so Test plays
-    // SOMETHING instead of erroring. All AI voices preview with the same basic
-    // voice (we have no per-voice AI model). 2026-06-13.
-    var sample = 'This is a preview of the selected voice.';
+    // Return error so bundle's UI shows "feature in development" message.
     return Promise.resolve(tfBuildMockJsonResponse({
-      statusCode: 201,
-      message: 'Success',
-      data: {
-        result: {
-          fromCache: false,
-          audioUrl: '/api/tts/generate?voice=en_us_002&text=' + encodeURIComponent(sample),
-          engineType: null,
-          generationDurationMs: 300,
-        },
-      },
-    }, 201));
+      statusCode: 503,
+      message: 'Tính năng đang phát triển — vui lòng quay lại sau',
+      error: 'feature_in_development',
+    }, 503));
   }
 
   var _fetch=window.fetch;

@@ -443,6 +443,29 @@
     overflow: hidden !important;
   }
 
+  /* Voice picker modal — the voices list is a FIXED h-[600px] scroll box
+     (app deob:42997). On windows shorter than ~750px the modal (tabs + search +
+     600px list) is taller than the viewport, so the list's scrollbar falls below
+     the screen edge → user "can't scroll" + the language dropdown gets pushed
+     awkwardly. Cap the list to the viewport so the modal fits and the list scrolls
+     in view. Also lift the language dropdown popup above the list so it shows.
+     (UX fix 2026-06-13) */
+  /* PROBE-CONFIRMED (2026-06-13): the list has computed overflow-y:HIDDEN despite
+     its `overflow-y-auto` class (sh=7080 ch=600 → 7080px content clipped to 600px,
+     no scrollbar, wheel falls through to the page). Force overflow-y:auto + cap
+     height. NB selectors must be BRACKET-FREE: `[class*="h-[600px]"]` contains a
+     literal `[` → CSS parser DROPS the whole rule (why the earlier 2-3 attempts did
+     nothing). Match the unique "600px" substring instead. */
+  div[class*="overflow-y-auto"][class*="600px"] {
+    overflow-y: auto !important;
+    height: min(600px, 70vh) !important;
+  }
+  /* language dropdown popup (absolute z-30 max-h-[260px] = "260px", app deob:42912)
+     — lift above the list. Bracket-free selector. */
+  div[class*="z-30"][class*="260px"] {
+    z-index: 50 !important;
+  }
+
   /* Topbar credit chip — match gốc visual exactly.
      Bundle decides chip variant from subscriptionEnabled:
        - Free tier:   bg-[#D435554D] (burgundy)

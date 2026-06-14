@@ -284,16 +284,44 @@ async function tryConnectOnce(clean, channelId, attempt) {
   if (process.env.TIKTOK_SESSIONID && process.env.TIKTOK_TT_TARGET_IDC) {
     ctorOpts.sessionId = process.env.TIKTOK_SESSIONID;
     ctorOpts.ttTargetIdc = process.env.TIKTOK_TT_TARGET_IDC;
+    // CRITICAL (2026-06-12): the connector forwards sessionId/ttTargetIdc to the
+    // signed WS upgrade ONLY when authenticateWs is truthy (tiktok-live-connector
+    // dist/lib/client.js:199-200 — else both are passed undefined). Without this
+    // flag a valid session is silently dropped and the live WS still uses the FREE
+    // Eulerstream path → connect, leak a few events, WS dies in ~4-5 min → watchdog
+    // kill → reconnect → "chat lúc có lúc không". Setting it makes TikTok treat the
+    // WS as a logged-in viewer (stable), no paid signing key needed.
+    ctorOpts.authenticateWs = true;
+    // The connector refuses to send the session cookie to the sign server unless
+    // the host is explicitly whitelisted (security opt-in: with authenticateWs the
+    // TikTok sessionid is forwarded to the sign server so it can authenticate the
+    // WS as a logged-in viewer). It validates envHost === URL(signBasePath).host
+    // (fetch-signed-websocket-euler.js:26-33), basePath defaulting to
+    // https://tiktok.eulerstream.com. Derive it from the SAME source so it always
+    // matches even if SIGN_API_URL is overridden.
+    if (!process.env.WHITELIST_AUTHENTICATED_SESSION_ID_HOST) {
+      try {
+        const signUrl = process.env.SIGN_API_URL || 'https://tiktok.eulerstream.com';
+        process.env.WHITELIST_AUTHENTICATED_SESSION_ID_HOST = new URL(signUrl).host;
+      } catch (_) {
+        process.env.WHITELIST_AUTHENTICATED_SESSION_ID_HOST = 'tiktok.eulerstream.com';
+      }
+    }
+  } else if (process.env.TIKTOK_SESSIONID && !process.env.TIKTOK_TT_TARGET_IDC) {
+    // Session present but ttTargetIdc missing → the gate above can't enable
+    // authenticated WS, so we silently downgrade to the flaky free tier. Surface it.
+    logger.warn('[TikTokBridge] session present but TIKTOK_TT_TARGET_IDC missing → running FREE tier (flaky). Re-login to capture ttTargetIdc.');
   }
 
-  // Diagnostic: which auth path is in effect. AUTHENTICATED (sessionId) is far more
-  // stable than the free Eulerstream signing. If this logs sessionId=no while the
-  // user IS logged in, the env didn't reach the backend (restart) or the session
-  // store is empty/expired. signApiKey=no + sessionId=no = free tier (flaky).
+  // Diagnostic: which auth path is in effect. AUTHENTICATED WS (sessionId +
+  // authenticateWs) is far more stable than free Eulerstream signing. ws=free +
+  // signApiKey=no = flaky tier. If ws=free while the user IS logged in, the env
+  // didn't reach the backend (restart) or the session store is empty/expired.
   logger.info(
-    `[TikTokBridge] auth mode: sessionId=${ctorOpts.sessionId ? 'YES (authenticated)' : 'no'}`
+    `[TikTokBridge] auth mode: ws=${ctorOpts.authenticateWs ? 'AUTHENTICATED (sessionId)' : 'free Eulerstream'}`
     + ` ttTargetIdc=${ctorOpts.ttTargetIdc || '-'}`
-    + ` signApiKey=${ctorOpts.signApiKey ? 'YES' : 'no (free Eulerstream)'}`
+    + ` signApiKey=${ctorOpts.signApiKey ? 'YES' : 'no'}`
+    + ` signHost=${process.env.WHITELIST_AUTHENTICATED_SESSION_ID_HOST || '-'}`
   );
 
   const conn = new TikTokLiveConnection(_state.username, ctorOpts);

@@ -8,7 +8,10 @@ const BASE = 'http://localhost:5285';
 // widget name → extra query params some widgets require
 const PARAMS = { lastx: 'x=10', goal: 'metric=followers', gcounter: 'c=1' };
 const WIDGETS = [
-  'coinjar', 'coinmatch', 'cannon', 'wheel', 'wheelofactions', 'goal', 'giftgoal',
+  // NB: there is no /widget/giftgoal path — gift-goal is the `goal` widget with a
+  // gift metric (goal.html reads ?metric=, emits giftGoalStatus). Removed to stop
+  // the false-positive 404 (verified 2026-06-12).
+  'coinjar', 'coinmatch', 'cannon', 'wheel', 'wheelofactions', 'goal',
   'webcam', 'overlay', 'talking', 'chat', 'eventcarousel', 'fallingsnow', 'firework',
   'ranking', 'topgifter', 'topliker', 'lastx', 'viewercount', 'myactions', 'timer',
   'socialmediarotator', 'commandinfo', 'userinfo', 'transactionviewer', 'likefountain',

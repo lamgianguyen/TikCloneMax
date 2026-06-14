@@ -15,9 +15,80 @@
 
 ---
 
+## [2026-06-12] TTS KHÔNG đọc chat — ROOT CAUSE THẬT: `setIntervalFix` driver CHẾT (queue tick không bao giờ fire) — FIX applied (chờ hard-reload verify)
+
+**Status:** PARTIAL (fix applied [blockScript.txt](backend-node/src/templates/blockScript.txt) `tfEnsureIntervalFixDriver`, chờ user Ctrl+Shift+R + chat verify `[TTS-GEN]` chạy).
+
+**⚠️ SUPERSEDES giả thuyết trước (seed ttsAuthToken / AI-voice wedge) — cả 2 đều SAI/không phải gốc.** Runtime probe `[CLIENT][TTSQ]` chốt hạ.
+
+**Bằng chứng quyết định (probe):** chat feed chảy (51 `[CLIENT][TTS-CHAT]`), queue NHẬN item (`qlen=3→4→5 TĂNG`), nhưng `cur=null` + `[TTS-GEN]=0`. → queue **nhận mà KHÔNG xử lý**: `cur=null` (KHÔNG kẹt trên item nào) + qlen tăng (không shift) = **tick không bao giờ gọi `next()`**.
+
+**Root cause (app deob:68624-68695):** TTSQueue tick = `setIntervalFix(tick, 100)` (app:69518) — chỉ ĐĂNG KÝ callback vào `_0x233e2f`. DRIVER chạy callback (`_0x18eb3b`, app:68636) = `setInterval(driver, 500)` (app:68627) **chỉ start khi `initIntervalFix(socketiowrapper.io)` chạy** — trong handler `connect` của socketiowrapper GỐC (app:70707). **Clone connect chat qua FEED SOCKET RIÊNG (tfChatFeedToModules) → socketiowrapper gốc KHÔNG connect → `initIntervalFix` không bao giờ gọi → driver 500ms không start → MỌI `setIntervalFix` loop chết, gồm tick queue TTS** → item dồn vô hạn, không phát. (`socketiowrapper` KHÔNG phải global — verified.)
+
+**Khớp mọi triệu chứng lịch sử:** queue-exceeded 840 (queue đầy vì không drain) + 0 [TTS-GEN] (không item nào tới new Audio) + cur=null. Giả thuyết "AI-voice play hang" (workflow) SAI vì cur=null (không kẹt play); seed ttsAuthToken (Lô 6) vô hại nhưng không phải gốc.
+
+**Fix that worked (applied 2026-06-12, [blockScript.txt](backend-node/src/templates/blockScript.txt) IIFE `tfEnsureIntervalFixDriver`, backup `.bak-2026-06-12-pre-intervalfix`):** tự gọi `window.initIntervalFix({on:noop})` sớm (retry boot-race) → start driver 500ms → mọi setIntervalFix loop (gồm tick queue) fire. Idempotent (guard `!_0x1591b4` nội bộ) nên nếu bundle có gọi sau cũng no-op. Parse OK, vào HTML serve (reload-html).
+
+**Verify (PENDING):** Ctrl+Shift+R → chat chảy → probe phải thấy `qlen` DAO ĐỘNG (không tăng mãi) + `cur=vid=...` (đang đọc) + `[TTS-GEN]` chạy + nghe tiếng. renderer log `[TF-intervalfix] driver started`. Nếu chạy → đây là gốc; gỡ probe sau.
+
+**Bài học:** "fix-rồi-vẫn-lỗi" nhiều vòng vì đoán tĩnh (wedge/seed). Probe runtime (`cur=null` + `qlen tăng`) phơi đúng gốc trong 1 lần. Driver setIntervalFix d:p phụ thuộc socketiowrapper-connect mà clone bypass — **lớp lỗi MỚI**: mọi feature bundle dùng `setIntervalFix` có thể dormant (cannon opacity, v.v.) — fix này bật lại HẾT.
+
+---
+
+## [2026-06-12] PERF audit — lag/đơ (mở Lớp phủ lag màn hình, bấm dropdown freeze) — workflow `tikmax-perf-audit` 8 agent: 4 CRITICAL / 13 HIGH / 10 MED / 9 LOW
+
+**Full report:** task `wcp4k7oe7`. **Nguồn lag CHÍNH:** shipped bundle lazy-LOAD iframe nhưng KHÔNG unload off-screen (`about:blank` count=0; bản decompiled mới CÓ tại :20091 nhưng chưa ship) → cuộn 1 vòng Lớp phủ = ~24 iframe sống mãi (socket + 60fps loop không pause).
+
+**4 CRITICAL:** (1) iframe off-screen không unload [overlay-library]. (2) dropdown specific-gift (Event editor :9881) + simulate-gift (:6635) bind FULL 3386 gift → freeze 8s, **Gate 34 KHÔNG phủ** (chỉ phủ sounds.loadTriggers). (3) coinjar tích body vật lý VÔ HẠN (coin-jar.js:7066 no cap) → crash stream dài. (4) widget physics không pause khi hidden (cannon dual-rAF, fallingsnow video, likefountain demo) → N loop 60fps song song.
+
+**Quick-wins ĐÃ LÀM (2026-06-12, batch an toàn):**
+- **TRUNCATE_LIMIT 500→200** ([blockScript.txt](backend-node/src/templates/blockScript.txt):1221) — trigger dropdown nhẹ hơn (user bấm trúng vụ này).
+- **likefountain typo** ([likefountain.html](downloads/widget/likefountain.html):409) `typeof settings !== undefined` (tautology, post 10Hz hoài) → `!== 'undefined'` + dirty-check.
+- **heart-fountain demo loop** ([heartFountain-BnZsuEF4.js](downloads/widget/vite/assets/heartFountain-BnZsuEF4.js)) gate `localhost`→`?demo=1` (15 tim/5s chạy hoài trên mọi card vì lib serve từ localhost). backup `.bak-2026-06-12-pre-demoloop`.
+- **circletype localize** ([wheel.html](downloads/widget/wheel.html):16 + wheel/index.html:14) → `/js/lib/circletype.min.js` (15KB tải về) — chữ cong wheel hết hang OBS/offline.
+- **⭐ iframe off-screen UNLOAD (fix lag #1)** ([blockScript.txt](backend-node/src/templates/blockScript.txt) IIFE `tfUnloadOffscreenOverlayIframes`) — IntersectionObserver riêng observe `iframe[data-src]`: off-screen (rootMargin 600px hysteresis) → save src vào `data-tf-src` + `src='about:blank'`; vào lại → restore. Port logic từ decompiled :20091-20096 (bản mới có, shipped chưa). Không fight loader gốc (cả 2 đều muốn data-src lúc enter). → cuộn Lớp phủ chỉ giữ iframe đang nhìn sống, phần còn lại blank → giải phóng socket + 60fps loop. Parse OK.
+
+**CHƯA LÀM (cần care, theo thứ tự):** (B) gift dropdown truncate — **KHÔNG đụng getAllGifts** (Gift Browser cần 3386, Gate 21); wrap getGiftDataSource HOẶC paginate. (C) coinjar FIFO cap (deviate gốc → cần user OK / expose setting). (D) widget visibility-pause. (E) backend: rooms thay full-scan broadcast + debounce aggregates + cap userAvatars Map. (F) gỡ tfProbeTtsQueue (giữ tới khi verify TTS xong) + drop chat khỏi [Broadcast] log + gộp 2 status-poll.
+
+---
+
+## [2026-06-12] "Chat lúc có lúc không / tự ngắt sau ~4-5 phút" — ROOT CAUSE: `authenticateWs` KHÔNG bao giờ bật → session hợp lệ vẫn chạy free Eulerstream — FIX applied (chờ verify live)
+
+**Status:** PARTIAL (fix applied tiktok-bridge.js, chờ user restart + connect verify chat ổn định qua mốc 5 phút).
+
+**Phát hiện qua full-app audit (workflow `tikmax-full-audit`, 8 agent static). Đây là CRITICAL duy nhất — và là gốc của intermittent chat + TTS đứng theo.**
+
+**Root cause:** `tiktok-bridge.js` set `ctorOpts.sessionId` + `ctorOpts.ttTargetIdc` NHƯNG KHÔNG set `ctorOpts.authenticateWs`. Connector (`tiktok-live-connector/dist/lib/client.js:199-200`) **chỉ forward sessionId/ttTargetIdc vào signed-WS fetch khi `authenticateWs` truthy** — không thì cả 2 bị truyền `undefined`. → session hợp lệ bị **bỏ phí**, live WS vẫn dùng **free Eulerstream** → đúng vòng "connect → vài event lọt → WS chết ~4-5 phút → watchdog giết → reconnect → chat chập chờn". Log cũ `sessionId=YES (authenticated)` là **BÁO LÁO** (chỉ check ctorOpts.sessionId, không phải authenticateWs).
+
+**Liên đới:** vụ FIXLOG [2026-06-11] "chat lúc có lúc không = Eulerstream free flaky" — đúng triệu chứng nhưng **chưa tới gốc**: tưởng phải mua signing key, thật ra chỉ thiếu 1 cờ. `authenticateWs` làm TikTok coi WS như viewer-đã-login (ổn định) — KHÔNG cần signing key trả phí.
+
+**Fix that worked (applied 2026-06-12, [tiktok-bridge.js](backend-node/src/services/tiktok-bridge.js):284, backup `.bak-2026-06-12-pre-authws`):** thêm `ctorOpts.authenticateWs = true` trong block `if (sessionId && ttTargetIdc)`; + warn riêng khi sessionId có mà ttTargetIdc thiếu (silent downgrade, HIGH finding); + sửa log `auth mode: ws=AUTHENTICATED/free signHost=...`. node -c PASS.
+
+**Lỗi nối tiếp (đã xử):** bật authenticateWs → connector ném `AuthenticatedWebSocketConnectionError: no whitelist host defined. Set WHITELIST_AUTHENTICATED_SESSION_ID_HOST`. Đây là **chốt bảo mật**: với authenticateWs, connector forward sessionid TikTok cho **sign server (Eulerstream) để ký WS** → bắt user opt-in host. Check (`tiktok-live-connector/dist/lib/web/routes/fetch-signed-websocket-euler.js:26-33`): `envHost === URL(signBasePath).host`, basePath mặc định `https://tiktok.eulerstream.com`. FIX: bridge tự set `process.env.WHITELIST_AUTHENTICATED_SESSION_ID_HOST = new URL(SIGN_API_URL || 'https://tiktok.eulerstream.com').host` → khớp. ⚠️ ĐÁNH ĐỔI: session cookie gửi cho Eulerstream (bên thứ 3). ⚠️ authenticated WS có thể là **premium** Eulerstream → nếu test ra 402 PremiumFeatureError thì revert giữ free.
+
+**Verify (PENDING):** restart Electron + connect → chat phải chảy LIÊN TỤC qua mốc 5 phút (hết "tự ngắt"); backend log `auth mode: ws=AUTHENTICATED (sessionId)`; watchdog `no events 255s` thưa hẳn/biến mất. Nếu authenticated WS bị TikTok từ chối (1 số account) → revert + giữ free + chấp nhận flaky.
+
+**⚑ Backlog audit 2026-06-12 (9 lô, xem report đầy đủ ở task wgp4uj3lx):** 56 OK / 1 CRITICAL (đã fix Lô 1) / 8 HIGH / 11 MEDIUM. Lô 2: route thiếu (setProfileName/importActions/startChallenge/endChallenge → 404 toast). Lô 3: points routes (executeHalving/transferAmountToUser) + pro alias (setPaymentMethod//stripe/activate). Lô 4: alias de-prefix goal*/gcounter* (settings revert reload/OBS — class chung, generic-alias `widget_<group>_<field>`). Lô 5: localize CDN (circletype@wheel HIGH, streambuddies Vite, fallingsnow .webm, google fonts). Lô 6: TTS AI voice (tfHandleTtsPreview trả 201 thay 503; Random Voice loại giọng AI khỏi pool HOẶC seed window.ttsAuthToken — audit SỬA premise: AI stall ≤15s KHÔNG vô hạn, chat đứng thật ra do connection drop = CRITICAL trên). Lô 7-9: security hardening (Socket.IO cors origin:true, ACAO:* + credentials, execPsCommand/handleFetchUrl) / christmas-event relay / verify better-sqlite3 ABI packaged.
+
+---
+
 ## [2026-06-12] TTS NHẬN chat nhưng KHÔNG ra tiếng — ROOT CAUSE: bundle TTSItem play non-AI voice tới endpoint CHẾT (Google key revoked / zerody proxy) — FIX: Electron redirect → /api/tts/generate (chờ user restart verify)
 
-**Status:** PARTIAL (fix applied, chờ user restart Electron + nghe tiếng).
+**Status:** PARTIAL. Redirect fix CHẠY cho giọng thường (Voice Tester ra tiếng + `[TTS-GEN]` log). NHƯNG chat thật vẫn câm → **lỗi THỨ 2** (xem update dưới).
+
+**UPDATE 2026-06-12 — lỗi thứ 2: QUEUE KẸT do Random Voice bốc giọng AI (workflow `tts-queue-freeze-rca`, 4 agent, confidence MEDIUM):**
+
+Sau khi redirect chạy: Voice Tester (click) ra tiếng + sinh `[TTS-GEN]`, NHƯNG chat thật **0 `[TTS-GEN]`** + renderer log spam `"TTS queue size exceeded"` ×187 (queue đầy không rút).
+
+- **Bằng chứng quyết định:** 8 dòng `[TTS-GEN]` đều là `Testuser` (Voice Tester). Chat thật vào #ttsLogs (đã queue) nhưng KHÔNG câu nào sinh `[TTS-GEN]` → queue nhận item mà **không gọi `play()` tới `new Audio`**.
+- **Root cause:** bật **"Random Voice"** (`checkboxTtsRandomVoiceV2`) → `generateTtsItem` (modules:6143-6145) BỎ QUA "default", bốc giọng ngẫu nhiên từ `tts.getVoices()` — pool **chứa giọng AI** (`tts_api__…`, modules:5991-6013). Câu trúng giọng AI → TTSItem ctor set `requestMode="post"` (app:69252-69264) → `play()` case 15→18 `await requestAiTtsAudio()` **TRƯỚC khi tạo Audio + trước khi arm timeout** (timeout ở case 34, app:69408-69413 = SAU await). Await này treo → `play()` đứng mãi → TTSQueue `currentItem` (app:69498/69501) không clear → tick 100ms (app:69493 `if !currentItem`) không gọi `next()` → **1 item AI kẹt = chặn TOÀN BỘ queue** (head-of-line) kể cả câu giọng-thường → 0 `[TTS-GEN]` + queue đầy mãi.
+- **Vì sao Voice Tester chạy:** `testTtsItem.play()` gọi THẲNG (không qua queue → không bị chặn dây chuyền) + dùng giọng đã chọn (không random) → đường Google → case 26 `new Audio` → redirect → `[TTS-GEN]`.
+- **Đã loại trừ (3 scout):** queue-pause (`running` luôn true, không chỗ nào `tts.queue.pause()`); autoplay (Electron mặc định `no-user-gesture-required`, KHÔNG set policy; mà autoplay-block vẫn fetch → vẫn `[TTS-GEN]`); google/zerody path (nếu chạy đã sinh `[TTS-GEN]`); AI-reject (nếu reject thì queue rút). Còn lại đúng = case-18 await treo trên item AI.
+- **Confirm 1-click (chờ user):** TẮT Random Voice → chat dùng default → google case-26 redirect → CHẠY. Nếu tắt-mà-chạy = chốt thủ phạm.
+- **Fix robust = Lô 6 (APPLIED 2026-06-12, [blockScript.txt](backend-node/src/templates/blockScript.txt):1812 IIFE `tfSeedAiTtsAuthToken`, backup `.bak-2026-06-12-pre-ttsauthseed`):** ROOT XÁC NHẬN từ code: `getAiTtsBackendContext` (app deob:69019-69029) check `window.appConfig.ttsHost` **AND `window.ttsAuthToken`**. Clone chỉ set `window.token` (`tfBootstrapWindowToken` blockScript:1775) — **SAI FIELD** → ctx null → `requestAiTtsAudio` (app:69080) `await ensureAiAuthToken()` **TREO VĨNH VIỄN** (audit đoán ≤15s là SAI — thực tế 0 [TTS-GEN] + 392 queue-exceeded sau nhiều phút). FIX: seed `window.ttsAuthToken` (JWT shape Pro hợp lệ, btoa) + `appConfig.ttsHost` → ctx non-null → AI path SKIP ensureAiAuthToken → resolve ngay qua `tfHandleTtsGenerate` mock → `new Audio('/api/tts/generate?voice=en_us_002…')` → `[TTS-GEN]` → queue rút + giọng AI phát (en_us_002). Token KHÔNG bị verify local (tfHandleTtsGenerate bỏ qua Bearer); JWT decode ra subscriptionEnabled=true nên chip Pro không vỡ. Parse OK (strip `{{placeholder}}` + node -c). **Cần user reopen app (load blockScript + queue mới) verify: `[TTS-GEN]` chạy đều + nghe tiếng + Random Voice bật vẫn OK.**
+- **Instrument đang bật (gỡ sau khi xong):** `[TTS-GEN]` log ở [routes/tts.js](backend-node/src/routes/tts.js) (entry + OK bytes).
+
+**Status redirect fix (lỗi 1):** PARTIAL (fix applied, chờ user restart Electron + nghe tiếng).
 
 **Symptom (user):** Sau khi fix feed (entry dưới) chạy — TTS Logs ĐẦY chat thật của viewer (`t.ng.tin61`, `Avang: mô phật`...), backend log `[CLIENT][TTS-CHAT]` 13 dòng → **TTS NHẬN chat OK**. Nhưng **"không nghe gì hết"**. Voice Tester (Play "This is a test!") cũng không/khó nghe.
 
