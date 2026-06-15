@@ -15,6 +15,110 @@
 
 ---
 
+## [2026-06-15] Widget standalone (cannon…) CHẾT TRẮNG — `QuotaExceededError: setItem 'cachedSettings'` — ROOT: bag broadcast chứa 19.5k rows pointsmeta vượt quota localStorage 5MB — FIX: strip ở READ (buildMerged), không chỉ WRITE
+
+**Status:** SOLVED (đo DB live xác nhận). Phát hiện bằng `qa/.measure/probe-runner.js` (bắt đúng lỗi+dòng cannon.html:208 trong 8s). **KHÔNG phải regression từ edit blockScript** — blockScript không nhúng vào widget standalone.
+
+**Triệu chứng:** mở `/widget/cannon?cid=1` (Chrome/OBS) → trang trắng, "hết ăn luôn". Console: `Uncaught QuotaExceededError: Failed to execute 'setItem' on 'Storage': Setting 'cachedSettings' exceeded the quota @cannon.html:208`.
+
+**Root cause (đo DB thật):** `widget-settings-cache.js buildMerged` (L117) đọc `readAllAsMap` = TẤT CẢ DynamicSettings rows rồi merge vào bag broadcast. DB live: **24,632 rows ~5,653KB, trong đó pointsmeta_/points_user_ = 19,551 rows ~5,480KB = 97% bag** (balance điểm viewers tích lũy qua nhiều stream). Bag 5.6MB > quota localStorage ~5MB → widget `setItem('cachedSettings', bag)` (cannon.html:208, mọi widget cùng pattern) **throw** → init widget abort → trắng. Vụ 413 (2026-06-13) đã strip pointsmeta ở GHI ([routes/settings.js](backend-node/src/routes/settings.js) updateSettings) nhưng **quên strip ở ĐỌC/broadcast** → bag vẫn phình.
+
+**Fix that worked ([widget-settings-cache.js](backend-node/src/services/widget-settings-cache.js) buildMerged loop):** skip rawKey `pointsmeta_*` / `points_user_*` / `dynamicsettings` trước khi merge → bag còn **~173KB** (dưới quota). **SKIP ≠ DELETE** — 19.5k rows điểm viewers GIỮ NGUYÊN trong DB (points đọc qua đường riêng rest/channeluser), chỉ không nhét vào bag widget. Backup `.bak-2026-06-15-pre-pointsstrip`. **Cần restart backend** (app đang chạy vẫn broadcast bag cũ to). Cùng class với strip updateSettings — bài học: strip bloat PHẢI áp CẢ write LẪN read/broadcast.
+
+## [2026-06-15] Overlay preview GIẬT khi cuộn lại (reload-as-you-scroll) — ROOT: shim + gốc UNLOAD iframe off-screen (about:blank) → reload nặng — STATUS: OPEN (1 attempt REVERTED)
+
+**Status:** OPEN — strike 1. Cách `tfKeepLoadedPauseOffscreen` (display:none) **ĐÃ THỬ → HỎNG → REVERT** (về `.bak-2026-06-15-pre-keeploaded`, shim cũ blank-on-leave hoạt động trở lại). Reload-jank vẫn còn nhưng iframe HIỆN.
+
+**Triệu chứng:** lăn xuống rồi lăn lên, phần trên load lại dữ liệu, "lăn tới đâu load tới đó" → render giật.
+
+**Root cause:** lazy-frame iframe bị UNLOAD (`el.src='about:blank'`) khi ra khỏi màn — bởi CẢ (a) gốc native IO rootMargin 0px (decompiled 20086-20096, verifier xác nhận `about:blank`=`decoder(0xca7)+'k'`, grep 0 là false-negative) LẪN (b) shim `tfUnloadOffscreenOverlayIframes`. Cuộn lại = re-fetch HTML + re-init jQuery/socket.io + reconnect = reload nặng. **rootMargin không thắng cả hai:** rộng=ít reload+nhiều CPU; hẹp=ngược lại.
+
+**❌ DEAD-END #1 (REVERTED) — `display:none` để pause:** ý tưởng off-screen→`display:none` (pause rAF, giữ loaded) + override src setter nuốt `about:blank`. **HỎNG: `IntersectionObserver` KHÔNG báo element `display:none` là intersecting** (không có layout box) → một khi iframe bị set display:none, IO không bao giờ thấy nó vào màn lại → **kẹt ẩn vĩnh viễn → MẤT HẾT iframe** (user: "mấy cái iframe đâu hết rồi"). Bài học: KHÔNG bao giờ `display:none` element mà bạn đang `IntersectionObserver.observe()` rồi mong nó tự hiện lại.
+
+**→ Cách ĐÚNG chưa thử (next):** observe **CARD CONTAINER** (luôn có layout box từ text) thay vì iframe; toggle iframe BÊN TRONG container. Hoặc dùng `content-visibility` (giữ box). **PHẢI TEST bằng `qa/.measure/probe-runner.js` (navigate obsoverlays → đếm iframe hiện) TRƯỚC khi ship** — lần này ship-không-test đã phá iframe.
+
+## [2026-06-15] Giao diện lỗi lúc-lúc lúc boot (topbar "user / Disconnected" dù chip Pro 100k đúng) — phải Ctrl+Shift+R — ROOT: boot-race nav-store, channelName/isLoggedIn không có periodic re-sync — FIX: mở rộng tfPiniaProTrap
+
+**Status:** APPLIED. RCA 9-agent (boot-race wf, 2/4 scout rớt socket nhưng reconciler+verifier đào source trực tiếp).
+
+**Triệu chứng:** lâu-lâu boot xong topbar hiện "user" + avatar generic dù chip 100k đúng; Ctrl+Shift+R mới đúng.
+
+**Root cause:** Pinia "navigation" store `state()` đọc channelName/isLoggedIn/isPro từ `window.session.me` MỘT LẦN lúc store-create (deob:30707-30716). Cache ấm → bundle mount + tạo store TRƯỚC khi `/api/me` async về → snapshot placeholder (authScript fallback `channelName='user'`, authScript:225/352 áp đồng bộ). Bundle có re-push qua `loginChannel` POST/me callback (app:76898-76901) nhưng KHÔNG fire ổn định trong clone (cùng class actionsandevents). **isPro sống** vì tfPiniaProTrap re-apply periodic 2s; **channelName/isLoggedIn KHÔNG có lớp periodic** → kẹt tới reload. Hard-reload cứu vì clear reloadGuard sessionStorage + state in-memory → boot sạch (KHÔNG phải cache — `/api/me` uncached, verifier CLAIM-4 bác đúng giả thuyết cache của tôi).
+
+**Fix that worked (blockScript `tfPiniaProTrap.patchPiniaNav`, sau block isPro):** re-sync mỗi tick từ `session.me` → nav-store: `channelName` (GUARD: chỉ ghi khi nav đang placeholder `/^(user|new user)$/i` hoặc rỗng → không đè rename/switch-profile) + `isLoggedIn=true` (chỉ khi `channelId>0` → không ép guest thật). Plain-assignment (KHÔNG defineProperty — Gate 30a). Nằm trong setInterval self-clearing 30-tick sẵn có → session.me về trễ thì tick kế kéo topbar đúng, KHỎI reload.
+
+## [2026-06-15] Trang Actions & Events MẤT "Create new Action/Event" + dxDataGrid (chỉ còn checkbox Enabled) — ROOT: clone quên gọi onChannelContextChanged() — FIX: nhánh tryFire đối xứng sounds
+
+**Status:** SOLVED (9-agent RCA, 4/4 consensus + verified in source; runtime probe khớp). Cùng CLASS bug với 'sounds' (đã fix 2026-05-27).
+
+**Triệu chứng:** trang actionsandevents ở clone chỉ render tiêu đề + mô tả + checkbox "Enabled"; MẤT nút "Create new Action/Event" + 4 dxDataGrid (gốc render đủ). Probe runtime: `dxDataGrid count: 10` (các module khác sống) + **0 lỗi đỏ** → KHÔNG phải crash cả trang/exception cắt ngang; RIÊNG module actionsandevents thiếu grid.
+
+**Root cause:** bundle tách render trang làm 2 hàm rời: `actionsandevents.init()` (modules:6507-6649) CHỈ dựng checkbox Enabled + Simulate buttons; **`actionsandevents.onChannelContextChanged()` (modules:6650-6655) là nơi DUY NHẤT dựng Create-button + 4 grid** (initActionGrid 6702 / initEventGrid 9281 / initTimerGrid / initScreenGrid). Gốc gọi onChannelContextChanged qua vòng `emitChannelContextChanged` trong success-callback POST /me (app:76884-76895 → dispatcher 70385). Clone drive render bằng blockScript `tryFire` — **chỉ gọi `init()` + `onVisible()`**, KHÔNG gọi onChannelContextChanged. init() có gate `if(settings.get('channelId')==0) onChannelContextChanged()` (modules:6511-6513) nhưng clone luôn channelId≥1 → nhánh đó không chạy. ⇒ grid không dựng, checkbox Enabled vẫn hiện (khớp triệu chứng 100%).
+
+**Smoking gun:** clone ĐÃ vá y hệt cho 'sounds' (tryFire có nhánh `if(pageId==='sounds') sounds.refreshDataSource()`, blockScript ~923-933, comment :915-916 xác nhận "dispatcher does NOT fire onChannelContextChanged in our clone") — KHÔNG có nhánh tương ứng cho 'actionsandevents'. Bỏ sót khi fix sounds.
+
+**Fix that worked ([blockScript.txt](backend-node/src/templates/blockScript.txt) tryFire, sau nhánh sounds):**
+```js
+if (pageId === 'actionsandevents' && !window.__tfActionsCtxInited) {
+  if (window.actionsandevents && typeof window.actionsandevents.onChannelContextChanged === 'function') {
+    window.actionsandevents.onChannelContextChanged();
+    window.__tfActionsCtxInited = true;
+  }
+}
+```
+Guard 1-lần `__tfActionsCtxInited` vì onChannelContextChanged → `dxDataGrid({...})`, gọi 2 lần = **grid trùng** (khác sounds.refreshDataSource idempotent). onVisible() (đã gọi) refresh rows lần thăm sau.
+
+**Loại trừ có bằng chứng:** CSS không ẩn grid (earlyCss chỉ margin actionsandevents — Gate 23b); backend GET /rest/action shape ĐÚNG (actions.js arrayKey:'actions' khớp bundle refreshActions); không exception bị nuốt (probe 0 lỗi đỏ); init() không throw trước checkbox (`.actions=[]` khởi tạo ở module-scope 6402).
+
+**Verify nhanh (KHÔNG cần reopen):** Console trang Actions → `window.actionsandevents.onChannelContextChanged()` → Create-button + 2 grid hiện NGAY.
+
+**⚠️ Follow-up (bài học class):** mỗi page bundle có thể tách `init()` (layout) ↔ `onChannelContextChanged()` (grid/data). tryFire chỉ gọi init+onVisible → BẤT KỲ page nào dựng grid trong onChannelContextChanged đều THIẾU grid. CẦN audit các page khác (timers, screens, ranking…) xem có cùng gap không — fix từng cái bằng nhánh tryFire tương tự.
+
+## [2026-06-14] "Đứng giật mỗi lần chỉnh setting" + setting không ăn bền (snow/gifts/goal…) — AUDIT 9-agent: 2 class bug — FIX: debounce onInputChange + thêm key vào DEFAULTS
+
+**Status:** FIX-A (snow) + FIX-LAG áp dụng (runtime-proven normalizeKey + syntax OK; chờ restart verify). Phần còn lại = BACKLOG có root-cause.
+
+### Class 1 — LAG: control UI đứng giật khi kéo input
+**Root cause:** `obsoverlays.onInputChange` (modules:19440) gọi `refreshPublicSettings()` (modules:19238-19259) trên **MỖI** dxInput `onValueChanged`. refreshPublicSettings loop MỌI group × MỌI field, mỗi field 1 `settings.get`=`localStorage.getItem` **ĐỒNG BỘ** (hàng trăm read) + dựng lại nguyên `publicSettings` bag + `emitWidgetSettingsToWidgets` tới N widget. Kéo 1 spinner = hàng chục onValueChanged liên tiếp → hàng chục rebuild sync nối nhau → khoá main-thread cộng dồn = giật.
+**Fix that worked:** IIFE `tfDebounceOnInputChange` (blockScript) bọc `obsoverlays.onInputChange` debounce trailing 150ms → 1 lần kéo = 1 rebuild. AN TOÀN: persistence ở `settings.set`→localStorage đã ghi sync trước (app:68314); refreshPublicSettings chỉ dựng snapshot. Điều hướng trang vẫn rebuild tức thì (init/onVisible gọi thẳng refreshPublicSettings, không qua onInputChange).
+**Secondary (BACKLOG, MED):** (a) fan-out widgetSettings tới ~24 iframe Overlay Library, mỗi iframe **2× JSON.stringify** cả bag + setItem + re-render trên cùng main-thread (fallingsnow.html:207-208 — đảo để stringify 1 lần + skip nếu hasChanges=false; tốt hơn: chỉ emit widget đang Customize). (b) `settings.save()` quét toàn localStorage build bag ~50KB sync, bị 3 timer chồng (native 2000ms + autosave 1200ms + close-handler) → khử trùng. Backend `rebuildAndBroadcast` ĐÃ debounce 250ms — KHÔNG phải nguyên nhân, đừng đụng.
+
+### Class 2 — Setting KHÔNG ăn bền: key vắng DEFAULTS / sai case → normalizeKey không de-prefix
+**Cơ chế (1 class chung):** bundle persist key dạng `widget_<id>_<field>`. Backend `normalizeKey` (widget-settings-cache.js:25-37) CHỈ strip `widget_` khi dạng de-prefix có trong `CANONICAL_KEYS` (= `Object.keys(DEFAULTS)`, lookup lowercase→canonical-case). Key **vắng DEFAULTS** → giữ nguyên prefix trong bag broadcast → widget đọc `settings['<id>_<field>']` = undefined → fallback. **Đường LIVE che bug:** bundle `refreshPublicSettings` TỰ de-prefix khi emit (modules:19245) + preview Electron đọc `cachedSettings` localStorage ấm (fallingsnow.html:130/208) → preview-trong-app vẫn "ăn". **OBS standalone (localStorage sạch) lộ bug** → revert default.
+**FIX vàng (cùng class cannon_*):** thêm key (ĐÚNG case widget đọc) vào `widget-defaults.js` → normalizeKey tự de-prefix + tự sửa case (CANONICAL_KEYS map lowercase→canonical).
+- ✅ **fallingsnow_variation** = 'simple_snow_1' đã thêm. Verify: `normalizeKey('widget_fallingsnow_variation')` → `'fallingsnow_variation'` (chạy module thật). Fallingsnow chỉ có 1 control (variation, 8 video webm) — KHÔNG có số bông/tốc độ/size (giới hạn gốc).
+- ⏳ **BACKLOG (cần trích default chính xác từ bundle trước khi thêm, tránh regress màu/hiệu ứng):**
+  - `gifts_username*` (usernameEffect/Wave/WaveSpeed/Glow/GlowColor/Color/Rgb) — bundle ghi **lowercase**, widget đọc **camelCase**, KHÔNG có trong CAMEL_FIELD_CASE → no-op. VERIFIED trên DB live 24,608 rows. Tham chiếu default: họ `myactions_username*` (đã có trong DEFAULTS) nhưng gifts có thể khác → trích `field.default` của gifts.
+  - `goal{metric}_*` — widget đọc dạng KHÔNG underscore `goallikes_variation` (goal.html:975) vs config underscore `goal_likes_*` (:1117); vài color key camelCase (progress1Color/progress2Color/percentageColor/showTitle/enableParallelogram) không alias.
+  - `{widgetId}_actionId` (goal/giftgoal) — UI lưu camelCase `_actionId` (modules:20815) vs read lowercase `_actionid` (modules:21147) → action đã lưu không đọc được (case-sensitivity).
+  - `coinmatch_*` — phần lớn chỉ đọc trong `preview()` test; LIVE coin-match:start dùng payload control-page broadcast, KHÔNG qua widgetSettings relay. `coinmatch_minimumBid` vắng DEFAULTS. Default drift hideAfter 15(UI) vs 10(DEFAULTS).
+  - `transactionviewer_fontColor_negative/_positive` — wheel gamble đọc CHÉO key của widget transactionviewer (phụ thuộc ẩn cross-widget).
+- ✅ MATCH (không cần sửa): cannon_* (toàn bộ), font* mọi flat-widget (qua CAMEL_FIELD_CASE), wheel_sound*, isPro.
+
+**Bài học enforcement:** test "setting có ăn không" PHẢI test ở **OBS standalone / reload widget** (localStorage sạch), KHÔNG chỉ nhìn preview-trong-app (cachedSettings ấm che bug). Thêm widget mới → thêm MỌI key của nó vào widget-defaults.js (đúng case widget đọc) ngay từ đầu.
+
+## [2026-06-13] Voice picker modal KHÔNG cuộn (wheel lăn ra trang sau) — ROOT: list computed `overflow-y: HIDDEN` + earlyCss selector có `[` literal bị parser BỎ — FIX: ép overflow-y bằng JS
+
+**Status:** SOLVED (probe-confirmed). **Fix 2-3 lần CSS trước đó SAI vì cùng 1 lý do — đọc kỹ.**
+
+**Triệu chứng:** mở voice picker (Pro tab ~43 giọng) chỉ thấy ~10 item; lăn chuột → cuộn TRANG phía sau, trong modal không cuộn.
+
+**Root cause (probe `[CLIENT][VSCROLL]`):** list `.overflow-y-auto.h-[600px]` (app deob:42997) có **computed `overflow-y: HIDDEN`** dù class là `overflow-y-auto` → `sh=7080 ch=600` (7080px nội dung cắt ở 600px, không scrollbar, wheel lọt ra body).
+
+**KEY LESSON (lý do 2-3 lần CSS không ăn):** earlyCss selector `div[class*="h-[600px]"]` chứa `[` **literal** → CSS parser coi là selector hỏng → **BỎ NGUYÊN rule**. Tailwind arbitrary-value class (`h-[600px]`, `z-[30]`) KHÔNG target được bằng `[class*="..[..]"]`. Dùng substring KHÔNG ngoặc (`[class*="600px"]`) hoặc JS.
+
+**Fix that worked ([blockScript.txt](backend-node/src/templates/blockScript.txt) IIFE `tfProbeVoiceScroll`):** CSS `overflow-y:auto !important` vẫn bị đè (inline/specificity cao hơn) → **ép bằng JS**: tìm container → `el.style.setProperty('overflow-y','auto','important')` + `max-height:70vh`, re-apply mỗi 1s. JS inline-important thắng mọi override. (`tfProbeVoiceScroll` là TEMP-probe + fix gộp — gỡ phần `[CLIENT][VSCROLL]` POST sau khi verify, giữ phần ép overflow.)
+
+## [2026-06-13] Ảnh TikTok CDN lỗi đỏ CORS + `net::ERR_FAILED` (avatar/quà vỡ, widget canvas) — ROOT: `cdnProxyFetch` thiếu `Access-Control-Allow-Origin` — FIX: thêm ACAO:*
+
+**Status:** SOLVED. **User tưởng "mạng yếu / bị chặn" — KHÔNG, là thiếu CORS header.**
+
+**Triệu chứng:** console đỏ `Access to image at '.../tiktok-img-cache/...' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header` + `net::ERR_FAILED`. Avatar/ảnh quà không hiện.
+
+**Root cause:** Electron `onBeforeRequest` redirect `*.tiktokcdn.com` → local `/tiktok-img-cache/` (Gate 33). Ảnh widget canvas (coin-jar/cannon) request ở mode `crossorigin` (cần để `drawImage` không taint canvas). Proxy `cdnProxyFetch` ([index.js:573](backend-node/src/index.js#L573)) **KHÔNG set ACAO** → redirected response thiếu CORS header → browser chặn cross-origin image.
+
+**Fix that worked:** `res.setHeader('Access-Control-Allow-Origin', '*')` ở **dòng đầu** `cdnProxyFetch` (áp mọi path: cache-hit / fresh / fallback-PNG). Ảnh CDN công khai nên `*` an toàn. Backup `.bak-2026-06-13-pre-logerror`. **Cần restart backend** (sửa index.js).
+
 ## [2026-06-12] TTS KHÔNG đọc chat — ROOT CAUSE THẬT: `setIntervalFix` driver CHẾT (queue tick không bao giờ fire) — FIX applied (chờ hard-reload verify)
 
 **Status:** PARTIAL (fix applied [blockScript.txt](backend-node/src/templates/blockScript.txt) `tfEnsureIntervalFixDriver`, chờ user Ctrl+Shift+R + chat verify `[TTS-GEN]` chạy).
@@ -588,3 +692,20 @@ Reset = FE/widget-only, ephemeral, backend stateless. Lag do jar KHÔNG cap tổ
   - Fix hint: Check goals model patch() updates Target.
 
 <!-- QA-AUTO-FAILURES:END -->
+
+## [2026-06-13] Save setting → API Error 413 (Payload Too Large) + ball size không áp — ROOT: ~23k điểm-viewer (pointsmeta_/points_user_) đi ké trong save-bag → >10mb
+
+**Status:** SOLVED (chờ restart backend verify).
+
+**Triệu chứng:** đổi 1 setting (cannon Ball Size = vài byte) → toast "API Error (413)"; ball size không persist/áp. User: "gửi vài dòng text mà tính tới 10mb?".
+
+**Root cause:** bundle `settings.save()` POST **NGUYÊN cục settings** (full-state, không delta) tới `/api/updateSettings`. DynamicSettings có **23,449 rows** (4.52MB values), chủ yếu `pointsmeta_<user>` + `points_user_<user>` (điểm từng viewer tích qua nhiều stream) → JSON bag >10mb → vượt `express.json` limit 10mb → PayloadTooLargeError → save fail → size không tới widget.
+
+**Verify an toàn để bỏ:** điểm lưu authoritatively qua `PUT /rest/transaction` → `points.setBalance` (points.js:53, data.js:134), KHÔNG qua updateSettings. Bundle echo chúng qua updateSettings = THỪA + có thể clobber điểm thật bằng localStorage cũ. Comment cũ settings.js:76 cũng đã định bag ~50KB (đã `delete dynamicsettings`).
+
+**Fix (3 lớp, [index.js](backend-node/src/index.js) + [settings.js](backend-node/src/routes/settings.js), backup `.bak-2026-06-13-pre-logerror`/`.bak-2026-06-13-pre-pointsskip`):**
+1. `/api/logError` drain+200 TRƯỚC express.json (telemetry, backend vứt body) → 413 logError hết. (Side-effect của driver-fix: timer ghi state liên tục nhồi clientErrorLog.)
+2. express.json/urlencoded limit 10mb→50mb (loopback-safe) — safety net.
+3. **settings.js updateSettings BỎ QUA key `pointsmeta_*` + `points_user_*`** (skip≠delete, điểm cũ còn nguyên, points.js vẫn quản) → save bag ~10mb→~50KB → nhẹ+nhanh+hết clobber. GIỮ `points.*` config.
+
+**Verify:** restart backend → đổi ball size: hết 413, save nhanh. Check điểm 1 viewer còn sau reload (phải còn — persist qua transaction). **TODO proper:** tách points khỏi UI settings bag hẳn (refactor) nếu pointsmeta lại bò vào localStorage.

@@ -134,6 +134,18 @@ function buildMerged(channelId) {
   const canonTier = {};
   for (const [rawKey, value] of Object.entries(rows)) {
     if (value === '' || value === null || value === undefined) continue;
+    // Per-viewer points data (`points_user_<u>` balance, `pointsmeta_<u>` identity)
+    // and the self-referential `dynamicsettings` blob are NOT widget settings — no
+    // widget ever reads them. After many streams they bloat to ~10mb of rows; merging
+    // them into the broadcast bag makes the widget's
+    // `localStorage.setItem('cachedSettings', bag)` throw QuotaExceededError → the
+    // widget crashes to a BLANK PAGE (e.g. cannon.html:208). routes/settings.js strips
+    // them on WRITE; this strips them on the READ/broadcast path too so the bag stays
+    // small (~50KB of real UI config). Keep the `points.*` CONFIG namespace — only the
+    // two per-viewer prefixes + dynamicsettings are dropped. 2026-06-15.
+    if (rawKey.indexOf('pointsmeta_') === 0 || rawKey.indexOf('points_user_') === 0) continue;
+    const lcRaw = rawKey.toLowerCase();
+    if (lcRaw === 'dynamicsettings') continue;
     const canon = normalizeKey(rawKey);
     const lc = rawKey.toLowerCase();
     // Legacy only if normalizeKey actually de-prefixed it to a real canonical key

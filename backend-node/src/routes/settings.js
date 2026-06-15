@@ -76,6 +76,21 @@ router.post('/updateSettings', (req, res) => {
   delete settings.dynamicsettings;
   delete settings.dynamicSettings;
 
+  // Per-viewer points data — `points_user_<user>` (balance) + `pointsmeta_<user>`
+  // (identity JSON) — is persisted AUTHORITATIVELY by services/points.js via
+  // PUT /rest/transaction → points.setBalance. The bundle ALSO carries every such
+  // row in its localStorage bag and re-posts ALL of them on EVERY settings.save()
+  // (e.g. tweaking cannon Ball Size). After many streams that's ~23k stale rows →
+  // the bag balloons to ~10mb (was 413ing the whole save → the UI change never
+  // persisted) and the stale localStorage values can clobber fresh points. They are
+  // NOT UI settings — drop them here so settings.save persists UI config only (the
+  // ~50KB the dynamicsettings guard above already targets). NOTE: keep the
+  // `points.*` CONFIG namespace (point-per-gift, etc.) — only the two per-viewer
+  // prefixes are dropped. Existing DB rows are untouched (skip ≠ delete). 2026-06-13.
+  for (const k of Object.keys(settings)) {
+    if (k.indexOf('pointsmeta_') === 0 || k.indexOf('points_user_') === 0) delete settings[k];
+  }
+
   if (Object.keys(settings).length === 0) {
     return res.json({ status: 200, message: 'OK' });
   }

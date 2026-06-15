@@ -401,4 +401,15 @@ module.exports = Object.freeze({
   myactions_enableBorder: false,
   myactions_borderColor: '#000000',
   myactions_enableTextShadow: false,
+
+  // ── fallingsnow ─────────────────────────────────────────────────────────
+  // Only one control: `variation` (picks one of 8 webm snow videos). It was
+  // MISSING here, so normalizeKey() never de-prefixed `widget_fallingsnow_variation`
+  // → the broadcast bag kept the prefix → the widget read settings['fallingsnow_variation']
+  // = undefined → fell back to 'simple_snow_1'. The in-app preview HID this (it reads a
+  // warm `cachedSettings` from the live socket), but OBS/standalone + reload reverted the
+  // snow. Listing the key (canonical case) lets normalizeKey strip the prefix so a saved
+  // variation survives reload/OBS. Default matches the bundle field default + widget
+  // fallback (simple_snow_1). Same class as cannon_* (audit 2026-06-14).
+  fallingsnow_variation: 'simple_snow_1',
 });

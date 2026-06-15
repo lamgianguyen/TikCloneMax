@@ -90,8 +90,19 @@ app.use(cors({
 }));
 app.use(compression());
 app.use(cookieParser());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// /api/logError = fire-and-forget client error telemetry that the backend DISCARDS
+// (routes/data.js just returns {status:200}). The bundle batches its whole accumulated
+// clientErrorLog and POSTs it periodically; on a long/noisy session that body can exceed
+// the 10mb json limit below → PayloadTooLargeError → "API Error (413)" toast. Handle it
+// here BEFORE express.json: drain the stream without parsing + 200, so it never 413s.
+app.post('/api/logError', (req, res) => { req.resume(); res.json({ status: 200 }); });
+// 50mb (was 10mb): the bundle's settings.save() POSTs the ENTIRE settings bag, which
+// includes ~23k pointsmeta_<user> rows (per-viewer points accumulated over many streams,
+// ~4.5MB of values → ~10mb+ JSON). Crossing the 10mb limit made EVERY settings save
+// (e.g. cannon Ball Size) 413 → the change never persisted. Loopback-only binding makes
+// the larger limit safe. TODO: stop pointsmeta_* from riding in the UI settings bag.
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(optionalAuth);
 
 // Drive-by / CSRF guard. A state-changing request that carries a NON-loopback
@@ -560,6 +571,13 @@ const TRANSPARENT_PNG = Buffer.from(
 // opts.fallbackImage: on upstream failure, send TRANSPARENT_PNG (200, uncached
 // so a later request retries the real URL) instead of an error status.
 async function cdnProxyFetch(_req, res, cacheKey, upstreamUrl, opts = {}) {
+  // Images are requested cross-origin (the Electron redirect sends tiktokcdn.com →
+  // this localhost proxy) and canvas widgets (coin-jar/cannon) request them with
+  // crossorigin="anonymous" so they can drawImage without tainting the canvas.
+  // Without ACAO the browser blocks the redirected response (CORS error + ERR_FAILED
+  // → broken avatars/gifts). These are public CDN assets, so `*` is safe. Set once
+  // here so every response path (cache hit / fresh / fallback) carries it. 2026-06-13.
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const sendImageFallback = () => {
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'no-store');

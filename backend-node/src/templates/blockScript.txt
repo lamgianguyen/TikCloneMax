@@ -476,14 +476,13 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
   }
   function doSave(tag){
     try {
-      if (!window.settings || typeof window.settings.save !== 'function') { try { console.warn('[SAVE-DIAG] autosave: settings.save MISSING'); } catch(_){} return; }
-      if (!hasFullBag()) { try { console.warn('[SAVE-DIAG] autosave SKIPPED — settings bag not loaded (<=30 keys)'); } catch(_){} return; }
+      if (!window.settings || typeof window.settings.save !== 'function') return;
+      if (!hasFullBag()) return;
       // [restored fix] settings.save() returns early when !restored; force it true (belt-and-braces,
       // same as force-save) so a slider change ALWAYS persists, not just when restore() happened to run.
       window.settings.restored = true;
-      try { console.warn('[SAVE-DIAG] autosave→save() firing (' + (tag||'') + ') restored=' + window.settings.restored); } catch(_){}
       window.settings.save();
-    } catch(e){ try { console.warn('[SAVE-DIAG] autosave save() threw: ' + (e && e.message)); } catch(_){} }
+    } catch(e){ /* swallow */ }
   }
   function scheduleSave(){
     if (saveTimer) { clearTimeout(saveTimer); }
@@ -499,16 +498,12 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
       var r = origSet.apply(null, arguments);
       try {
         if (typeof key === 'string') {
-          // [SAVE-DIAG] log EVERY post-boot settings.set so we see the EXACT key the
-          // Ball Size input writes (broadened from widget_-only to catch any prefix).
-          if (ready) { try { console.warn('[SAVE-DIAG] settings.set key="' + key + '" val=' + JSON.stringify(arguments.length>1?arguments[1]:undefined)); } catch(_){} }
           if (ready && key.indexOf('widget_') === 0) scheduleSave();
         }
       } catch(_){}
       return r;
     };
     window.settings.__tfAutosaveWrapped = true;
-    try { console.warn('[SAVE-DIAG] autosave wrapper INSTALLED on settings.set'); } catch(_){}
     return true;
   }
   var t = setInterval(function(){ if (install()) clearInterval(t); }, 500);
@@ -532,33 +527,63 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
     if (!e.target || !e.target.closest) return;
     var btn = e.target.closest('.dx-button, .dx-closebutton');
     if (!btn) return;
-    // [SAVE-DIAG 2026-06-04] Log EVERY dx-button click ANYWHERE — reveal what "ĐƯỢC RỒI" is + where it lives
-    // (dxPopup portals its toolbar/close button OUTSIDE #widgetSettingsModal, so the old modal.contains() missed it).
+    // dxPopup portals its toolbar/close button OUTSIDE #widgetSettingsModal, so a
+    // modal.contains() check alone misses it — also accept any enclosing dxPopup.
     var popup = btn.closest('.dx-popup, .dx-overlay-content');
     var modalEl = document.getElementById('widgetSettingsModal');
     var inModal = !!(modalEl && modalEl.contains(btn));
-    try { console.warn('[SAVE-DIAG] dx-button click text="' + ((btn.textContent||'').trim().slice(0,24)) + '" inModal=' + inModal + ' inPopup=' + !!popup); } catch(_){}
     // Force-save when the button is inside the modal OR any dxPopup (the Customize modal IS a dxPopup).
     if (!inModal && !popup) return;
     setTimeout(function(){
       try {
-        if (!window.settings || typeof window.settings.save !== 'function') { try { console.warn('[SAVE-DIAG] window.settings.save MISSING'); } catch(_){} return; }
+        if (!window.settings || typeof window.settings.save !== 'function') return;
         var n = 0;
         for (var i = 0; i < localStorage.length; i++) {
           if ((localStorage.key(i) || '').indexOf('setting_') === 0) { n++; if (n > 30) break; }
         }
-        try { console.warn('[SAVE-DIAG] force-save check: setting_keys=' + n + ' restored(before)=' + window.settings.restored); } catch(_){}
         if (n > 30) {
           if (window.__tfCancelAutosave) { try { window.__tfCancelAutosave(); } catch(_){} }  // [save-lag B] no double-POST
           window.settings.restored = true;   // never block on a stale restored flag
           window.settings.save();
-          try { console.warn('[SAVE-DIAG] settings.save() CALLED (should POST /api/updateSettings)'); } catch(_){}
-        } else {
-          try { console.warn('[SAVE-DIAG] SKIPPED — only ' + n + ' setting_ keys (need >30)'); } catch(_){}
         }
-      } catch (err) { try { console.warn('[SAVE-DIAG] force-save threw: ' + (err && err.message)); } catch(_){} }
+      } catch (err) { /* swallow */ }
     }, 200);
   }, true);
+})();
+
+/* ─────────────────────────────────────────────────────────────────────
+   tfDebounceOnInputChange (LAG FIX, audit 2026-06-14).
+   ROOT của "đứng giật mỗi lần chỉnh setting": obsoverlays.onInputChange
+   (modules:19440) chạy refreshPublicSettings() trên MỖI dxInput onValueChanged.
+   refreshPublicSettings (modules:19238-19259) loop MỌI settings group × MỌI field,
+   mỗi field 1 settings.get()=localStorage.getItem ĐỒNG BỘ (~hàng trăm read) + dựng
+   lại nguyên publicSettings bag + emitWidgetSettingsToWidgets tới N widget. Kéo 1
+   spinner sinh hàng chục onValueChanged liên tiếp → hàng chục lần rebuild sync nối
+   nhau → khoá main-thread cộng dồn = giật/đứng. Debounce trailing-edge để 1 lần kéo
+   = 1 rebuild+emit. AN TOÀN: persistence nằm ở settings.set→localStorage (đã ghi đồng
+   bộ trước đó, app:68314); refreshPublicSettings chỉ dựng snapshot live-preview, hoãn
+   150ms không mất gì. Điều hướng trang vẫn rebuild TỨC THÌ (init/onVisible gọi thẳng
+   refreshPublicSettings, KHÔNG qua onInputChange) nên đổi overlay vẫn nhạy.
+   ───────────────────────────────────────────────────────────────────── */
+(function tfDebounceOnInputChange(){
+  var DEBOUNCE_MS = 150;
+  function install(){
+    var ov = window.obsoverlays;
+    if (!ov || typeof ov.onInputChange !== 'function' || ov.__tfInputDebounced) return false;
+    var orig = ov.onInputChange.bind(ov);
+    var t = null;
+    ov.onInputChange = function tfDebouncedOnInputChange(){
+      if (t) clearTimeout(t);
+      t = setTimeout(function(){ t = null; try { orig(); } catch(e){} }, DEBOUNCE_MS);
+    };
+    ov.__tfInputDebounced = true;
+    return true;
+  }
+  if (install()) return;
+  var tries = 0;
+  var iv = setInterval(function(){
+    if (install() || ++tries > 60) clearInterval(iv);
+  }, 500);
 })();
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -906,6 +931,28 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
           try { console.warn('[TF-overlay-visible] sounds.refreshDataSource error:', e && e.message); } catch(_){}
         }
       }
+      // Actions & Events page: SAME class as the sounds gap above. The bundle's
+      // central dispatcher (emitChannelContextChanged) does NOT fire
+      // actionsandevents.onChannelContextChanged() in our clone. init() only builds
+      // the "Enabled" checkbox + Simulate buttons; onChannelContextChanged()
+      // (modules:6650-6655) is the ONLY place that builds "Create new Action/Event"
+      // + the 4 dxDataGrids (initActionGrid/initEventGrid/initTimerGrid/initScreenGrid).
+      // Without it the page renders the checkbox then stops — Create buttons + grids
+      // missing (verified: calling it manually rebuilds all of them, no throw). This
+      // was missed when sounds got its branch (2026-05-27). ONE-TIME guard: unlike
+      // sounds.refreshDataSource (idempotent), onChannelContextChanged → dxDataGrid({...})
+      // stacks a DUPLICATE grid if called on every visit, so build once per session;
+      // onVisible() (already called above) refreshes rows on later visits.
+      if (pageId === 'actionsandevents' && !window.__tfActionsCtxInited) {
+        try {
+          if (window.actionsandevents && typeof window.actionsandevents.onChannelContextChanged === 'function') {
+            window.actionsandevents.onChannelContextChanged();
+            window.__tfActionsCtxInited = true;
+          }
+        } catch(e) {
+          try { console.warn('[TF-overlay-visible] actionsandevents.onChannelContextChanged error:', e && e.message); } catch(_){}
+        }
+      }
       // lastx / graphicoverlays: the preview placeholder ("Example User" for
       // lastx, idle frame for webcam) is driven by obsoverlays' framePreviewPing
       // interval (modules.js:19266), which ONLY obsoverlays.init() starts. tryFire
@@ -1030,6 +1077,30 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
       // Re-applied each tick in case Vue or session reload writes it back.
       if (nav.isPro !== true) {
         try { nav.isPro = true; touched++; } catch(_){}
+      }
+
+      // channelName + isLoggedIn: SAME boot-race as isPro but NO native periodic
+      // re-sync. The only thing that pushes these into the nav store is the
+      // bundle's loginChannel POST /api/me writeback, which doesn't reliably fire
+      // in the clone (same class as the actionsandevents onChannelContextChanged
+      // gap). On a fast/warm boot the store keeps authScript's SYNCHRONOUS fallback
+      // (channelName='user' — the placeholder the user sees as "user / Disconnected")
+      // until a hard reload. session.me DOES get the real /api/me data via the
+      // bridges (tfBridgeSessionMe / authScript hydrate); mirror it into the nav
+      // store here so the topbar self-heals WITHOUT Ctrl+Shift+R. Guards: only
+      // overwrite a KNOWN placeholder name (never clobber a real name or a fresh
+      // switch-profile rename), and only flip isLoggedIn→true for a real channel
+      // (channelId>0) — never force a genuine guest into logged-in.
+      var _me = window.session && window.session.me;
+      if (_me && _me.channel && Number(_me.channel.channelId) > 0) {
+        var _realName = _me.channel.channelName;
+        if (_realName && nav.channelName !== _realName &&
+            (!nav.channelName || /^(user|new user)$/i.test(String(nav.channelName)))) {
+          try { nav.channelName = _realName; touched++; } catch(_){}
+        }
+        if ('isLoggedIn' in nav && nav.isLoggedIn !== true) {
+          try { nav.isLoggedIn = true; touched++; } catch(_){}
+        }
       }
 
       // Plain ref writes — also trigger Vue reactivity
@@ -2997,6 +3068,46 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
         if (connected) setStatusPill('live', username);
         else if (connecting) setStatusPill('connecting', username);
         else setStatusPill('disconnected', username);
+
+        // ── Thông báo khi MẤT kết nối (đang live → rớt hẳn) ────────────────────
+        // User: "bị ngắt kết nối thì cho cái thông báo". The popup above only
+        // fires on a USER-clicked connect failure; a LIVE session that drops
+        // (streamEnd, watchdog kill, or auto-reconnect giving up) used to flip
+        // the pill silently. Toast on the falling edge instead. Armed only AFTER
+        // we've seen a live session (so the page-load 'disconnected' baseline
+        // never fires) and skipped while `connecting` (auto-reconnect in flight)
+        // so transient self-healing blips stay quiet — only a drop that does NOT
+        // recover notifies. A success toast pairs the disconnect one on recovery.
+        var P = window.__tfPopup;
+        if (connected) {
+          if (P.connLostShown) { tfConnToast('✅ Đã kết nối lại TikTok LIVE', 'success'); P.connLostShown = false; }
+          P.everLive = true;
+        } else if (!connecting && P.everLive && !P.connLostShown) {
+          P.connLostShown = true;
+          tfConnToast('⚠️ Đã ngắt kết nối TikTok LIVE — bấm "Kết nối" để thử lại.', 'warning');
+        }
+        function tfConnToast(message, type) {
+          try {
+            if (window.DevExpress && DevExpress.ui && typeof DevExpress.ui.notify === 'function') {
+              DevExpress.ui.notify(
+                { message: message, width: 380, shading: false,
+                  position: { my: 'top center', at: 'top center', offset: '0 78' } },
+                type, 5000);
+              return;
+            }
+          } catch (e) {}
+          // Fallback toast if DevExpress.ui.notify isn't ready yet.
+          try {
+            var t = document.createElement('div');
+            t.textContent = message;
+            t.style.cssText = 'position:fixed;top:78px;left:50%;transform:translateX(-50%);z-index:2147483646;'
+              + 'padding:12px 18px;border-radius:10px;font:600 14px system-ui;color:#fff;'
+              + 'box-shadow:0 8px 24px rgba(0,0,0,.4);'
+              + 'background:' + (type === 'success' ? '#2e7d32' : '#c62828') + ';';
+            (document.body || document.documentElement).appendChild(t);
+            setTimeout(function () { try { t.remove(); } catch (e) {} }, 5000);
+          } catch (e) {}
+        }
 
         // FALLBACK popup (the socket `connectFailed` event is the fast path, but
         // it can be MISSED — dropped frame, socket not yet connected, or a

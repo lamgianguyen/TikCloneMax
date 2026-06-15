@@ -1045,7 +1045,6 @@ document.addEventListener('keydown', function(e) {
   function patchNavForAuthState() {
     var token = _readAuth();
     var isLoggedIn = token && token.length >= 10;
-    console.log('[TF-Auth] patchNavForAuthState: isLoggedIn=' + isLoggedIn + ', token=' + (token ? token.substring(0,10) + '...' : 'null') + ', body.tf-logged-out=' + document.body.classList.contains('tf-logged-out'));
 
     // Toggle body class for CSS rules
     if (isLoggedIn) {
@@ -1053,7 +1052,6 @@ document.addEventListener('keydown', function(e) {
     } else {
       document.body.classList.add('tf-logged-out');
     }
-    console.log('[TF-Auth] body classes after toggle: ' + document.body.className);
 
     if (isLoggedIn) {
       // Clean up guest patches
@@ -1276,7 +1274,6 @@ document.addEventListener('keydown', function(e) {
   function patchAll() {
     if (_patching) return;
     _patching = true;
-    console.log('[TF-Auth] patchAll() called');
     // Disconnect observer to prevent re-triggering while we modify DOM
     if (_mainObs) try { _mainObs.disconnect(); } catch(e) {}
     try {
@@ -1286,9 +1283,7 @@ document.addEventListener('keydown', function(e) {
       patchSettingsPage();
       patchConnectionErrorPopup(document.body);
       injectNavLogout();
-      console.log('[TF-Auth] About to call patchNavForAuthState()');
       patchNavForAuthState();
-      console.log('[TF-Auth] patchNavForAuthState() completed');
     } catch(e) { console.error('[TF-Auth] patchAll ERROR:', e.message, e.stack); }
     _patching = false;
     // Reconnect observer after a short delay
