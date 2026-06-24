@@ -25,199 +25,14 @@
 
 <!-- QA-AUTO:BEGIN -->
 
-## 🤖 AUTO QA RUN — 2026-06-11 08:26 (run 20260611-082628)
+## 🤖 AUTO QA RUN — 2026-06-19 22:10 (run 20260619-221007)
 
-> Tự sinh bởi `qa/run-all.js`. PASS=243 FAIL=25 SKIP=11 · backend UP · 21463ms. Block này bị GHI ĐÈ mỗi run — đừng sửa tay.
+> Tự sinh bởi `qa/run-all.js`. PASS=53 FAIL=0 SKIP=0 · backend UP · 58ms · PARTIAL. Block này bị GHI ĐÈ mỗi run — đừng sửa tay.
+
+> ⚠️ **PARTIAL RUN** (only=`gate-health`) — KHÔNG phủ hết module. FAIL count chỉ tính trong subset; FIXLOG failures block phản ánh lần FULL run gần nhất. Chạy `node qa/run-all.js` (không `--only`) để có ledger đầy đủ.
 
 | # | Vùng | Status | Bằng chứng |
 |---|---|---|---|
-| api.health | L1 API | ✅ PASS | GET /api/health → 200 ok (1ms) |
-| api.tiktok.status | L1 API | ✅ PASS | GET /api/tiktok/status → 200 ok (1ms) |
-| api.tiktok.account | L1 API | ✅ PASS | GET /api/tiktok/account → 200 ok (1ms) |
-| api.tiktok.gifts | L1 API | ✅ PASS | GET /api/tiktok/gifts → 200 ok (13ms) |
-| api.tiktok.stats | L1 API | ✅ PASS | GET /api/tiktok/stats → 200 ok (1ms) |
-| api.me | L1 API | ✅ PASS | GET /api/me → 200 ok (5ms) |
-| api.loginChannel | L1 API | ✅ PASS | GET /api/loginChannel → 200 ok (1ms) |
-| api.config.app | L1 API | ✅ PASS | GET /api/getAppConfig → 200 ok (2ms) |
-| api.config.alias | L1 API | ✅ PASS | GET /api/config → 200 ok (1ms) |
-| api.config.system | L1 API | ✅ PASS | GET /api/getSystemConfig → 200 ok (1ms) |
-| api.config.translations | L1 API | ✅ PASS | GET /api/getTranslations → 200 ok (1ms) |
-| api.config.init | L1 API | ✅ PASS | GET /api/init → 200 ok (0ms) |
-| api.config.v2sync | L1 API | ✅ PASS | GET /api/v2/sync → 200 ok (1ms) |
-| api.settings.overlayconfig | L1 API | ✅ PASS | GET /api/getOverlayConfig → 200 ok (0ms) |
-| api.settings.modules | L1 API | ✅ PASS | GET /api/modules → 200 ok (1ms) |
-| api.auth.sso | L1 API | ✅ PASS | GET /api/v1/auth/sso-bridge → 200 ok (2ms) |
-| api.auth.flowstatus | L1 API | ✅ PASS | GET /api/v1/flow/status → 200 ok (1ms) |
-| api.goals | L1 API | ✅ PASS | GET /api/goals → 200 ok (1ms) |
-| api.actions.list | L1 API | ✅ PASS | GET /api/rest/action → 200 ok (0ms) |
-| api.points.leaderboard | L1 API | ✅ PASS | GET /api/points/leaderboard → 200 ok (1ms) |
-| api.points.user | L1 API | ✅ PASS | GET /api/points/user/qa_probe_user → 200 ok (1ms) |
-| api.channeluser.odata | L1 API | ✅ PASS | GET /api/odata/channeluser → 200 ok (1ms) |
-| api.channeluser.rest | L1 API | ✅ PASS | GET /api/rest/channeluser → 200 ok (0ms) |
-| api.commands | L1 API | ✅ PASS | GET /api/commands → 200 ok (1ms) |
-| api.sounds | L1 API | ✅ PASS | GET /api/sounds → 200 ok (1ms) |
-| api.sounds.rest | L1 API | ✅ PASS | GET /api/rest/sound → 200 ok (0ms) |
-| api.notifications.list | L1 API | ✅ PASS | GET /api/notifications/list → 200 ok (0ms) |
-| api.notifications.count | L1 API | ✅ PASS | GET /api/notifications/count → 200 ok (0ms) |
-| api.tts.authtoken | L1 API | ✅ PASS | POST /api/tts/auth-token → 200 ok (13ms) |
-| api.odata.transaction | L1 API | ✅ PASS | GET /api/odata/transaction → 200 ok (1ms) |
-| api.rest.transaction | L1 API | ✅ PASS | GET /api/rest/transaction → 200 ok (0ms) |
-| api.gifts.all | L1 API | ✅ PASS | GET /api/getAllGifts → 200 ok (14ms) |
-| api.animations.all | L1 API | ✅ PASS | GET /api/getAllAnimations → 200 ok (1ms) |
-| api.data.emotes | L1 API | ✅ PASS | GET /api/getChannelEmotes → 200 ok (1ms) |
-| api.data.usercount | L1 API | ✅ PASS | GET /api/getChannelUserCount → 200 ok (0ms) |
-| api.data.livechannels | L1 API | ✅ PASS | GET /api/getLiveChannels → 200 ok (1ms) |
-| api.data.globaltransactions | L1 API | ✅ PASS | GET /api/getGlobalTransactions → 200 ok (0ms) |
-| api.data.myinstants | L1 API | ✅ PASS | GET /api/getMyInstants → 200 ok (1ms) |
-| api.backup.export | L1 API | ✅ PASS | GET /api/backup/export → 200 ok (1ms) |
-| api.pro.status | L1 API | ✅ PASS | GET /api/pro/status → 200 ok (1ms) |
-| api.pro.tazapay | L1 API | ✅ PASS | GET /api/pro/tazapay/methods → 200 ok (1ms) |
-| api.obs.status | L1 API | ✅ PASS | GET /api/obs/status → 200 ok (0ms) |
-| api.webhooks.list | L1 API | ✅ PASS | GET /api/webhooks → 200 ok (1ms) |
-| api.seed.status | L1 API | ✅ PASS | GET /api/seed/status → 200 ok (1ms) |
-| api.uploads.list | L1 API | ✅ PASS | GET /api/uploads/list → 200 ok (0ms) |
-| sock.handshake | L2 Socket | ✅ PASS | controlpage socket connected + login ok on channelId=1 |
-| sock.relay.widgetSettings | L2 Socket | ✅ PASS | event 'widgetSettings' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.goalStatus | L2 Socket | ✅ PASS | event 'goalStatus' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.giftGoalStatus | L2 Socket | ✅ PASS | event 'giftGoalStatus' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.testGoal | L2 Socket | ✅ PASS | event 'testGoal' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.testGiftGoal | L2 Socket | ✅ PASS | event 'testGiftGoal' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.gift | L2 Socket | ✅ PASS | event 'gift' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.onLikeReceived | L2 Socket | ✅ PASS | event 'onLikeReceived' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.coinJarGift | L2 Socket | ✅ PASS | event 'coin-jar:gift' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.coinjar.reset | L2 Socket | ✅ PASS | event 'coin-jar:reset' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.coinMatchStart | L2 Socket | ✅ PASS | event 'coin-match:start' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.coinMatchUpdate | L2 Socket | ✅ PASS | event 'coin-match:update' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.coinMatchResult | L2 Socket | ✅ PASS | event 'coin-match:result' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.coinMatchReset | L2 Socket | ✅ PASS | event 'coin-match:reset' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.createCoins | L2 Socket | ✅ PASS | event 'createCoins' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.timeoutCoins | L2 Socket | ✅ PASS | event 'timeoutCoins' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.collectCoin | L2 Socket | ✅ PASS | event 'collectCoin' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.spinwheel | L2 Socket | ✅ PASS | event 'onSpinWheel' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.spinWheel | L2 Socket | ✅ PASS | event 'spinWheel' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.updateTopGifter | L2 Socket | ✅ PASS | event 'updateTopGifter' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.updateTopLiker | L2 Socket | ✅ PASS | event 'updateTopLiker' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.updateViewerCount | L2 Socket | ✅ PASS | event 'updateViewerCount' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.topGiftData | L2 Socket | ✅ PASS | event 'topGiftData' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.newTransaction | L2 Socket | ✅ PASS | event 'newTransaction' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.showCommandResult | L2 Socket | ✅ PASS | event 'showCommandResult' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.showCommands | L2 Socket | ✅ PASS | event 'showCommands' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.showCustomCommands | L2 Socket | ✅ PASS | event 'showCustomCommands' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.showUserScore | L2 Socket | ✅ PASS | event 'showUserScore' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.timerUpdate | L2 Socket | ✅ PASS | event 'timerUpdate' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.dockData | L2 Socket | ✅ PASS | event 'dockData' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.setLastX | L2 Socket | ✅ PASS | event 'setLastX' relayed to widget in 1ms (budget 3000ms) |
-| sock.relay.setPlaylistItems | L2 Socket | ✅ PASS | event 'setPlaylistItems' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.giftCanonTest | L2 Socket | ✅ PASS | event 'giftCanonTest' relayed to widget in 0ms (budget 3000ms) |
-| sock.relay.neg.notWhitelisted | L2 Socket | ✅ PASS | non-whitelisted event '__qa_not_whitelisted__' correctly NOT relayed within 3000ms |
-| sock.relay.neg.chat | L2 Socket | ✅ PASS | non-whitelisted event 'chat' correctly NOT relayed within 3000ms |
-| widget.coinjar.external-libs | L3 Widget | ✅ PASS | no CDN-host libs |
-| widget.coinjar.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.coinjar.null-guard | L3 Widget | ✅ PASS | settings.isPro guarded |
-| widget.coinjar.serve | L3 Widget | ✅ PASS | 200 · 5606B |
-| widget.coinmatch.external-libs | L3 Widget | ✅ PASS | no CDN-host libs |
-| widget.coinmatch.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.coinmatch.null-guard | L3 Widget | ✅ PASS | settings.isPro guarded |
-| widget.coinmatch.serve | L3 Widget | ✅ PASS | 200 · 5076B |
-| widget.cannon.external-libs | L3 Widget | ❌ FAIL | CDN cdnjs.cloudflare.com: … <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.1… |
-| widget.cannon.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.cannon.null-guard | L3 Widget | ✅ PASS | settings.isPro guarded |
-| widget.cannon.serve | L3 Widget | ✅ PASS | 200 · 73930B |
-| widget.wheel.external-libs | L3 Widget | ❌ FAIL | CDN cdnjs.cloudflare.com: … <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/latest/T… |
-| widget.wheel.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.wheel.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.wheel.serve | L3 Widget | ✅ PASS | 200 · 94276B |
-| widget.wheelofactions.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …econnect" href="https://fonts.googleapis.com"> <link rel="preconne… |
-| widget.wheelofactions.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.wheelofactions.null-guard | L3 Widget | ✅ PASS | settings.isPro guarded |
-| widget.wheelofactions.serve | L3 Widget | ✅ PASS | 200 · 3915B |
-| widget.goal.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.goal.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.goal.null-guard | L3 Widget | ✅ PASS | settings.isPro guarded |
-| widget.goal.serve | L3 Widget | ✅ PASS | 200 · 88074B |
-| widget.giftgoal.locate | L3 Widget | ⚠️ SKIP | no html file |
-| widget.webcam.external-libs | L3 Widget | ❌ FAIL | CDN code.jquery.com: … <script src="https://code.jquery.com/jquery-3.5.1.min.js" cr… |
-| widget.webcam.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.webcam.null-guard | L3 Widget | ✅ PASS | settings.isPro guarded |
-| widget.webcam.serve | L3 Widget | ✅ PASS | 200 · 28755B |
-| widget.overlay.external-libs | L3 Widget | ❌ FAIL | CDN code.jquery.com: … <script src="https://code.jquery.com/jquery-3.5.1.min.js" cr… |
-| widget.overlay.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.overlay.null-guard | L3 Widget | ✅ PASS | settings.isPro guarded |
-| widget.overlay.serve | L3 Widget | ✅ PASS | 200 · 24395B |
-| widget.talking.external-libs | L3 Widget | ❌ FAIL | CDN code.jquery.com: … <script src="https://code.jquery.com/jquery-3.5.1.min.js" cr… |
-| widget.talking.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.talking.null-guard | L3 Widget | ✅ PASS | settings.isPro guarded |
-| widget.talking.serve | L3 Widget | ✅ PASS | 200 · 27237B |
-| widget.chat.external-libs | L3 Widget | ✅ PASS | no CDN-host libs |
-| widget.chat.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.chat.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.chat.serve | L3 Widget | ✅ PASS | 200 · 20929B |
-| widget.eventcarousel.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …econnect" href="https://fonts.googleapis.com"> <link rel="precon… |
-| widget.eventcarousel.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.eventcarousel.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.eventcarousel.serve | L3 Widget | ❌ FAIL | status=404 bytes=160 |
-| widget.fallingsnow.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.fallingsnow.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.fallingsnow.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.fallingsnow.serve | L3 Widget | ✅ PASS | 200 · 68770B |
-| widget.firework.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.firework.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.firework.null-guard | L3 Widget | ✅ PASS | settings.isPro guarded |
-| widget.firework.serve | L3 Widget | ✅ PASS | 200 · 75583B |
-| widget.ranking.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.ranking.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.ranking.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.ranking.serve | L3 Widget | ✅ PASS | 200 · 79366B |
-| widget.topgifter.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.topgifter.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.topgifter.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.topgifter.serve | L3 Widget | ✅ PASS | 200 · 82866B |
-| widget.topliker.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.topliker.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.topliker.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.topliker.serve | L3 Widget | ✅ PASS | 200 · 86991B |
-| widget.lastx.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.lastx.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.lastx.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.lastx.serve | L3 Widget | ✅ PASS | 200 · 74226B |
-| widget.viewercount.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.viewercount.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.viewercount.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.viewercount.serve | L3 Widget | ✅ PASS | 200 · 57050B |
-| widget.myactions.external-libs | L3 Widget | ❌ FAIL | CDN cdn.jsdelivr.net: … <script src="https://cdn.jsdelivr.net/npm/@lottiefiles/lottie… |
-| widget.myactions.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.myactions.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.myactions.serve | L3 Widget | ✅ PASS | 200 · 25023B |
-| widget.timer.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.timer.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.timer.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.timer.serve | L3 Widget | ✅ PASS | 200 · 59009B |
-| widget.socialmediarotator.external-libs | L3 Widget | ✅ PASS | no CDN-host libs |
-| widget.socialmediarotator.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.socialmediarotator.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.socialmediarotator.serve | L3 Widget | ✅ PASS | 200 · 886B |
-| widget.commandinfo.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.commandinfo.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.commandinfo.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.commandinfo.serve | L3 Widget | ✅ PASS | 200 · 64136B |
-| widget.userinfo.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.userinfo.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.userinfo.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.userinfo.serve | L3 Widget | ✅ PASS | 200 · 76456B |
-| widget.transactionviewer.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.transactionviewer.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.transactionviewer.null-guard | L3 Widget | ✅ PASS | no settings.isPro deref |
-| widget.transactionviewer.serve | L3 Widget | ✅ PASS | 200 · 76828B |
-| widget.likefountain.external-libs | L3 Widget | ❌ FAIL | CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp… |
-| widget.likefountain.debug-spam | L3 Widget | ✅ PASS | no debug spam |
-| widget.likefountain.null-guard | L3 Widget | ✅ PASS | settings.isPro guarded |
-| widget.likefountain.serve | L3 Widget | ✅ PASS | 200 · 57054B |
-| perf.backend.ram | Perf | ✅ PASS | node.exe 359MB / 5 proc (budget 700MB) |
-| perf.electron.ram | Perf | ⚠️ SKIP | electron not running |
-| perf.cpu | Perf | ✅ PASS | 0% over 1500ms / 24 cores (budget 85%) |
-| perf.render.stretch | Perf | ⚠️ SKIP | no STRETCH-DIAG in recent log |
-| perf.log.errors | Perf | ✅ PASS | no errors in recent log |
-| perf.log.reloadchurn | Perf | ✅ PASS | 0 reload signal(s) in window |
 | gate.06.aivoiceprefix | L4 Gate-drift | ✅ PASS | Gate Gate 6/7 anchor 'tts_api__' present (3 hits in modules/deobfuscated.js) |
 | gate.07.resolvevoicecfg | L4 Gate-drift | ✅ PASS | Gate Gate 7 anchor 'resolveVoiceConfigFromId' present (1 hits in app/deobfuscated.js) |
 | gate.08.hasbackendctx | L4 Gate-drift | ✅ PASS | Gate Gate 8a anchor 'getAiTtsBackendContext' present (4 hits in app/deobfuscated.js) |
@@ -227,9 +42,9 @@
 | gate.25.loadaivoicestate | L4 Gate-drift | ✅ PASS | Gate Gate 25 anchor 'loadAiVoiceState' present (5 hits in modules/deobfuscated.js) |
 | gate.25.ensureauthtoken | L4 Gate-drift | ✅ PASS | Gate Gate 25 anchor 'ensureAiAuthToken' present (6 hits in modules/deobfuscated.js) |
 | gate.25.aivoicecooldown | L4 Gate-drift | ✅ PASS | Gate Gate 25 anchor 'aiVoiceStateLastLoadedAt' present (3 hits in modules/deobfuscated.js) |
-| gate.23.ispro | L4 Gate-drift | ✅ PASS | Gate Gate 23 anchor 'userFeatures' present (118 hits in modules/deobfuscated.js) |
+| gate.23.ispro | L4 Gate-drift | ✅ PASS | Gate Gate 23 anchor 'userFeatures' present (123 hits in modules/deobfuscated.js) |
 | gate.23.proinfo | L4 Gate-drift | ✅ PASS | Gate Gate 23b anchor 'proInfo' present (52 hits in modules/deobfuscated.js) |
-| gate.30a.proChip | L4 Gate-drift | ✅ PASS | Gate Gate 30a anchor 'TTSProDropdown' present (4 hits in app/deobfuscated.js) |
+| gate.30a.proChip | L4 Gate-drift | ✅ PASS | Gate Gate 30a anchor 'TTSProDropdown' present (5 hits in app/deobfuscated.js) |
 | gate.30a.freeChip | L4 Gate-drift | ✅ PASS | Gate Gate 30a anchor 'TTSFreeDropdown' present (1 hits in app/deobfuscated.js) |
 | gate.30b.switchlanguage | L4 Gate-drift | ✅ PASS | Gate Gate 30b anchor 'switchLanguage' present (4 hits in app/deobfuscated.js) |
 | gate.30c.streamprofile | L4 Gate-drift | ✅ PASS | Gate Gate 30c anchor 'streamProfileId' present (5 hits in app/deobfuscated.js) |
@@ -244,9 +59,9 @@
 | gate.35.coinjarreset | L4 Gate-drift | ✅ PASS | Gate Gate 35 anchor 'coin-jar:reset' present (1 hits in app/deobfuscated.js) |
 | gate.35.coinmatchstart | L4 Gate-drift | ✅ PASS | Gate Gate 35 anchor 'coin-match:start' present (1 hits in app/deobfuscated.js) |
 | gate.35.spinwheel | L4 Gate-drift | ✅ PASS | Gate Gate 35 anchor 'onSpinWheel' present (1 hits in app/deobfuscated.js) |
-| gate.35.widgetstate | L4 Gate-drift | ✅ PASS | Gate Gate 35 anchor 'onWidgetState' present (4 hits in modules/deobfuscated.js) |
+| gate.35.widgetstate | L4 Gate-drift | ✅ PASS | Gate Gate 35 anchor 'onWidgetState' present (6 hits in modules/deobfuscated.js) |
 | gate.35.emitwidgetsettings | L4 Gate-drift | ✅ PASS | Gate Gate 35 anchor 'emitWidgetSettingsToWidgets' present (16 hits in modules/deobfuscated.js) |
-| gate.35.resetjar | L4 Gate-drift | ✅ PASS | Gate Gate 35-MECH anchor 'resetJar' present (3 hits in app/deobfuscated.js) |
+| gate.35.resetjar | L4 Gate-drift | ✅ PASS | Gate Gate 35-MECH anchor 'resetJar' present (4 hits in app/deobfuscated.js) |
 | gate.18.chipbg | L4 Gate-drift | ✅ PASS | Gate Gate 18 anchor 'D435554D' present (4 hits in templates/earlyCss.txt) |
 | gate.18.prochipbg | L4 Gate-drift | ✅ PASS | Gate Gate 18 anchor 'FFB54D14' present (3 hits in templates/earlyCss.txt) |
 | gate.22e.pagessrcontent | L4 Gate-drift | ✅ PASS | Gate Gate 22 (E) anchor 'pageSSRContent' present (2 hits in templates/earlyCss.txt) |
@@ -260,7 +75,7 @@
 | gate.30d.triggeroverlays | L4 Gate-drift | ✅ PASS | Gate Gate 30d anchor 'tfTriggerOverlaysOnVisible' present (3 hits in templates/blockScript.txt) |
 | gate.overlaycard.iframefill | L4 Gate-drift | ✅ PASS | Gate Overlay-Layout anchor 'iframe.lazy-frame' present (4 hits in templates/earlyCss.txt) |
 | gate.34.wrappreloadtrig | L4 Gate-drift | ✅ PASS | Gate Gate 34 anchor 'tfWrapAndPreloadTriggers' present (2 hits in templates/blockScript.txt) |
-| gate.06.bootstraptoken | L4 Gate-drift | ✅ PASS | Gate Gate 6 anchor 'tfBootstrapWindowToken' present (1 hits in templates/blockScript.txt) |
+| gate.06.bootstraptoken | L4 Gate-drift | ✅ PASS | Gate Gate 6 anchor 'tfBootstrapWindowToken' present (2 hits in templates/blockScript.txt) |
 | gate.09b.quotapayload | L4 Gate-drift | ✅ PASS | Gate Gate 23b anchor 'tfBuildQuotaPayload' present (4 hits in templates/blockScript.txt) |
 | gate.09b.ttsuserhandler | L4 Gate-drift | ✅ PASS | Gate Gate 9b anchor 'tfHandleTtsTikfinityUser' present (2 hits in templates/blockScript.txt) |
 | gate.09c.ttscomhandler | L4 Gate-drift | ✅ PASS | Gate Gate 9c anchor 'tfHandleTtsTikfinityCom' present (2 hits in templates/blockScript.txt) |
@@ -268,49 +83,10 @@
 | gate.35.overlayautosave | L4 Gate-drift | ✅ PASS | Gate Gate 35 anchor 'tfOverlaySettingsAutosave' present (1 hits in templates/blockScript.txt) |
 | gate.35.coinjarreset.iife | L4 Gate-drift | ✅ PASS | Gate Gate 35-MECH anchor 'tfCoinJarResetReliable' present (2 hits in templates/blockScript.txt) |
 | gate.06.normalizevoice | L4 Gate-drift | ✅ PASS | Gate Gate 7 anchor 'tfNormalizeMockVoice' present (4 hits in templates/blockScript.txt) |
-| gate.07.ttsgenerate | L4 Gate-drift | ✅ PASS | Gate Gate 7 anchor 'tfHandleTtsGenerate' present (4 hits in templates/blockScript.txt) |
-| gate.30c.bridgesessionme | L4 Gate-drift | ✅ PASS | Gate Gate 30c anchor 'tfBridgeSessionMe' present (4 hits in templates/blockScript.txt) |
+| gate.07.ttsgenerate | L4 Gate-drift | ✅ PASS | Gate Gate 7 anchor 'tfHandleTtsGenerate' present (6 hits in templates/blockScript.txt) |
+| gate.30c.bridgesessionme | L4 Gate-drift | ✅ PASS | Gate Gate 30c anchor 'tfBridgeSessionMe' present (5 hits in templates/blockScript.txt) |
 | gate.32.giftitemtemplate | L4 Gate-drift | ✅ PASS | Gate Gate 32/33 anchor 'tfRewriteGiftImagesToCache' present (6 hits in templates/blockScript.txt) |
-| live.handsome.run52 | Live | ✅ PASS | @handsome.run52 is LIVE roomId=7649920481413614356 (probed via tiktok-live-connector) |
-| chain.settings.socket | Chain | ✅ PASS | widget socket connected + login ok on channelId=1 |
-| chain.settings.http | Chain | ✅ PASS | POST widget_cannon_ballsize=69 → 200 {status:200, message:'OK'} (3ms) |
-| chain.settings.db | Chain | ✅ PASS | row widget_cannon_ballsize (cid=1,pid=2) = '69' === posted '69' |
-| chain.settings.broadcast | Chain | ✅ PASS | widget received widgetSettings with cannon_ballSize=69 (matches posted 69) |
-| chain.tts.auth-token | Chain | ✅ PASS | 200 {status:200,message:'OK',ttsAuthToken:<jwt 327ch>} (1ms) |
-| chain.tts.auth-token.jwt | Chain | ✅ PASS | JWT ALL-PRO ✓ subscriptionEnabled=true subscriptionPeriodCredits=100000 |
-| chain.tts.fake-chat | Chain | ✅ PASS | 200 {status:'ok',emitted:'chat'} (2ms) |
-| chain.tts.chat-delivery | Chain | ✅ PASS | controlpage received chat {comment:'hello-8rdlv4',uniqueId:'tester-mejzoo'} in 0ms (budget 3000ms) |
-| chain.tts.user | Chain | ⚠️ SKIP | tts/user is a cross-origin tts.tikfinity.com call mocked CLIENT-SIDE in blockScript (tfHandleTtsTikfinityUser) — not a b |
-| chain.tts.voices | Chain | ⚠️ SKIP | tts/voices is a cross-origin tts.tikfinity.com call mocked CLIENT-SIDE in blockScript (tfHandleTtsTikfinityCom) — not a  |
-| chain.tts.speak | Chain | ⚠️ SKIP | Actual TTS audio playback is client-side; /api/tts/generate needs a real TikTok sessionid (503 without it, tts.js:157-16 |
-| chain.points.grant | Chain | ✅ PASS | grant 1234 → preBalanceValidationPassed, transaction.amount + channeluser.totalAmount/totalRewardAmount = 1234 |
-| chain.points.db | Chain | ❌ FAIL | points_user_qa_pts_2c70lx=null (want 1234); pointsmeta_qa_pts_2c70lx.userId=null (want 991781141187997) |
-| chain.points.readback.userid | Chain | ✅ PASS | userId=991781141187997 → channelusers[0]={username:qa_pts_2c70lx, totalAmount:1234} |
-| chain.points.readback.username | Chain | ✅ PASS | username=qa_pts_2c70lx → totalAmount:1234 |
-| chain.points.odata | Chain | ✅ PASS | value[] contains {username:qa_pts_2c70lx, totalAmount:1234}, @odata.count=1 |
-| chain.points.leaderboard | Chain | ✅ PASS | leaderboard[] contains {username:qa_pts_2c70lx, balance:1234} (1 entries) |
-| chain.points.clientside | Chain | ⚠️ SKIP | The !points chat-command read + wheel-spin / transfer cost-checks are bundle-side (decompiled/modules:4205/9256/14684).  |
-| chain.points.cleanup | Chain | ✅ PASS | deducted 1234 → balance 0 (leaderboard filters balance>0 so the viewer drops off) |
-| chain.goals.login | Chain | ✅ PASS | widget socket connected + login emitted on channelId=1 |
-| chain.goals.list | Chain | ✅ PASS | 200 OK, goals[] present (0 existing) in 2ms |
-| chain.goals.validate | Chain | ✅ PASS | missing-type → 400 and target<=0 → 400 (both rejected as expected) |
-| chain.goals.create | Chain | ✅ PASS | created goal id=1 (target=500) → 200 in 2ms |
-| chain.goals.create.broadcast | Chain | ✅ PASS | widget received goalsChanged in 0ms (budget 3000ms) |
-| chain.goals.create.db | Chain | ❌ FAIL | Goals row not found for Name='E2E goal' ChannelId=1 ProfileId=2 |
-| chain.goals.update | Chain | ✅ PASS | updated goal id=1 target→999 → 200 in 1ms |
-| chain.goals.update.broadcast | Chain | ✅ PASS | widget received 2nd goalsChanged in 0ms (budget 3000ms) |
-| chain.goals.update.db | Chain | ❌ FAIL | expected Target=999; got no row |
-| chain.goals.reset | Chain | ✅ PASS | reset goal id=1 Current→0 → 200 in 2ms |
-| chain.goals.reset.broadcast | Chain | ✅ PASS | widget received goalsChanged after reset |
-| chain.goals.delete | Chain | ✅ PASS | deleted goal id=1 → 200 in 1ms (cleanup) |
-| chain.goals.delete.broadcast | Chain | ✅ PASS | widget received goalsChanged after delete |
-| chain.goals.delete.db | Chain | ✅ PASS | no Goals row remains for Name='E2E goal' (cleanup verified) |
-| chain.goals.clientside | Chain | ⚠️ SKIP | goal-widget progress render is client-side (widget HTML); bridge.refreshGoals is an optional cache drop — not headless-t |
-| chain.coinjar.scope | Chain | ✅ PASS | active scope channelId=1 profileId=2 (DB C:\Users\nguyenlg\AppData\Roaming\tikfinity-desktop\tikfinity-data\tikfinity.db |
-| chain.coinjar.http | Chain | ⚠️ SKIP | mutating step skipped (run with --mutating to fire the reset and assert delivery) |
-| chain.coinjar.relay | Chain | ⚠️ SKIP | depends on the mutating POST — run with --mutating |
-| chain.coinjar.widgetReset | Chain | ⚠️ SKIP | client-side only (downloads/widget/coinjar/index.html → coin-jar.js window.resetJar) — not headless-testable |
 
-**Perf:** {"backendRssMb":359,"electronRssMb":null,"electronInstances":0,"cpuPct":0,"cores":24,"stretchMsMax":null,"stretchMsAvg":null,"logErrors":0,"logReloads":0}
+**Perf:** (perf-sample không nằm trong subset run này)
 
 <!-- QA-AUTO:END -->

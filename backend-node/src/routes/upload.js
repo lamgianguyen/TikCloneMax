@@ -25,7 +25,12 @@ const MAX_BYTES = 25 * 1024 * 1024;
 
 const ALLOWED = {
   sound: new Set(['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac']),
-  image: new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']),
+  // SECURITY (pre-release audit 2026-06-16): `.svg` REMOVED. An uploaded .svg with
+  // an inline <script>, opened at /uploads/image/<f>.svg, runs JS in the app origin
+  // → can read tf_login_token + hit same-origin destructive endpoints (verified live
+  // Chromium). Avatars/gift images are raster — SVG not needed. /uploads serving also
+  // sends nosniff + CSP sandbox (index.js) as defense-in-depth for any legacy .svg.
+  image: new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']),
   video: new Set(['.mp4', '.webm', '.mov', '.m4v']),
   animation: new Set(['.json', '.lottie']),
 };

@@ -102,6 +102,23 @@ Choose lowest-priority pattern that solves problem. CSS > JS observer.
 2. **Minimal Change First**  
    Ưu tiên sửa nhỏ nhất có thể: 1 dòng > 1 function > 1 file > nhiều module. Không refactor tiện tay.
 
+   **2b. Disable/Hide = hành động TỐI THIỂU, KHÔNG phải bundle-op (added 2026-06-16 user directive)**
+
+   > **TRIGGER:** User kêu "tắt / ẩn / disable / off / hết mùa / không hiện nữa" một feature / overlay / widget / ticker (vd World Cup hết mùa, ẩn 1 overlay).
+   >
+   > **LUẬT:** Tắt/ẩn 1 feature là việc NHẸ. Kéo cần disable theo thứ tự ưu tiên — KHÔNG đụng `downloads/combo/*`, KHÔNG revert/update/re-fetch bundle, KHÔNG chạy [qa/BUNDLE_UPDATE.md](qa/BUNDLE_UPDATE.md), KHÔNG Electron redirect:
+   >
+   > | Ưu tiên | Cần kéo | File |
+   > |---|---|---|
+   > | 1 | Cắt nguồn data: proxy trả `{...:[]}` / `204` / transparent-PNG → widget tự ẩn (empty pool → opacity:0) | `routes/*.js`, `index.js` |
+   > | 2 | Set `enabled:false` (overlay `Overlays.Enabled`, module `/api/modules`) | `routes/settings.js`, `routes/overlays.js`, `routes/channel-modules.js` |
+   > | 3 | CSS visible-toggle / `data-tf-*` + earlyCss (cho overlay RIÊNG, không phải chip topbar) | `earlyCss.txt` |
+   > | ❌ | Update/revert/re-fetch `downloads/combo/*`, chạy qa/BUNDLE_UPDATE.md, Electron redirect | — KHÔNG BAO GIỜ cho việc tắt/ẩn |
+   >
+   > **PHÂN BIỆT cứng:** Bundle-op (§9) CHỈ khi user CHỦ ĐỘNG yêu cầu thay PHIÊN BẢN bundle (đổi code render, đủ 3 điều kiện §9). "Tắt/ẩn theo mùa/ý user" KHÔNG đổi version → KHÔNG vào §9 / qa/BUNDLE_UPDATE.md.
+   >
+   > **⚠️ Data-cut PHẢI trả HTTP 200 + body rỗng** (KHÔNG 404/502) — widget poll TỪ CHỐI non-200 nên 404 bị bỏ qua → widget giữ data cũ, KHÔNG ẩn. Tiền lệ: World Cup proxy ([index.js](backend-node/src/index.js) `/api/worldcup/matches`) trả `200 {matches:[]}` khi hết mùa → widget `.ticker.is-hidden` opacity:0 tự ẩn (pixel-blank OBS, wf `worldcup-seasonal-autohide-verify`; verifier bắt được bug 404→không-ẩn 2026-06-16). Xem [[feedback_disable_equals_hide]].
+
 3. **Root Cause Before Fix**
    Không vá theo cảm giác. Bug fix phải có reproduce/evidence, hypothesis, và root cause hoặc phạm vi nghi ngờ rất rõ.
 
@@ -2142,3 +2159,47 @@ Chuỗi settings-live **ĐÚNG trên giấy**, KHÔNG có bug nhận setting:
 - Instrument tạm (CHƯA gỡ — phục vụ chẩn nút Reset): backend `[WS-relay] RECV coin-jar:*` + `[Broadcast] coin-jar:*/coin-match:* delivered=N` (socket-manager) + widget `[CoinJar FLAT/DIR] RESET received | resetJar defined=?` (coinjar.html + coinjar/index.html). **Gỡ sau khi chốt xong bug Reset.**
 
 **Trạng thái nút Reset coin-jar:** workflow 5-lớp (9 agent) kết luận chuỗi reset **đúng trên giấy** (control emit ✓, relay whitelist ✓, `window.resetJar` define cùng `addGift` ✓, physics `World.clear(world,false)` xoá sạch cả body ngủ ✓) → bug là **RUNTIME**, cần log instrument + 1 click thật để chốt (chưa xong).
+
+---
+
+### Gate 36: App GỐC (live 1.70.1) — request-signer `trc.js` + response-integrity `x-ric` (RE 2026-06-24)
+
+> **Chỉ liên quan khi đụng BUNDLE GỐC LIVE (qua proxy / patch app thật), KHÔNG phải clone.** Trả lời dứt điểm: vì sao patch response `/api/me` của app gốc KHÔNG lên Pro (mà còn phá app). Mổ từ `js/guard/obf/trc.js` + `combo/app.js` live deobfuscated. Chi tiết đầy đủ + reimplement: **`../pathTik/GUARD-RE.md`** + **`../pathTik/PRO-FINDING.md`**.
+
+**Phân biệt version:** vỏ Electron = **2.0.0** (chỉ tải web components); web bundle Pro-logic = **1.70.1** (`appConfig.appVersion`, server đẩy live). Pro quyết định trong bundle 1.70.1.
+
+**KHÔNG có keygen client-side.** grep bundle live: 0 `keyCode`/`keygenOnly`/`key-login`/`/keys/`. `keygenOnlyPro` chỉ là config flag. Key validate **server-side** (license server zerody; clone port qua `routes/key-auth.js` → `AUTH_HOST/api/keys/validate`). → không có thuật toán gen key trong client để crack.
+
+**2 lớp chống can thiệp (đều KHÔNG quyết định Pro):**
+
+| Lớp | Ký gì | Cơ chế |
+|---|---|---|
+| `trc.js` request-signer | header `X-Trace-Browser-Digest` mỗi REQUEST | hash `m(s)=abs((h*31+c)*257533)[:6]` (`window._schb=5`), ghép 19 field + self-checksum + btoa + reverse. **KHÔNG secret key → forge được** (security-by-obscurity). |
+| `app.js` response-integrity `tfintegrity` | header **`x-ric`** trên RESPONSE `/api/me` | client tự tính lại từ BODY, lệch → **SABOTAGE** |
+
+**`x-ric` — ROOT CAUSE patch Pro thất bại (công thức chốt, lấy thẳng từ code app.js:76269-76316):**
+```
+x-ric  = "{ver}:{checksum8}"
+checksum8 = sha256_hex("tfintegrity_v{ver}_{channelId}-{isPro}-{hasActiveTrial}-{channel.updatedAt}")[:8]
+```
+- `isPro`/`hasActiveTrial` = boolean → `"true"`/`"false"` (chữ thường); `channelId` số; `channel.updatedAt` ISO string từ `body.channel.updatedAt`; `ver` = phần đầu header gốc.
+- `sha256` = `crypto.subtle.digest('SHA-256', TextEncoder)` → hex thường. **Python `hashlib.sha256(s.encode()).hexdigest()[:8]` khớp tuyệt đối.**
+- Client: `ricData.me = getResponseHeader("x-ric")` (app:74008); poll mỗi 100ms tới khi có → tính `clientChecksum` từ body, so `serverChecksum`. Lệch → `ricPassed=false` → tạo `<button>` click mỗi 1s set `window.$.prototype.constructor=document.getSelection` → **phá jQuery** = chuỗi lỗi **"Uncaught TypeError: Illegal invocation" ở `w.fn.init`** trong console.
+
+**isPro flow (binding ĐÚNG, không phải thủ phạm):** `/api/me`→`window.session.me` (app:82796) → `navigationStore.set("isPro",!!body.userFeatures.isPro)` (app:82827) + **poll 1000ms** re-sync từ `session.me.userFeatures.isPro` (app:44146→38239) → chip bind `navigationStore.isPro` qua `storeToRefs` (app:44055-44129): true→Pro chip, false→Free chip "25"+Upgrade. → patch isPro **đáng lẽ** flip chip, nhưng `x-ric` sabotage chạy song song phá app.
+
+**VƯỢT ĐÚNG:**
+1. **Proxy app gốc:** flip body isPro **+ forge lại `x-ric`** (`ver` lấy từ header gốc; tính sha256 với isPro=true + channelId/hasActiveTrial/channel.updatedAt từ body). `proInfo`/`subscription` KHÔNG nằm trong chuỗi tfintegrity nên thêm thoải mái.
+2. **Clone tự serve `/api/me`: ĐỪNG emit header `x-ric`** → `typeof ricData.me==='undefined'` → integrity poller KHÔNG chạy → KHÔNG sabotage. **Đây là lý do clone an toàn lâu nay.** ⚠️ Nếu sau này clone vô tình thêm `x-ric` (vd copy header gốc) mà checksum không khớp isPro mình serve → app TỰ PHÁ. Đừng thêm `x-ric` trừ khi tính đúng.
+
+**Kèm (tránh crash `createPaymentUi`):** `isPro:true` + `proInfo:null` → đọc `.isActiveSubscription` của null → "Oh no!". Shape đúng (đã verify, = me.js:474 clone): `proInfo:{plan:'pro',active:true,isActiveSubscription:true,paymentGateway:'agency_admin',isVerified:true,expire:null,customerId:null,updateUrl:null}` + `subscription:{isPro:true,plan:'pro',active:true}`.
+
+**Đính chính lịch sử:** finding cũ "guard re-derive Pro từ keygen rồi reset" = **SAI**. Đúng: `x-ric` integrity mismatch → sabotage. `JWT ttsAuthToken` bundle KHÔNG decode (string non-rỗng là đủ; claim `subscriptionEnabled` vô nghĩa — supersede phần JWT của Gate 6/9a literal).
+
+**⚠️ Cập nhật (RE 2026-06-24, verify runtime) — forge x-ric THUA RACE, dùng client-side force:** `channel.updatedAt` = timestamp server đổi MỖI `/api/me` → `ricData.me` (header) & `session.me` (body) bị set từ 2 response khác `updatedAt` → checksum lệch → sabotage. Forge đúng per-response nhưng **đua không thắng**. **Cách chạy được trên app gốc:** nối CDP (`--remote-debugging-port`), **KHÔNG patch /api/me, KHÔNG Page.reload** (reload lúc startup → app full-relaunch mất debug port → mất hook), inject script mỗi 1s: (a) Proxy `window.ricData.me`=**undefined** → integrity poller `typeof ricData?.me!=='undefined'` FALSE → không chạy → không sabotage (khỏi cần forge); (b) quét **MỌI** `[data-v-app]`→`$pinia.state.value` set `store.isPro=true`+credits (`navigationStore.set()` KHÔNG propagate vì có nhiều Pinia instance — phải quét hết mới trúng store topbar); (c) `session.me.userFeatures.isPro=true`+proInfo. Code: `pathTik/tf_pro_cdp.py` + folder `patch-chrome/` + `tikfinity-pro-skill/docs/WORKING-METHOD.md`. (Clone vẫn an toàn vì KHÔNG emit x-ric → đừng thêm.)
+
+**✅ Cập nhật (RE 2026-06-24 lần 2, test `tf_diag.py` log body thật) — BACKEND PROXY patch-request CHẠY ĐƯỢC nếu PIN; CDP local thì KHÔNG (slip = main-process axios):**
+- **Công thức forge byte-exact xác nhận lần 2:** server gốc `1:c22f5bb9` = `sha256("tfintegrity_v1_2228412-false-false-2026-06-24T02:00:23.777Z")[:8]` KHỚP; forge PIN `1:3874d37c` = `sha256("tfintegrity_v1_2228412-true-false-2025-01-01T00:00:00.000Z")[:8]`. `ver` HIỆN TẠI = **"1"**.
+- **CDP patch `/api/me` renderer thành công** → `session.me.isPro=true` + `channel.updatedAt=PIN` + `navIsPro=true` (Pro logic CHẠY). **NHƯNG** probe `ricData.me=1:e134248e` — KHÔNG khớp forge `3874d37c` và không khớp combo nào với updatedAt đã thấy → **có `/api/me` THỨ HAI (timestamp mới) mà CDP renderer-Fetch KHÔNG bắt = main-process axios** (SKILL §7). → lệch → sabotage (`jq` đổi `"w"`→`"getSelection"`).
+- **→ KẾT LUẬN patch-request:** **CHỈ đủ khi bắt được MỌI `/api/me`.** Backend proxy ở tầng network (dev có sẵn) thấy CẢ main-process axios → không lọt → **patch body + PIN `channel.updatedAt` (hằng số) + forge `x-ric` với PIN đó → `ricPassed=true`, Pro từ response đầu, KHÔNG sabotage**. CDP renderer-only thì lọt → phải dùng client-side force.
+- **PIN là chìa khóa:** pin `channel.updatedAt` về 1 hằng số cho MỌI response → mọi `x-ric` giống hệt → header/body luôn khớp → hết race. Code backend Node verify self-test: `patch-chrome/patch-api-me.js` (`node patch-api-me.js` → `6fb24656 KHOP`). Doc: `tikfinity-pro-skill/docs/BACKEND-PROXY.md`.

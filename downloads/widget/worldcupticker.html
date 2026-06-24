@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <!-- Clone: jQuery + socket.io served LOCALLY from /js/lib/* (gốc nạp 2 lib này
+         từ CDN ngoài → blocking, HANG trên OBS/plain browser, ref widget_external_libs).
+         Khớp pattern các widget khác (gifts/cannon...). -->
+    <script src="/js/lib/jquery.min.js"></script>
+    <script src="/js/lib/socket.io.min.js"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <script
+      type="module"
+      crossorigin
+      src="/vue/dist/widgets/world-cup-ticker/world-cup-ticker.js"
+    ></script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      window.addEventListener("load", () => {
+        const WorldCupTicker = window.createWorldCupTicker();
+        WorldCupTicker.mount("#app");
+      });
+
+      // Gốc: "The preview shows real match data — nothing to simulate."
+      function preview() {}
+    </script>
+  </body>
+</html>

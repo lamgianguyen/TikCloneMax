@@ -41,9 +41,15 @@ function readTemplate(name) {
 //   page. Re-run the script after any combo/* replacement.
 function readI18nPatch() {
   try {
-    return fs.readFileSync(path.join(TEMPLATES_DIR, 'i18n-patch.json'), 'utf8');
+    const raw = fs.readFileSync(path.join(TEMPLATES_DIR, 'i18n-patch.json'), 'utf8');
+    // VALIDATE (pre-release audit 2026-06-16): the raw string is interpolated into
+    // blockScript as `var patch = {{...}}`. A CORRUPT (non-empty, malformed) file would
+    // break that inline script → BRICK the whole HTML boot. Parse here so a bad file
+    // falls back to the safe default instead of bricking the app.
+    JSON.parse(raw);
+    return raw;
   } catch (e) {
-    logger.warn('[BUILD-HTML] i18n-patch.json missing — bundle modals may show raw keys until regenerated');
+    logger.warn({ err: e && e.message }, '[BUILD-HTML] i18n-patch.json missing/corrupt — bundle modals may show raw keys until regenerated');
     return '{}';
   }
 }
@@ -54,9 +60,11 @@ function readI18nPatch() {
 // Re-saving voice-catalog.json picks up on next /api/_dev/reload-html.
 function readVoiceCatalog() {
   try {
-    return fs.readFileSync(path.join(TEMPLATES_DIR, 'voice-catalog.json'), 'utf8');
+    const raw = fs.readFileSync(path.join(TEMPLATES_DIR, 'voice-catalog.json'), 'utf8');
+    JSON.parse(raw); // validate — corrupt content interpolated raw would brick HTML boot (see readI18nPatch).
+    return raw;
   } catch (e) {
-    logger.warn('[BUILD-HTML] voice-catalog.json missing — voice picker modal will be empty');
+    logger.warn({ err: e && e.message }, '[BUILD-HTML] voice-catalog.json missing/corrupt — voice picker modal will be empty');
     return '{"statusCode":200,"message":"Success","data":{"voices":[]}}';
   }
 }

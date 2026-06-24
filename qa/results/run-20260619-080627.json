@@ -1,0 +1,2685 @@
+{
+  "runId": "20260619-080627",
+  "startedAt": "2026-06-19 08:06",
+  "backendUp": true,
+  "durationMs": 21949,
+  "mode": "read-only",
+  "partial": false,
+  "only": null,
+  "results": [
+    {
+      "id": "api.health",
+      "area": "L1 API",
+      "name": "GET /api/health",
+      "status": "PASS",
+      "evidence": "GET /api/health → 200 ok (2ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.tiktok.status",
+      "area": "L1 API",
+      "name": "GET /api/tiktok/status",
+      "status": "PASS",
+      "evidence": "GET /api/tiktok/status → 200 ok (2ms)",
+      "severity": "CRITICAL",
+      "gate": "Gate 15/16"
+    },
+    {
+      "id": "api.tiktok.account",
+      "area": "L1 API",
+      "name": "GET /api/tiktok/account",
+      "status": "PASS",
+      "evidence": "GET /api/tiktok/account → 200 ok (1ms)",
+      "severity": "HIGH"
+    },
+    {
+      "id": "api.tiktok.gifts",
+      "area": "L1 API",
+      "name": "GET /api/tiktok/gifts",
+      "status": "PASS",
+      "evidence": "GET /api/tiktok/gifts → 200 ok (12ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 21"
+    },
+    {
+      "id": "api.tiktok.stats",
+      "area": "L1 API",
+      "name": "GET /api/tiktok/stats",
+      "status": "PASS",
+      "evidence": "GET /api/tiktok/stats → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.worldcup.matches",
+      "area": "L1 API",
+      "name": "GET /api/worldcup/matches",
+      "status": "PASS",
+      "evidence": "GET /api/worldcup/matches → 200 ok (193ms)",
+      "severity": "LOW",
+      "gate": "World Cup ticker (ported)"
+    },
+    {
+      "id": "api.me",
+      "area": "L1 API",
+      "name": "GET /api/me",
+      "status": "PASS",
+      "evidence": "GET /api/me → 200 ok (43ms)",
+      "severity": "CRITICAL",
+      "gate": "Gate 23b"
+    },
+    {
+      "id": "api.loginChannel",
+      "area": "L1 API",
+      "name": "GET /api/loginChannel",
+      "status": "PASS",
+      "evidence": "GET /api/loginChannel → 200 ok (43ms)",
+      "severity": "HIGH"
+    },
+    {
+      "id": "api.config.app",
+      "area": "L1 API",
+      "name": "GET /api/getAppConfig",
+      "status": "PASS",
+      "evidence": "GET /api/getAppConfig → 200 ok (122ms)",
+      "severity": "HIGH"
+    },
+    {
+      "id": "api.config.alias",
+      "area": "L1 API",
+      "name": "GET /api/config",
+      "status": "PASS",
+      "evidence": "GET /api/config → 200 ok (129ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.config.system",
+      "area": "L1 API",
+      "name": "GET /api/getSystemConfig",
+      "status": "PASS",
+      "evidence": "GET /api/getSystemConfig → 200 ok (1ms)",
+      "severity": "MEDIUM"
+    },
+    {
+      "id": "api.config.translations",
+      "area": "L1 API",
+      "name": "GET /api/getTranslations",
+      "status": "PASS",
+      "evidence": "GET /api/getTranslations → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.config.init",
+      "area": "L1 API",
+      "name": "GET /api/init",
+      "status": "PASS",
+      "evidence": "GET /api/init → 200 ok (0ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.config.v2sync",
+      "area": "L1 API",
+      "name": "GET /api/v2/sync",
+      "status": "PASS",
+      "evidence": "GET /api/v2/sync → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.settings.overlayconfig",
+      "area": "L1 API",
+      "name": "GET /api/getOverlayConfig",
+      "status": "PASS",
+      "evidence": "GET /api/getOverlayConfig → 200 ok (1ms)",
+      "severity": "MEDIUM"
+    },
+    {
+      "id": "api.settings.modules",
+      "area": "L1 API",
+      "name": "GET /api/modules",
+      "status": "PASS",
+      "evidence": "GET /api/modules → 200 ok (0ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.auth.sso",
+      "area": "L1 API",
+      "name": "GET /api/v1/auth/sso-bridge",
+      "status": "PASS",
+      "evidence": "GET /api/v1/auth/sso-bridge → 200 ok (2ms)",
+      "severity": "HIGH"
+    },
+    {
+      "id": "api.auth.flowstatus",
+      "area": "L1 API",
+      "name": "GET /api/v1/flow/status",
+      "status": "PASS",
+      "evidence": "GET /api/v1/flow/status → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.goals",
+      "area": "L1 API",
+      "name": "GET /api/goals",
+      "status": "PASS",
+      "evidence": "GET /api/goals → 200 ok (0ms)",
+      "severity": "MEDIUM"
+    },
+    {
+      "id": "api.actions.list",
+      "area": "L1 API",
+      "name": "GET /api/rest/action",
+      "status": "PASS",
+      "evidence": "GET /api/rest/action → 200 ok (1ms)",
+      "severity": "HIGH"
+    },
+    {
+      "id": "api.points.leaderboard",
+      "area": "L1 API",
+      "name": "GET /api/points/leaderboard",
+      "status": "PASS",
+      "evidence": "GET /api/points/leaderboard → 200 ok (7ms)",
+      "severity": "MEDIUM"
+    },
+    {
+      "id": "api.points.user",
+      "area": "L1 API",
+      "name": "GET /api/points/user/qa_probe_user",
+      "status": "PASS",
+      "evidence": "GET /api/points/user/qa_probe_user → 200 ok (2ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.channeluser.odata",
+      "area": "L1 API",
+      "name": "GET /api/odata/channeluser",
+      "status": "PASS",
+      "evidence": "GET /api/odata/channeluser → 200 ok (211ms)",
+      "severity": "MEDIUM"
+    },
+    {
+      "id": "api.channeluser.rest",
+      "area": "L1 API",
+      "name": "GET /api/rest/channeluser",
+      "status": "PASS",
+      "evidence": "GET /api/rest/channeluser → 200 ok (49ms)",
+      "severity": "MEDIUM"
+    },
+    {
+      "id": "api.commands",
+      "area": "L1 API",
+      "name": "GET /api/commands",
+      "status": "PASS",
+      "evidence": "GET /api/commands → 200 ok (2ms)",
+      "severity": "MEDIUM"
+    },
+    {
+      "id": "api.sounds",
+      "area": "L1 API",
+      "name": "GET /api/sounds",
+      "status": "PASS",
+      "evidence": "GET /api/sounds → 200 ok (90ms)",
+      "severity": "MEDIUM"
+    },
+    {
+      "id": "api.sounds.rest",
+      "area": "L1 API",
+      "name": "GET /api/rest/sound",
+      "status": "PASS",
+      "evidence": "GET /api/rest/sound → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.notifications.list",
+      "area": "L1 API",
+      "name": "GET /api/notifications/list",
+      "status": "PASS",
+      "evidence": "GET /api/notifications/list → 200 ok (1ms)",
+      "severity": "MEDIUM"
+    },
+    {
+      "id": "api.notifications.count",
+      "area": "L1 API",
+      "name": "GET /api/notifications/count",
+      "status": "PASS",
+      "evidence": "GET /api/notifications/count → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.tts.authtoken",
+      "area": "L1 API",
+      "name": "POST /api/tts/auth-token",
+      "status": "PASS",
+      "evidence": "POST /api/tts/auth-token → 200 ok (1ms)",
+      "severity": "HIGH",
+      "gate": "Gate 9a"
+    },
+    {
+      "id": "api.odata.transaction",
+      "area": "L1 API",
+      "name": "GET /api/odata/transaction",
+      "status": "PASS",
+      "evidence": "GET /api/odata/transaction → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.rest.transaction",
+      "area": "L1 API",
+      "name": "GET /api/rest/transaction",
+      "status": "PASS",
+      "evidence": "GET /api/rest/transaction → 200 ok (0ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.gifts.all",
+      "area": "L1 API",
+      "name": "GET /api/getAllGifts",
+      "status": "PASS",
+      "evidence": "GET /api/getAllGifts → 200 ok (8ms)",
+      "severity": "HIGH",
+      "gate": "Gate 21"
+    },
+    {
+      "id": "api.animations.all",
+      "area": "L1 API",
+      "name": "GET /api/getAllAnimations",
+      "status": "PASS",
+      "evidence": "GET /api/getAllAnimations → 200 ok (2ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.data.emotes",
+      "area": "L1 API",
+      "name": "GET /api/getChannelEmotes",
+      "status": "PASS",
+      "evidence": "GET /api/getChannelEmotes → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.data.usercount",
+      "area": "L1 API",
+      "name": "GET /api/getChannelUserCount",
+      "status": "PASS",
+      "evidence": "GET /api/getChannelUserCount → 200 ok (0ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.data.livechannels",
+      "area": "L1 API",
+      "name": "GET /api/getLiveChannels",
+      "status": "PASS",
+      "evidence": "GET /api/getLiveChannels → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.data.globaltransactions",
+      "area": "L1 API",
+      "name": "GET /api/getGlobalTransactions",
+      "status": "PASS",
+      "evidence": "GET /api/getGlobalTransactions → 200 ok (0ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.data.myinstants",
+      "area": "L1 API",
+      "name": "GET /api/getMyInstants",
+      "status": "PASS",
+      "evidence": "GET /api/getMyInstants → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.backup.export",
+      "area": "L1 API",
+      "name": "GET /api/backup/export",
+      "status": "PASS",
+      "evidence": "GET /api/backup/export → 200 ok (94ms)",
+      "severity": "HIGH"
+    },
+    {
+      "id": "api.pro.status",
+      "area": "L1 API",
+      "name": "GET /api/pro/status",
+      "status": "PASS",
+      "evidence": "GET /api/pro/status → 200 ok (2ms)",
+      "severity": "MEDIUM"
+    },
+    {
+      "id": "api.pro.tazapay",
+      "area": "L1 API",
+      "name": "GET /api/pro/tazapay/methods",
+      "status": "PASS",
+      "evidence": "GET /api/pro/tazapay/methods → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.obs.status",
+      "area": "L1 API",
+      "name": "GET /api/obs/status",
+      "status": "PASS",
+      "evidence": "GET /api/obs/status → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.webhooks.list",
+      "area": "L1 API",
+      "name": "GET /api/webhooks",
+      "status": "PASS",
+      "evidence": "GET /api/webhooks → 200 ok (4ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.seed.status",
+      "area": "L1 API",
+      "name": "GET /api/seed/status",
+      "status": "PASS",
+      "evidence": "GET /api/seed/status → 200 ok (31ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "api.uploads.list",
+      "area": "L1 API",
+      "name": "GET /api/uploads/list",
+      "status": "PASS",
+      "evidence": "GET /api/uploads/list → 200 ok (1ms)",
+      "severity": "LOW"
+    },
+    {
+      "id": "sock.handshake",
+      "area": "L2 Socket",
+      "name": "socket handshake",
+      "status": "PASS",
+      "evidence": "controlpage socket connected + login ok on channelId=1",
+      "severity": "CRITICAL",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "sock.relay.widgetSettings",
+      "area": "L2 Socket",
+      "name": "widgetSettings",
+      "status": "PASS",
+      "evidence": "event 'widgetSettings' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "CRITICAL",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.goalStatus",
+      "area": "L2 Socket",
+      "name": "goalStatus",
+      "status": "PASS",
+      "evidence": "event 'goalStatus' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.giftGoalStatus",
+      "area": "L2 Socket",
+      "name": "giftGoalStatus",
+      "status": "PASS",
+      "evidence": "event 'giftGoalStatus' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.testGoal",
+      "area": "L2 Socket",
+      "name": "testGoal",
+      "status": "PASS",
+      "evidence": "event 'testGoal' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.testGiftGoal",
+      "area": "L2 Socket",
+      "name": "testGiftGoal",
+      "status": "PASS",
+      "evidence": "event 'testGiftGoal' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.gift",
+      "area": "L2 Socket",
+      "name": "gift",
+      "status": "PASS",
+      "evidence": "event 'gift' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.onLikeReceived",
+      "area": "L2 Socket",
+      "name": "onLikeReceived",
+      "status": "PASS",
+      "evidence": "event 'onLikeReceived' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.coinJarGift",
+      "area": "L2 Socket",
+      "name": "coin-jar:gift",
+      "status": "PASS",
+      "evidence": "event 'coin-jar:gift' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.coinjar.reset",
+      "area": "L2 Socket",
+      "name": "coin-jar:reset",
+      "status": "PASS",
+      "evidence": "event 'coin-jar:reset' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.coinMatchStart",
+      "area": "L2 Socket",
+      "name": "coin-match:start",
+      "status": "PASS",
+      "evidence": "event 'coin-match:start' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.coinMatchUpdate",
+      "area": "L2 Socket",
+      "name": "coin-match:update",
+      "status": "PASS",
+      "evidence": "event 'coin-match:update' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.coinMatchResult",
+      "area": "L2 Socket",
+      "name": "coin-match:result",
+      "status": "PASS",
+      "evidence": "event 'coin-match:result' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.coinMatchReset",
+      "area": "L2 Socket",
+      "name": "coin-match:reset",
+      "status": "PASS",
+      "evidence": "event 'coin-match:reset' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.createCoins",
+      "area": "L2 Socket",
+      "name": "createCoins",
+      "status": "PASS",
+      "evidence": "event 'createCoins' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.timeoutCoins",
+      "area": "L2 Socket",
+      "name": "timeoutCoins",
+      "status": "PASS",
+      "evidence": "event 'timeoutCoins' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.collectCoin",
+      "area": "L2 Socket",
+      "name": "collectCoin",
+      "status": "PASS",
+      "evidence": "event 'collectCoin' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.spinwheel",
+      "area": "L2 Socket",
+      "name": "onSpinWheel",
+      "status": "PASS",
+      "evidence": "event 'onSpinWheel' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.spinWheel",
+      "area": "L2 Socket",
+      "name": "spinWheel",
+      "status": "PASS",
+      "evidence": "event 'spinWheel' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.updateTopGifter",
+      "area": "L2 Socket",
+      "name": "updateTopGifter",
+      "status": "PASS",
+      "evidence": "event 'updateTopGifter' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.updateTopLiker",
+      "area": "L2 Socket",
+      "name": "updateTopLiker",
+      "status": "PASS",
+      "evidence": "event 'updateTopLiker' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.updateViewerCount",
+      "area": "L2 Socket",
+      "name": "updateViewerCount",
+      "status": "PASS",
+      "evidence": "event 'updateViewerCount' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.topGiftData",
+      "area": "L2 Socket",
+      "name": "topGiftData",
+      "status": "PASS",
+      "evidence": "event 'topGiftData' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.newTransaction",
+      "area": "L2 Socket",
+      "name": "newTransaction",
+      "status": "PASS",
+      "evidence": "event 'newTransaction' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.showCommandResult",
+      "area": "L2 Socket",
+      "name": "showCommandResult",
+      "status": "PASS",
+      "evidence": "event 'showCommandResult' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.showCommands",
+      "area": "L2 Socket",
+      "name": "showCommands",
+      "status": "PASS",
+      "evidence": "event 'showCommands' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.showCustomCommands",
+      "area": "L2 Socket",
+      "name": "showCustomCommands",
+      "status": "PASS",
+      "evidence": "event 'showCustomCommands' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.showUserScore",
+      "area": "L2 Socket",
+      "name": "showUserScore",
+      "status": "PASS",
+      "evidence": "event 'showUserScore' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.timerUpdate",
+      "area": "L2 Socket",
+      "name": "timerUpdate",
+      "status": "PASS",
+      "evidence": "event 'timerUpdate' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.dockData",
+      "area": "L2 Socket",
+      "name": "dockData",
+      "status": "PASS",
+      "evidence": "event 'dockData' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.setLastX",
+      "area": "L2 Socket",
+      "name": "setLastX",
+      "status": "PASS",
+      "evidence": "event 'setLastX' relayed to widget in 0ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.setPlaylistItems",
+      "area": "L2 Socket",
+      "name": "setPlaylistItems",
+      "status": "PASS",
+      "evidence": "event 'setPlaylistItems' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.giftCanonTest",
+      "area": "L2 Socket",
+      "name": "giftCanonTest",
+      "status": "PASS",
+      "evidence": "event 'giftCanonTest' relayed to widget in 1ms (budget 3000ms)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.neg.notWhitelisted",
+      "area": "L2 Socket",
+      "name": "__qa_not_whitelisted__",
+      "status": "PASS",
+      "evidence": "non-whitelisted event '__qa_not_whitelisted__' correctly NOT relayed within 3000ms",
+      "severity": "CRITICAL",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "sock.relay.neg.chat",
+      "area": "L2 Socket",
+      "name": "chat",
+      "status": "PASS",
+      "evidence": "non-whitelisted event 'chat' correctly NOT relayed within 3000ms",
+      "severity": "HIGH",
+      "gate": "Gate 35 RC-1"
+    },
+    {
+      "id": "widget.coinjar.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.coinjar.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.coinjar.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.coinjar.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.coinjar.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.coinjar.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.coinjar.serve",
+      "area": "L3 Widget",
+      "name": "widget.coinjar.serve",
+      "status": "PASS",
+      "evidence": "200 · 5606B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.coinmatch.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.coinmatch.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.coinmatch.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.coinmatch.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.coinmatch.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.coinmatch.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.coinmatch.serve",
+      "area": "L3 Widget",
+      "name": "widget.coinmatch.serve",
+      "status": "PASS",
+      "evidence": "200 · 5076B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.cannon.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.cannon.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.cannon.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.cannon.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.cannon.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.cannon.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.cannon.serve",
+      "area": "L3 Widget",
+      "name": "widget.cannon.serve",
+      "status": "PASS",
+      "evidence": "200 · 73882B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.wheel.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.wheel.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.wheel.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.wheel.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.wheel.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.wheel.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.wheel.serve",
+      "area": "L3 Widget",
+      "name": "widget.wheel.serve",
+      "status": "PASS",
+      "evidence": "200 · 94162B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.wheelofactions.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.wheelofactions.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …econnect\" href=\"https://fonts.googleapis.com\"> <link rel=\"preconne…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.wheelofactions.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.wheelofactions.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.wheelofactions.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.wheelofactions.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.wheelofactions.serve",
+      "area": "L3 Widget",
+      "name": "widget.wheelofactions.serve",
+      "status": "PASS",
+      "evidence": "200 · 3915B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.goal.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.goal.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.goal.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.goal.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.goal.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.goal.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.goal.serve",
+      "area": "L3 Widget",
+      "name": "widget.goal.serve",
+      "status": "PASS",
+      "evidence": "200 · 88074B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.giftgoal.locate",
+      "area": "L3 Widget",
+      "name": "widget.giftgoal.locate",
+      "status": "SKIP",
+      "evidence": "no html file",
+      "severity": "LOW",
+      "gate": "widget-smoke"
+    },
+    {
+      "id": "widget.webcam.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.webcam.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …econnect\" href=\"https://fonts.googleapis.com\"> <link rel=\"preco…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.webcam.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.webcam.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.webcam.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.webcam.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.webcam.serve",
+      "area": "L3 Widget",
+      "name": "widget.webcam.serve",
+      "status": "PASS",
+      "evidence": "200 · 28977B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.overlay.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.overlay.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.overlay.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.overlay.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.overlay.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.overlay.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.overlay.serve",
+      "area": "L3 Widget",
+      "name": "widget.overlay.serve",
+      "status": "PASS",
+      "evidence": "200 · 24617B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.talking.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.talking.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …econnect\" href=\"https://fonts.googleapis.com\"> <link rel=\"preco…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.talking.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.talking.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.talking.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.talking.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.talking.serve",
+      "area": "L3 Widget",
+      "name": "widget.talking.serve",
+      "status": "PASS",
+      "evidence": "200 · 27459B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.chat.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.chat.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.chat.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.chat.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.chat.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.chat.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.chat.serve",
+      "area": "L3 Widget",
+      "name": "widget.chat.serve",
+      "status": "PASS",
+      "evidence": "200 · 20929B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.eventcarousel.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.eventcarousel.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …econnect\" href=\"https://fonts.googleapis.com\"> <link rel=\"precon…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.eventcarousel.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.eventcarousel.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.eventcarousel.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.eventcarousel.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.eventcarousel.serve",
+      "area": "L3 Widget",
+      "name": "widget.eventcarousel.serve",
+      "status": "PASS",
+      "evidence": "200 · 5322B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.fallingsnow.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.fallingsnow.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.fallingsnow.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.fallingsnow.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.fallingsnow.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.fallingsnow.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.fallingsnow.serve",
+      "area": "L3 Widget",
+      "name": "widget.fallingsnow.serve",
+      "status": "PASS",
+      "evidence": "200 · 68770B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.firework.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.firework.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.firework.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.firework.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.firework.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.firework.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.firework.serve",
+      "area": "L3 Widget",
+      "name": "widget.firework.serve",
+      "status": "PASS",
+      "evidence": "200 · 75583B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.ranking.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.ranking.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.ranking.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.ranking.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.ranking.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.ranking.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.ranking.serve",
+      "area": "L3 Widget",
+      "name": "widget.ranking.serve",
+      "status": "PASS",
+      "evidence": "200 · 79366B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.topgifter.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.topgifter.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.topgifter.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.topgifter.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.topgifter.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.topgifter.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.topgifter.serve",
+      "area": "L3 Widget",
+      "name": "widget.topgifter.serve",
+      "status": "PASS",
+      "evidence": "200 · 82866B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.topliker.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.topliker.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.topliker.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.topliker.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.topliker.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.topliker.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.topliker.serve",
+      "area": "L3 Widget",
+      "name": "widget.topliker.serve",
+      "status": "PASS",
+      "evidence": "200 · 86991B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.lastx.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.lastx.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.lastx.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.lastx.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.lastx.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.lastx.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.lastx.serve",
+      "area": "L3 Widget",
+      "name": "widget.lastx.serve",
+      "status": "PASS",
+      "evidence": "200 · 74226B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.viewercount.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.viewercount.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.viewercount.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.viewercount.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.viewercount.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.viewercount.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.viewercount.serve",
+      "area": "L3 Widget",
+      "name": "widget.viewercount.serve",
+      "status": "PASS",
+      "evidence": "200 · 57050B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.myactions.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.myactions.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.myactions.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.myactions.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.myactions.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.myactions.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.myactions.serve",
+      "area": "L3 Widget",
+      "name": "widget.myactions.serve",
+      "status": "PASS",
+      "evidence": "200 · 24963B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.timer.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.timer.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.timer.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.timer.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.timer.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.timer.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.timer.serve",
+      "area": "L3 Widget",
+      "name": "widget.timer.serve",
+      "status": "PASS",
+      "evidence": "200 · 59009B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.socialmediarotator.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.socialmediarotator.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.socialmediarotator.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.socialmediarotator.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.socialmediarotator.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.socialmediarotator.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.socialmediarotator.serve",
+      "area": "L3 Widget",
+      "name": "widget.socialmediarotator.serve",
+      "status": "PASS",
+      "evidence": "200 · 886B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.commandinfo.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.commandinfo.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.commandinfo.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.commandinfo.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.commandinfo.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.commandinfo.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.commandinfo.serve",
+      "area": "L3 Widget",
+      "name": "widget.commandinfo.serve",
+      "status": "PASS",
+      "evidence": "200 · 64136B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.userinfo.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.userinfo.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.userinfo.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.userinfo.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.userinfo.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.userinfo.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.userinfo.serve",
+      "area": "L3 Widget",
+      "name": "widget.userinfo.serve",
+      "status": "PASS",
+      "evidence": "200 · 76456B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.transactionviewer.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.transactionviewer.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.transactionviewer.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.transactionviewer.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.transactionviewer.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.transactionviewer.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.transactionviewer.serve",
+      "area": "L3 Widget",
+      "name": "widget.transactionviewer.serve",
+      "status": "PASS",
+      "evidence": "200 · 76828B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.likefountain.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.likefountain.external-libs",
+      "status": "FAIL",
+      "evidence": "CDN fonts.googleapis.com: …).attr(\"href\", \"https://fonts.googleapis.com/css2?family=\" + fontTyp…",
+      "severity": "HIGH",
+      "gate": "widget-external-libs",
+      "fixHint": "Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers"
+    },
+    {
+      "id": "widget.likefountain.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.likefountain.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.likefountain.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.likefountain.null-guard",
+      "status": "PASS",
+      "evidence": "settings.isPro guarded",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.likefountain.serve",
+      "area": "L3 Widget",
+      "name": "widget.likefountain.serve",
+      "status": "PASS",
+      "evidence": "200 · 57650B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.worldcupticker.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.worldcupticker.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.worldcupticker.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.worldcupticker.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.worldcupticker.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.worldcupticker.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.worldcupticker.serve",
+      "area": "L3 Widget",
+      "name": "widget.worldcupticker.serve",
+      "status": "PASS",
+      "evidence": "200 · 1198B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "widget.followercount.external-libs",
+      "area": "L3 Widget",
+      "name": "widget.followercount.external-libs",
+      "status": "PASS",
+      "evidence": "no CDN-host libs",
+      "severity": "HIGH",
+      "gate": "widget-external-libs"
+    },
+    {
+      "id": "widget.followercount.debug-spam",
+      "area": "L3 Widget",
+      "name": "widget.followercount.debug-spam",
+      "status": "PASS",
+      "evidence": "no debug spam",
+      "severity": "LOW",
+      "gate": "Gate 35-LOG"
+    },
+    {
+      "id": "widget.followercount.null-guard",
+      "area": "L3 Widget",
+      "name": "widget.followercount.null-guard",
+      "status": "PASS",
+      "evidence": "no settings.isPro deref",
+      "severity": "MEDIUM",
+      "gate": "Gate 35 RC-D"
+    },
+    {
+      "id": "widget.followercount.serve",
+      "area": "L3 Widget",
+      "name": "widget.followercount.serve",
+      "status": "PASS",
+      "evidence": "200 · 3306B",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "perf.backend.ram",
+      "area": "Perf",
+      "name": "perf.backend.ram",
+      "status": "PASS",
+      "evidence": "node.exe 674MB / 8 proc (budget 700MB)",
+      "severity": "HIGH",
+      "gate": "perf-sample"
+    },
+    {
+      "id": "perf.electron.ram",
+      "area": "Perf",
+      "name": "perf.electron.ram",
+      "status": "PASS",
+      "evidence": "electron.exe 1562MB total / 6 proc (budget 2000MB)",
+      "severity": "MEDIUM",
+      "gate": "perf-sample"
+    },
+    {
+      "id": "perf.cpu",
+      "area": "Perf",
+      "name": "perf.cpu",
+      "status": "PASS",
+      "evidence": "3% over 1500ms / 24 cores (budget 85%)",
+      "severity": "MEDIUM",
+      "gate": "perf-sample"
+    },
+    {
+      "id": "perf.render.stretch",
+      "area": "Perf",
+      "name": "perf.render.stretch",
+      "status": "SKIP",
+      "evidence": "no STRETCH-DIAG in recent log",
+      "severity": "MEDIUM",
+      "gate": "Gate 30d"
+    },
+    {
+      "id": "perf.log.errors",
+      "area": "Perf",
+      "name": "perf.log.errors",
+      "status": "FAIL",
+      "evidence": "1 error(s): [01:06:07.594] \u001b[32mINFO\u001b[39m: \u001b[36m[SocketManager] Client disconnected: wxwA97mEZOs61ORMAAAc (transport er…",
+      "severity": "HIGH",
+      "gate": "perf-sample",
+      "fixHint": "Backend logged error/crash — trace root cause from the sample, then re-run"
+    },
+    {
+      "id": "perf.log.reloadchurn",
+      "area": "Perf",
+      "name": "perf.log.reloadchurn",
+      "status": "PASS",
+      "evidence": "0 reload signal(s) in window",
+      "severity": "MEDIUM",
+      "gate": "perf-sample"
+    },
+    {
+      "id": "gate.06.aivoiceprefix",
+      "area": "L4 Gate-drift",
+      "name": "gate.06.aivoiceprefix",
+      "status": "PASS",
+      "evidence": "Gate Gate 6/7 anchor 'tts_api__' present (3 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 6/7"
+    },
+    {
+      "id": "gate.07.resolvevoicecfg",
+      "area": "L4 Gate-drift",
+      "name": "gate.07.resolvevoicecfg",
+      "status": "PASS",
+      "evidence": "Gate Gate 7 anchor 'resolveVoiceConfigFromId' present (1 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 7"
+    },
+    {
+      "id": "gate.08.hasbackendctx",
+      "area": "L4 Gate-drift",
+      "name": "gate.08.hasbackendctx",
+      "status": "PASS",
+      "evidence": "Gate Gate 8a anchor 'getAiTtsBackendContext' present (4 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 8a"
+    },
+    {
+      "id": "gate.09b.currentusagemode",
+      "area": "L4 Gate-drift",
+      "name": "gate.09b.currentusagemode",
+      "status": "PASS",
+      "evidence": "Gate Gate 23b anchor 'currentUsageMode' present (1 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 23b"
+    },
+    {
+      "id": "gate.23b.subcredits",
+      "area": "L4 Gate-drift",
+      "name": "gate.23b.subcredits",
+      "status": "PASS",
+      "evidence": "Gate Gate 23b anchor 'sub_credits' present (1 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 23b"
+    },
+    {
+      "id": "gate.09a.ttsauthtoken",
+      "area": "L4 Gate-drift",
+      "name": "gate.09a.ttsauthtoken",
+      "status": "PASS",
+      "evidence": "Gate Gate 9a anchor 'ttsAuthToken' present (9 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 9a"
+    },
+    {
+      "id": "gate.25.loadaivoicestate",
+      "area": "L4 Gate-drift",
+      "name": "gate.25.loadaivoicestate",
+      "status": "PASS",
+      "evidence": "Gate Gate 25 anchor 'loadAiVoiceState' present (5 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 25"
+    },
+    {
+      "id": "gate.25.ensureauthtoken",
+      "area": "L4 Gate-drift",
+      "name": "gate.25.ensureauthtoken",
+      "status": "PASS",
+      "evidence": "Gate Gate 25 anchor 'ensureAiAuthToken' present (6 hits in modules/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 25"
+    },
+    {
+      "id": "gate.25.aivoicecooldown",
+      "area": "L4 Gate-drift",
+      "name": "gate.25.aivoicecooldown",
+      "status": "PASS",
+      "evidence": "Gate Gate 25 anchor 'aiVoiceStateLastLoadedAt' present (3 hits in modules/deobfuscated.js)",
+      "severity": "LOW",
+      "gate": "Gate 25"
+    },
+    {
+      "id": "gate.23.ispro",
+      "area": "L4 Gate-drift",
+      "name": "gate.23.ispro",
+      "status": "PASS",
+      "evidence": "Gate Gate 23 anchor 'userFeatures' present (119 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 23"
+    },
+    {
+      "id": "gate.23.proinfo",
+      "area": "L4 Gate-drift",
+      "name": "gate.23.proinfo",
+      "status": "PASS",
+      "evidence": "Gate Gate 23b anchor 'proInfo' present (52 hits in modules/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 23b"
+    },
+    {
+      "id": "gate.30a.proChip",
+      "area": "L4 Gate-drift",
+      "name": "gate.30a.proChip",
+      "status": "PASS",
+      "evidence": "Gate Gate 30a anchor 'TTSProDropdown' present (5 hits in app/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 30a"
+    },
+    {
+      "id": "gate.30a.freeChip",
+      "area": "L4 Gate-drift",
+      "name": "gate.30a.freeChip",
+      "status": "PASS",
+      "evidence": "Gate Gate 30a anchor 'TTSFreeDropdown' present (1 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30a"
+    },
+    {
+      "id": "gate.30b.switchlanguage",
+      "area": "L4 Gate-drift",
+      "name": "gate.30b.switchlanguage",
+      "status": "PASS",
+      "evidence": "Gate Gate 30b anchor 'switchLanguage' present (4 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30b"
+    },
+    {
+      "id": "gate.30c.streamprofile",
+      "area": "L4 Gate-drift",
+      "name": "gate.30c.streamprofile",
+      "status": "PASS",
+      "evidence": "Gate Gate 30c anchor 'streamProfileId' present (5 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30c"
+    },
+    {
+      "id": "gate.30c.switchprofile",
+      "area": "L4 Gate-drift",
+      "name": "gate.30c.switchprofile",
+      "status": "PASS",
+      "evidence": "Gate Gate 30c anchor 'switchProfile' present (4 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30c"
+    },
+    {
+      "id": "gate.30d.stretchiframe",
+      "area": "L4 Gate-drift",
+      "name": "gate.30d.stretchiframe",
+      "status": "PASS",
+      "evidence": "Gate Gate 30d anchor 'stretchIframe' present (3 hits in modules/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30d"
+    },
+    {
+      "id": "gate.30d.obsoverlays",
+      "area": "L4 Gate-drift",
+      "name": "gate.30d.obsoverlays",
+      "status": "PASS",
+      "evidence": "Gate Gate 30d anchor 'lazy-frame' present (1 hits in modules/deobfuscated.js)",
+      "severity": "LOW",
+      "gate": "Gate 30d"
+    },
+    {
+      "id": "gate.34.refreshdatasource",
+      "area": "L4 Gate-drift",
+      "name": "gate.34.refreshdatasource",
+      "status": "PASS",
+      "evidence": "Gate Gate 34 anchor 'refreshDataSource' present (4 hits in modules/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 34"
+    },
+    {
+      "id": "gate.34.loadtriggers",
+      "area": "L4 Gate-drift",
+      "name": "gate.34.loadtriggers",
+      "status": "PASS",
+      "evidence": "Gate Gate 34 anchor 'loadTriggers' present (4 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 34"
+    },
+    {
+      "id": "gate.34.triggerdatasource",
+      "area": "L4 Gate-drift",
+      "name": "gate.34.triggerdatasource",
+      "status": "PASS",
+      "evidence": "Gate Gate 34 anchor 'triggerDataSource' present (9 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 34"
+    },
+    {
+      "id": "gate.34.onEditorPreparing",
+      "area": "L4 Gate-drift",
+      "name": "gate.34.onEditorPreparing",
+      "status": "PASS",
+      "evidence": "Gate Gate 34 anchor 'onEditorPreparing' present (1 hits in modules/deobfuscated.js)",
+      "severity": "LOW",
+      "gate": "Gate 34"
+    },
+    {
+      "id": "gate.35.distribute",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.distribute",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'distributeEvent' present (11 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.coinjarreset",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.coinjarreset",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'coin-jar:reset' present (1 hits in app/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.coinmatchstart",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.coinmatchstart",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'coin-match:start' present (1 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.spinwheel",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.spinwheel",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'onSpinWheel' present (1 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.widgetstate",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.widgetstate",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'onWidgetState' present (4 hits in modules/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.emitwidgetsettings",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.emitwidgetsettings",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'emitWidgetSettingsToWidgets' present (16 hits in modules/deobfuscated.js)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.resetjar",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.resetjar",
+      "status": "PASS",
+      "evidence": "Gate Gate 35-MECH anchor 'resetJar' present (4 hits in app/deobfuscated.js)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35-MECH"
+    },
+    {
+      "id": "gate.18.chipbg",
+      "area": "L4 Gate-drift",
+      "name": "gate.18.chipbg",
+      "status": "PASS",
+      "evidence": "Gate Gate 18 anchor 'D435554D' present (4 hits in templates/earlyCss.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 18"
+    },
+    {
+      "id": "gate.18.prochipbg",
+      "area": "L4 Gate-drift",
+      "name": "gate.18.prochipbg",
+      "status": "PASS",
+      "evidence": "Gate Gate 18 anchor 'FFB54D14' present (3 hits in templates/earlyCss.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 18"
+    },
+    {
+      "id": "gate.22e.pagessrcontent",
+      "area": "L4 Gate-drift",
+      "name": "gate.22e.pagessrcontent",
+      "status": "PASS",
+      "evidence": "Gate Gate 22 (E) anchor 'pageSSRContent' present (2 hits in templates/earlyCss.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 22 (E)"
+    },
+    {
+      "id": "gate.16.livestate",
+      "area": "L4 Gate-drift",
+      "name": "gate.16.livestate",
+      "status": "PASS",
+      "evidence": "Gate Gate 16 anchor 'data-tf-live-state' present (7 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 16"
+    },
+    {
+      "id": "gate.01.tfi18nprebake",
+      "area": "L4 Gate-drift",
+      "name": "gate.01.tfi18nprebake",
+      "status": "PASS",
+      "evidence": "Gate Gate 3/4 anchor 'tfI18nPreBake' present (2 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 3/4"
+    },
+    {
+      "id": "gate.17.forceprocredits",
+      "area": "L4 Gate-drift",
+      "name": "gate.17.forceprocredits",
+      "status": "PASS",
+      "evidence": "Gate Gate 17 anchor 'tfForceProCredits' present (4 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 17"
+    },
+    {
+      "id": "gate.23.activateproui",
+      "area": "L4 Gate-drift",
+      "name": "gate.23.activateproui",
+      "status": "PASS",
+      "evidence": "Gate Gate 23 anchor 'tfActivateProUI' present (3 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 23"
+    },
+    {
+      "id": "gate.30a.piniaprotrap",
+      "area": "L4 Gate-drift",
+      "name": "gate.30a.piniaprotrap",
+      "status": "PASS",
+      "evidence": "Gate Gate 30a anchor 'tfPiniaProTrap' present (3 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 30a"
+    },
+    {
+      "id": "gate.30b.patchswitchlang",
+      "area": "L4 Gate-drift",
+      "name": "gate.30b.patchswitchlang",
+      "status": "PASS",
+      "evidence": "Gate Gate 30b anchor 'tfPatchSwitchLanguage' present (2 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 30b"
+    },
+    {
+      "id": "gate.30b.langtolocale",
+      "area": "L4 Gate-drift",
+      "name": "gate.30b.langtolocale",
+      "status": "PASS",
+      "evidence": "Gate Gate 30b anchor 'LANG_TO_LOCALE' present (4 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30b"
+    },
+    {
+      "id": "gate.30d.triggeroverlays",
+      "area": "L4 Gate-drift",
+      "name": "gate.30d.triggeroverlays",
+      "status": "PASS",
+      "evidence": "Gate Gate 30d anchor 'tfTriggerOverlaysOnVisible' present (3 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30d"
+    },
+    {
+      "id": "gate.overlaycard.iframefill",
+      "area": "L4 Gate-drift",
+      "name": "gate.overlaycard.iframefill",
+      "status": "PASS",
+      "evidence": "Gate Overlay-Layout anchor 'iframe.lazy-frame' present (4 hits in templates/earlyCss.txt)",
+      "severity": "HIGH",
+      "gate": "Overlay-Layout"
+    },
+    {
+      "id": "gate.34.wrappreloadtrig",
+      "area": "L4 Gate-drift",
+      "name": "gate.34.wrappreloadtrig",
+      "status": "PASS",
+      "evidence": "Gate Gate 34 anchor 'tfWrapAndPreloadTriggers' present (2 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 34"
+    },
+    {
+      "id": "gate.06.bootstraptoken",
+      "area": "L4 Gate-drift",
+      "name": "gate.06.bootstraptoken",
+      "status": "PASS",
+      "evidence": "Gate Gate 6 anchor 'tfBootstrapWindowToken' present (2 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 6"
+    },
+    {
+      "id": "gate.09b.quotapayload",
+      "area": "L4 Gate-drift",
+      "name": "gate.09b.quotapayload",
+      "status": "PASS",
+      "evidence": "Gate Gate 23b anchor 'tfBuildQuotaPayload' present (4 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 23b"
+    },
+    {
+      "id": "gate.09b.ttsuserhandler",
+      "area": "L4 Gate-drift",
+      "name": "gate.09b.ttsuserhandler",
+      "status": "PASS",
+      "evidence": "Gate Gate 9b anchor 'tfHandleTtsTikfinityUser' present (2 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 9b"
+    },
+    {
+      "id": "gate.09c.ttscomhandler",
+      "area": "L4 Gate-drift",
+      "name": "gate.09c.ttscomhandler",
+      "status": "PASS",
+      "evidence": "Gate Gate 9c anchor 'tfHandleTtsTikfinityCom' present (2 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 9c"
+    },
+    {
+      "id": "gate.16.patchlivebadge",
+      "area": "L4 Gate-drift",
+      "name": "gate.16.patchlivebadge",
+      "status": "PASS",
+      "evidence": "Gate Gate 16 anchor 'tfPatchLiveBadge' present (2 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 16"
+    },
+    {
+      "id": "gate.35.overlayautosave",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.overlayautosave",
+      "status": "PASS",
+      "evidence": "Gate Gate 35 anchor 'tfOverlaySettingsAutosave' present (1 hits in templates/blockScript.txt)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "gate.35.coinjarreset.iife",
+      "area": "L4 Gate-drift",
+      "name": "gate.35.coinjarreset.iife",
+      "status": "PASS",
+      "evidence": "Gate Gate 35-MECH anchor 'tfCoinJarResetReliable' present (2 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35-MECH"
+    },
+    {
+      "id": "gate.06.normalizevoice",
+      "area": "L4 Gate-drift",
+      "name": "gate.06.normalizevoice",
+      "status": "PASS",
+      "evidence": "Gate Gate 7 anchor 'tfNormalizeMockVoice' present (4 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 7"
+    },
+    {
+      "id": "gate.07.ttsgenerate",
+      "area": "L4 Gate-drift",
+      "name": "gate.07.ttsgenerate",
+      "status": "PASS",
+      "evidence": "Gate Gate 7 anchor 'tfHandleTtsGenerate' present (6 hits in templates/blockScript.txt)",
+      "severity": "LOW",
+      "gate": "Gate 7"
+    },
+    {
+      "id": "gate.30c.bridgesessionme",
+      "area": "L4 Gate-drift",
+      "name": "gate.30c.bridgesessionme",
+      "status": "PASS",
+      "evidence": "Gate Gate 30c anchor 'tfBridgeSessionMe' present (5 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 30c"
+    },
+    {
+      "id": "gate.32.giftitemtemplate",
+      "area": "L4 Gate-drift",
+      "name": "gate.32.giftitemtemplate",
+      "status": "PASS",
+      "evidence": "Gate Gate 32/33 anchor 'tfRewriteGiftImagesToCache' present (6 hits in templates/blockScript.txt)",
+      "severity": "MEDIUM",
+      "gate": "Gate 32/33"
+    },
+    {
+      "id": "live.current",
+      "area": "Live",
+      "name": "live-id-finder",
+      "status": "PASS",
+      "evidence": "@handsome.run52 is LIVE roomId=7652884301833702164 (from /api/tiktok/status)",
+      "severity": "LOW"
+    },
+    {
+      "id": "chain.settings.socket",
+      "area": "Chain",
+      "name": "widget socket login",
+      "status": "PASS",
+      "evidence": "widget socket connected + login ok on channelId=1",
+      "severity": "CRITICAL",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "chain.settings.http",
+      "area": "Chain",
+      "name": "POST /api/updateSettings",
+      "status": "PASS",
+      "evidence": "POST widget_cannon_ballsize=62 → 200 {status:200, message:'OK'} (48ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "chain.settings.db",
+      "area": "Chain",
+      "name": "DB persist (DynamicSettings)",
+      "status": "PASS",
+      "evidence": "row widget_cannon_ballsize (cid=1,pid=1) = '62' === posted '62'",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "chain.settings.broadcast",
+      "area": "Chain",
+      "name": "widgetSettings broadcast",
+      "status": "PASS",
+      "evidence": "widget received widgetSettings with cannon_ballSize=62 (matches posted 62)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "chain.tts.auth-token",
+      "area": "Chain",
+      "name": "POST /api/tts/auth-token",
+      "status": "PASS",
+      "evidence": "200 {status:200,message:'OK',ttsAuthToken:<jwt 327ch>} (1ms)",
+      "severity": "HIGH",
+      "gate": "Gate 9a"
+    },
+    {
+      "id": "chain.tts.auth-token.jwt",
+      "area": "Chain",
+      "name": "tts auth JWT pro-claims",
+      "status": "PASS",
+      "evidence": "JWT ALL-PRO ✓ subscriptionEnabled=true subscriptionPeriodCredits=100000",
+      "severity": "HIGH",
+      "gate": "Gate 9a / §0 ALL-PRO"
+    },
+    {
+      "id": "chain.tts.fake-chat",
+      "area": "Chain",
+      "name": "POST /api/_dev/fake-chat",
+      "status": "PASS",
+      "evidence": "200 {status:'ok',emitted:'chat'} (1ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "chain.tts.chat-delivery",
+      "area": "Chain",
+      "name": "chat → controlpage socket",
+      "status": "PASS",
+      "evidence": "controlpage received chat {comment:'hello-bvifwj',uniqueId:'tester-32anvx'} in 0ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "socket-manager.js:29-50"
+    },
+    {
+      "id": "chain.tts.user",
+      "area": "Chain",
+      "name": "tts/user (client-mock)",
+      "status": "SKIP",
+      "evidence": "tts/user is a cross-origin tts.tikfinity.com call mocked CLIENT-SIDE in blockScript (tfHandleTtsTikfinityUser) — not a backend route, not headless-testable.",
+      "severity": "LOW",
+      "gate": "Gate 9b / Gate 25"
+    },
+    {
+      "id": "chain.tts.voices",
+      "area": "Chain",
+      "name": "tts/voices (client-mock)",
+      "status": "SKIP",
+      "evidence": "tts/voices is a cross-origin tts.tikfinity.com call mocked CLIENT-SIDE in blockScript (tfHandleTtsTikfinityCom) — not a backend route, not headless-testable.",
+      "severity": "LOW",
+      "gate": "Gate 9c / Gate 25"
+    },
+    {
+      "id": "chain.tts.speak",
+      "area": "Chain",
+      "name": "tts speak/generate (client playback)",
+      "status": "SKIP",
+      "evidence": "Actual TTS audio playback is client-side; /api/tts/generate needs a real TikTok sessionid (503 without it, tts.js:157-162) — not exercised headless.",
+      "severity": "LOW",
+      "gate": "Gate 14"
+    },
+    {
+      "id": "chain.points.grant",
+      "area": "Chain",
+      "name": "PUT rest/transaction",
+      "status": "PASS",
+      "evidence": "grant 1234 → preBalanceValidationPassed, transaction.amount + channeluser.totalAmount/totalRewardAmount = 1234",
+      "severity": "HIGH",
+      "gate": "Chain3"
+    },
+    {
+      "id": "chain.points.db",
+      "area": "Chain",
+      "name": "DB persist (balance + identity)",
+      "status": "PASS",
+      "evidence": "points_user_qa_pts_pw933e=1234 and pointsmeta_qa_pts_pw933e.userId=991781831187500 (cid=1 pid=1)",
+      "severity": "MEDIUM",
+      "gate": "Chain3"
+    },
+    {
+      "id": "chain.points.readback.userid",
+      "area": "Chain",
+      "name": "GET rest/channeluser?userId",
+      "status": "PASS",
+      "evidence": "userId=991781831187500 → channelusers[0]={username:qa_pts_pw933e, totalAmount:1234}",
+      "severity": "HIGH",
+      "gate": "Chain3 (M-013)"
+    },
+    {
+      "id": "chain.points.readback.username",
+      "area": "Chain",
+      "name": "GET rest/channeluser?username",
+      "status": "PASS",
+      "evidence": "username=qa_pts_pw933e → totalAmount:1234",
+      "severity": "MEDIUM",
+      "gate": "Chain3"
+    },
+    {
+      "id": "chain.points.odata",
+      "area": "Chain",
+      "name": "GET odata/channeluser",
+      "status": "PASS",
+      "evidence": "value[] contains {username:qa_pts_pw933e, totalAmount:1234}, @odata.count=500",
+      "severity": "LOW",
+      "gate": "Chain3"
+    },
+    {
+      "id": "chain.points.leaderboard",
+      "area": "Chain",
+      "name": "GET points/leaderboard",
+      "status": "PASS",
+      "evidence": "leaderboard[] contains {username:qa_pts_pw933e, balance:1234} (500 entries)",
+      "severity": "LOW",
+      "gate": "Chain3"
+    },
+    {
+      "id": "chain.points.clientside",
+      "area": "Chain",
+      "name": "!points / wheel / transfer (bundle-side)",
+      "status": "SKIP",
+      "evidence": "The !points chat-command read + wheel-spin / transfer cost-checks are bundle-side (decompiled/modules:4205/9256/14684). They consume the SAME endpoints asserted in steps 3-6, so the backend contract IS covered here; the client logic itself is not headless-testable.",
+      "severity": "LOW",
+      "gate": "Chain3"
+    },
+    {
+      "id": "chain.points.cleanup",
+      "area": "Chain",
+      "name": "cleanup (zero balance)",
+      "status": "PASS",
+      "evidence": "deducted 1234 → balance 0 (leaderboard filters balance>0 so the viewer drops off)",
+      "severity": "LOW",
+      "gate": "Chain3"
+    },
+    {
+      "id": "chain.goals.login",
+      "area": "Chain",
+      "name": "widget socket login",
+      "status": "PASS",
+      "evidence": "widget socket connected + login emitted on channelId=1",
+      "severity": "CRITICAL",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "chain.goals.list",
+      "area": "Chain",
+      "name": "GET /api/goals",
+      "status": "PASS",
+      "evidence": "200 OK, goals[] present (0 existing) in 1ms",
+      "severity": "MEDIUM",
+      "gate": "Chain 4"
+    },
+    {
+      "id": "chain.goals.validate",
+      "area": "Chain",
+      "name": "POST /api/goals validation",
+      "status": "PASS",
+      "evidence": "missing-type → 400 and target<=0 → 400 (both rejected as expected)",
+      "severity": "MEDIUM",
+      "gate": "Chain 4"
+    },
+    {
+      "id": "chain.goals.create",
+      "area": "Chain",
+      "name": "POST /api/goals create",
+      "status": "PASS",
+      "evidence": "created goal id=2 (target=500) → 200 in 2ms",
+      "severity": "HIGH",
+      "gate": "Chain 4"
+    },
+    {
+      "id": "chain.goals.create.broadcast",
+      "area": "Chain",
+      "name": "goalsChanged (create)",
+      "status": "PASS",
+      "evidence": "widget received goalsChanged in 0ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "chain.goals.create.db",
+      "area": "Chain",
+      "name": "Goals row after create",
+      "status": "PASS",
+      "evidence": "DB Goals row Id=2 Name='E2E goal' Target=500 Enabled=1 ProfileId=1",
+      "severity": "HIGH",
+      "gate": "Chain 4"
+    },
+    {
+      "id": "chain.goals.update",
+      "area": "Chain",
+      "name": "POST /api/goals update",
+      "status": "PASS",
+      "evidence": "updated goal id=2 target→999 → 200 in 1ms",
+      "severity": "HIGH",
+      "gate": "Chain 4"
+    },
+    {
+      "id": "chain.goals.update.broadcast",
+      "area": "Chain",
+      "name": "goalsChanged (update)",
+      "status": "PASS",
+      "evidence": "widget received 2nd goalsChanged in 0ms (budget 3000ms)",
+      "severity": "HIGH",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "chain.goals.update.db",
+      "area": "Chain",
+      "name": "Goals row after update",
+      "status": "PASS",
+      "evidence": "DB Goals row Id=2 Target=999 (updated from 500)",
+      "severity": "HIGH",
+      "gate": "Chain 4"
+    },
+    {
+      "id": "chain.goals.reset",
+      "area": "Chain",
+      "name": "POST /api/goals/:id/reset",
+      "status": "PASS",
+      "evidence": "reset goal id=2 Current→0 → 200 in 1ms",
+      "severity": "MEDIUM",
+      "gate": "Chain 4"
+    },
+    {
+      "id": "chain.goals.reset.broadcast",
+      "area": "Chain",
+      "name": "goalsChanged (reset)",
+      "status": "PASS",
+      "evidence": "widget received goalsChanged after reset",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "chain.goals.delete",
+      "area": "Chain",
+      "name": "DELETE /api/goals/:id",
+      "status": "PASS",
+      "evidence": "deleted goal id=2 → 200 in 2ms (cleanup)",
+      "severity": "HIGH",
+      "gate": "Chain 4"
+    },
+    {
+      "id": "chain.goals.delete.broadcast",
+      "area": "Chain",
+      "name": "goalsChanged (delete)",
+      "status": "PASS",
+      "evidence": "widget received goalsChanged after delete",
+      "severity": "MEDIUM",
+      "gate": "Gate 35"
+    },
+    {
+      "id": "chain.goals.delete.db",
+      "area": "Chain",
+      "name": "Goals row gone after delete",
+      "status": "PASS",
+      "evidence": "no Goals row remains for Name='E2E goal' (cleanup verified)",
+      "severity": "HIGH",
+      "gate": "Chain 4"
+    },
+    {
+      "id": "chain.goals.clientside",
+      "area": "Chain",
+      "name": "goal-widget visual fill",
+      "status": "SKIP",
+      "evidence": "goal-widget progress render is client-side (widget HTML); bridge.refreshGoals is an optional cache drop — not headless-testable",
+      "severity": "LOW",
+      "gate": "Chain 4"
+    },
+    {
+      "id": "chain.coinjar.scope",
+      "area": "Chain",
+      "name": "resolve active channel scope",
+      "status": "PASS",
+      "evidence": "active scope channelId=1 profileId=1 (DB C:\\Users\\nguyenlg\\AppData\\Roaming\\tikfinity-desktop\\tikfinity-data\\tikfinity.db)",
+      "severity": "LOW",
+      "gate": "Gate 35-MECH (coinjar)"
+    },
+    {
+      "id": "chain.coinjar.http",
+      "area": "Chain",
+      "name": "POST /api/widget/coinjar/reset",
+      "status": "SKIP",
+      "evidence": "mutating step skipped (run with --mutating to fire the reset and assert delivery)",
+      "severity": "MEDIUM",
+      "gate": "Gate 35-MECH (coinjar)"
+    },
+    {
+      "id": "chain.coinjar.relay",
+      "area": "Chain",
+      "name": "widget receives coin-jar:reset",
+      "status": "SKIP",
+      "evidence": "depends on the mutating POST — run with --mutating",
+      "severity": "HIGH",
+      "gate": "Gate 35-MECH (coinjar)"
+    },
+    {
+      "id": "chain.coinjar.widgetReset",
+      "area": "Chain",
+      "name": "widget canvas World.clear / resetJar",
+      "status": "SKIP",
+      "evidence": "client-side only (downloads/widget/coinjar/index.html → coin-jar.js window.resetJar) — not headless-testable",
+      "severity": "LOW",
+      "gate": "Gate 35-MECH (coinjar)"
+    }
+  ],
+  "perf": {
+    "backendRssMb": 674,
+    "electronRssMb": 1562,
+    "electronInstances": 6,
+    "cpuPct": 3,
+    "cores": 24,
+    "stretchMsMax": null,
+    "stretchMsAvg": null,
+    "logErrors": 1,
+    "logReloads": 0
+  },
+  "metrics": {
+    "api-contract": {
+      "endpointsTested": 46,
+      "slowest": [
+        {
+          "path": "/api/odata/channeluser",
+          "ms": 211
+        },
+        {
+          "path": "/api/worldcup/matches",
+          "ms": 193
+        },
+        {
+          "path": "/api/config",
+          "ms": 129
+        }
+      ],
+      "avgMs": 27
+    },
+    "socket-relay": {
+      "relayTested": 34,
+      "avgDeliverMs": 1,
+      "slowestEvent": "widgetSettings"
+    },
+    "widget-smoke": {
+      "widgetsChecked": 28,
+      "withFile": 27,
+      "externalLibHits": 19,
+      "debugSpamHits": 0
+    },
+    "perf-sample": {
+      "backendRssMb": 674,
+      "electronRssMb": 1562,
+      "electronInstances": 6,
+      "cpuPct": 3,
+      "cores": 24,
+      "stretchMsMax": null,
+      "stretchMsAvg": null,
+      "logErrors": 1,
+      "logReloads": 0
+    },
+    "gate-health": {
+      "gatesChecked": 53,
+      "drifted": [],
+      "present": 53,
+      "missingArtifacts": 0
+    },
+    "live-id-finder": {
+      "probed": 0,
+      "liveFound": true,
+      "liveUsername": "handsome.run52",
+      "source": "backend"
+    },
+    "chain-settings": {
+      "chain": "settings",
+      "steps": 4,
+      "pass": 4,
+      "fail": 0,
+      "skip": 0
+    },
+    "chain-tts": {
+      "chain": "tts",
+      "steps": 7,
+      "pass": 4,
+      "fail": 0,
+      "skip": 3
+    },
+    "chain-points": {
+      "username": "qa_pts_pw933e",
+      "userId": "991781831187500",
+      "grantAmount": 1234,
+      "dbReadable": true
+    },
+    "chain-goals": {
+      "steps": 15,
+      "pass": 14,
+      "fail": 0,
+      "skip": 1,
+      "createdId": 2,
+      "channelId": 1
+    },
+    "chain-coinjar": {
+      "mutating": false,
+      "deliverMs": null
+    }
+  },
+  "summary": {
+    "pass": 258,
+    "fail": 20,
+    "skip": 10,
+    "total": 288
+  }
+}

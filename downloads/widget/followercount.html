@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <!-- Clone: jQuery + socket.io LOCAL từ /js/lib/* (gốc nạp 2 lib này từ CDN ngoài → hang OBS). -->
+    <script src="/js/lib/jquery.min.js"></script>
+    <script src="/js/lib/socket.io.min.js"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <script type="module" crossorigin src="/vue/dist/widgets/follower-counter/follower-counter.js"></script>
+
+    <script>
+        (function () {
+            var displayedCount = 0;
+            var displayedProgress = null;
+
+            var PLACEHOLDER_FOLLOWER_COUNT = 1234;
+
+            function readCachedFollowerCount() {
+                try {
+                    return parseInt((typeof settings === "object" && settings && settings.followercounter_lastCount) || 0, 10) || 0;
+                } catch (err) {
+                    return 0;
+                }
+            }
+
+            function readPreviewFollowerCount() {
+                var cached = readCachedFollowerCount();
+                return cached > 0 ? cached : PLACEHOLDER_FOLLOWER_COUNT;
+            }
+
+            function readCachedFollowerProgress() {
+                try {
+                    var value = Number((typeof settings === "object" && settings && settings.followercounter_goalProgress));
+                    if (!Number.isFinite(value)) return undefined;
+                    return Math.max(0, Math.min(1, value));
+                } catch (err) {
+                    return undefined;
+                }
+            }
+
+            function preview() {
+                if (typeof window.updateFollowerCount !== "function") return;
+
+                var count = readPreviewFollowerCount();
+                var progress = readCachedFollowerProgress();
+                var normalizedProgress = Number.isFinite(progress) ? progress : null;
+                if (displayedCount === count && displayedProgress === normalizedProgress) return;
+
+                displayedCount = count;
+                displayedProgress = normalizedProgress;
+                window.updateFollowerCount(count, {
+                    source: "preview",
+                    progress: normalizedProgress === null ? undefined : normalizedProgress,
+                });
+            }
+
+            window.addEventListener("load", function () {
+                window.createFollowerCounter().mount("#app");
+                requestAnimationFrame(preview);
+
+                io.on("updateFollowerCount", function (payload) {
+                    displayedCount = payload.followerCount;
+                    window.updateFollowerCount(displayedCount, {
+                        source: "live",
+                        progress: Number(payload.progress),
+                        sessionStartCount: payload.sessionStartCount,
+                        personalBestSessionStartBest: payload.personalBestSessionStartBest,
+                    });
+                });
+            });
+
+            window.preview = preview;
+        })();
+    </script>
+</head>
+
+<body>
+    <div id="app"></div>
+</body>
+
+</html>

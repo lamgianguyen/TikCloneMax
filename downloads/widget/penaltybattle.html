@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <!-- Clone: jQuery + socket.io LOCAL từ /js/lib/* (gốc nạp 2 lib này từ CDN ngoài → hang OBS). -->
+    <script src="/js/lib/jquery.min.js"></script>
+    <script src="/js/lib/socket.io.min.js"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+
+    <script
+      type="module"
+      crossorigin
+      src="/vue/dist/widgets/world-cup-penalty-battle/world-cup-penalty-battle.js"
+    ></script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      window.addEventListener("load", () => {
+        window.createWorldCupPenaltyBattle().mount("#app");
+      });
+
+      // OBS browser sources are transparent and unattended → Pro-gate the live
+      // feed (preview iframe in the dashboard is exempt, like coin-jar). Clone is
+      // all-Pro so settings.isPro is true; guard stays for parity + null-safety.
+      const isEmbeddedPreview =
+        location.href.includes("preview=1") && window.self !== window.top;
+      function allowed() {
+        return isEmbeddedPreview || (typeof settings === "object" && settings && settings.isPro);
+      }
+
+      // The dashboard/controlpage decides goal/save and pushes the resolved shot
+      // to the widget. The widget is a pure renderer + local tally: forward into
+      // the in-page bridge (window.TikFinityPenalty). The bridge hook exists on
+      // the scene AND the board source, so both render/tally; no-op before mount.
+      io.on("penaltyShot", (shot) => {
+        if (!allowed()) return;
+        window.TikFinityPenalty && window.TikFinityPenalty.shot(shot);
+      });
+
+      // full board sync / reset (dashboard "reset leaderboard" button)
+      io.on("penaltyBoard", (data) => {
+        window.TikFinityPenalty &&
+          window.TikFinityPenalty.board(data && data.players ? data.players : []);
+      });
+    </script>
+  </body>
+</html>

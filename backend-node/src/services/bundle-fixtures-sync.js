@@ -51,6 +51,39 @@ const FIXTURES = [
     upstream: '/api/getAllAnimations',
     validate: (text) => text.length > 100 && (text.trimStart().startsWith('{') || text.trimStart().startsWith('[')),
   },
+  // ── Ported overlay widgets (2026-06-16) — keep the FEATURE CODE (.js) current ──
+  // We sync ONLY the .js (the HTML shells are localized: gốc loads jQuery/socket.io
+  // from CDN → hangs OBS; ours use /js/lib/* — must NOT be overwritten). SEASONAL
+  // safety: when gốc removes/404s a file (e.g. World Cup ends) syncOne logs
+  // "keeping local file" and does NOT overwrite, so our last-good copy survives.
+  {
+    // World Cup 2026 ticker. Live match data is a SEPARATE proxy (/api/worldcup/matches).
+    localPath: 'vue/dist/widgets/world-cup-ticker/world-cup-ticker.js',
+    upstream: '/vue/dist/widgets/world-cup-ticker/world-cup-ticker.js',
+    validate: (text) => text.length > 5000 && /createWorldCupTicker|world-?cup/i.test(text),
+  },
+  {
+    // Follower Counter. Data wired via tiktok-bridge `updateFollowerCount` broadcast.
+    localPath: 'vue/dist/widgets/follower-counter/follower-counter.js',
+    upstream: '/vue/dist/widgets/follower-counter/follower-counter.js',
+    validate: (text) => text.length > 5000 && /createFollowerCounter|follower/i.test(text),
+  },
+  {
+    // Countdown Goals (Jun16 bundle). Data wired via socket relay `countdownGoalsStatus`
+    // (control page computes client-side → distributeEvent → backend relays to widget).
+    localPath: 'vue/dist/widgets/countdown-goals/countdown-goals.js',
+    upstream: '/vue/dist/widgets/countdown-goals/countdown-goals.js',
+    validate: (text) => text.length > 5000 && /createCountdownGoals|countdown/i.test(text),
+  },
+  {
+    // World Cup Penalty Battle (shootout) — overlay id `penaltybattle`, render fn
+    // `createWorldCupPenaltyBattle`. Added in the 2026-06-19 bundle (post-Jun16).
+    // Data wired via socket relay `penaltyShot` + `penaltyBoard` (control page
+    // computes goal/save → distributeEvent → backend relays to widget).
+    localPath: 'vue/dist/widgets/world-cup-penalty-battle/world-cup-penalty-battle.js',
+    upstream: '/vue/dist/widgets/world-cup-penalty-battle/world-cup-penalty-battle.js',
+    validate: (text) => text.length > 5000 && /createWorldCupPenaltyBattle|penalty/i.test(text),
+  },
 ];
 
 async function fetchUpstream(url) {

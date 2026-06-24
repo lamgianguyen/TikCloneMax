@@ -4,6 +4,8 @@
 
 **Nguyên tắc vàng:** harness **EXTENDS**, không restart. Bạn cập nhật **needles + specs**, KHÔNG rewrite test code mỗi lần bundle đổi.
 
+> ⚠️ **Chặn đầu — Runbook này CHỈ cho THAY 4-file combo (đổi PHIÊN BẢN bundle).** Nếu user chỉ muốn **TẮT / ẨN / disable / off** một feature/overlay/widget (vd World Cup hết mùa) → **KHÔNG dùng file này.** Tắt/ẩn là việc NHẸ: proxy trả `200 {…:[]}` / set `enabled:false` / CSS visible-toggle — xem **[CLAUDE.md §1.2b Disable/Hide = hành động tối thiểu](../CLAUDE.md)**. Chạy 8 bước dưới đây cho việc tắt/ẩn = over-react, đốt mission vô ích.
+
 ---
 
 ## Bước 0 — Đọc trước

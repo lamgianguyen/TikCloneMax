@@ -634,4 +634,40 @@
     background-size: contain !important;
   }
 
+  /* === World Cup event section — restore gốc 2-col side-by-side (Gate WC-sizing) ===
+     Bundle's main.min.css:1 forces, with HIGHER specificity than gốc:
+       body[data-new-navigation-design] .page[data-pageid=obsoverlays] .greyBackgroundSection
+       { min-width:850px !important }
+     The two WC cards carry class greyBackgroundSection AND live in that page, so the
+     850px min beats gốc's `.worldCupEventSection .obsOverlayOnPage { min-width:0 }`
+     (gốc has no !important; even with !important its specificity (0,2,0) loses to the
+     bundle's (0,4,1)). 850px min → each card can't shrink → 2 cards (850+850+16) don't
+     fit the ~918px section → they STACK full-width. Measured vw1280: cards stacked, both
+     w=886, section h=1621. Re-assert gốc fluid 2-col with specificity (0,5,1) > bundle's
+     (0,4,1) by reusing the bundle prefix, scoped to .worldCupEventSection so normal
+     gallery cards keep their 850px min-width. */
+  body[data-new-navigation-design] .page[data-pageid=obsoverlays] .worldCupEventSection .obsOverlayOnPage {
+    flex: 1 1 380px !important;
+    min-width: 0 !important;
+    width: auto !important;
+  }
+
+  /* === World Cup TICKER card — snug iframe height (Gate WC-sizing) ===
+     generateWidget(#widgetWorldcupticker, ..., "450px") fixes the iframe at 450px and the
+     bundle's stretchIframes loop inflates it to ~470px — but the real ticker is a single
+     ~62px pill, vertically centered (stage middle-center) with ~204px of dead canvas above
+     AND below → the card reads as a huge empty box ("hơi bự"). Lock the iframe to a snug
+     170px: pill 62px centered → 54px clearance each side, which fully clears the goal-
+     celebration box-shadow glow (~48px bleed; celepunch only scales the pill 1.06x,
+     goalflash/celebreathe are inset:0 overlays) → no clipping (verified: clippedCount 0,
+     iframe body scrollHeight 170). !important so the stretchIframes loop (mutates inline
+     style.height up to <700) can't regrow the RENDERED box. Scoped to the TICKER only —
+     penaltybattle (520px) is a genuinely tall game board (full-canvas, not dead space). */
+  body[data-new-navigation-design] .page[data-pageid=obsoverlays] #widgetWorldcupticker iframe.lazy-frame,
+  body[data-new-navigation-design] .page[data-pageid=obsoverlays] #widgetWorldcupticker iframe {
+    height: 170px !important;
+    min-height: 170px !important;
+    max-height: 170px !important;
+  }
+
 </style>

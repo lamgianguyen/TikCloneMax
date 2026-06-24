@@ -1,21 +1,20 @@
 {
-  "name": "tikfinity-clone",
-  "version": "1.0.0",
-  "description": "TikFinity desktop clone. Node backend + Electron shell + bundled frontend.",
-  "private": true,
-  "scripts": {
-    "web": "npm --prefix backend-node start",
-    "web:dev": "npm --prefix backend-node run dev",
-    "desktop": "npm --prefix electron start",
-    "desktop:build": "npm --prefix electron run build",
-    "install:all": "npm --prefix backend-node install && npm --prefix electron install",
-    "build:installer": "npm --prefix electron run build:installer",
-    "reverse": "node scripts/decompile/run-all.js",
-    "reverse:no-decompile": "node scripts/decompile/run-all.js --skip-decompile",
-    "qa": "node qa/run-all.js",
-    "qa:mutating": "node qa/run-all.js --mutating",
-    "qa:json": "node qa/run-all.js --json"
+  "name": "tikfinity",
+  "version": "2.0.0",
+  "description": "TikFinity Desktop App",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zerodytrash/TikFinity-Electron.git"
   },
-  "author": "",
-  "license": "ISC"
+  "author": "TikFinity Team",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/zerodytrash/TikFinity-Electron/issues"
+  },
+  "homepage": "https://discord.gg/uthtmVdpy8",
+  "dependencies": {
+    "axios": "^1.13.4",
+    "electron-updater": "^6.7.3"
+  }
 }

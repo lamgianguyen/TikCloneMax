@@ -53,7 +53,14 @@ const _state = {
 
 function rememberAvatar(userId, profilePictureUrl) {
   if (!userId || !profilePictureUrl) return;
-  _state.userAvatars.set(String(userId), profilePictureUrl);
+  const key = String(userId);
+  // FIFO cap (pre-release audit 2026-06-16): one entry per unique viewer — a long /
+  // multi-stream session grows this unbounded (and it survived resetAll). Map keeps
+  // insertion order; evict the oldest when adding a NEW key past the cap.
+  if (!_state.userAvatars.has(key) && _state.userAvatars.size >= 10000) {
+    _state.userAvatars.delete(_state.userAvatars.keys().next().value);
+  }
+  _state.userAvatars.set(key, profilePictureUrl);
 }
 
 function avatarFor(userId) {
@@ -318,6 +325,7 @@ function resetAll(channelId) {
   _state.topLikers.clear();
   _state.ranking.clear();
   _state.lastEvents.clear();
+  _state.userAvatars.clear();  // was leaking — survived reset (pre-release audit 2026-06-16)
   _state.topGiftUsername = '';
   _state.topGiftPictureUrl = '';
   _state.topGiftTitle = '';

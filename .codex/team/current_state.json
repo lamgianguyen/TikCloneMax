@@ -1,8 +1,20 @@
 {
   "schema_version": 1,
-  "last_updated": "2026-06-11",
+  "last_updated": "2026-06-23",
   "compaction_checkpoint": true,
   "active_mission": null,
+  "m_export_import_2026_06_23": {
+    "status": "DONE — fix shipped + adversarial-reviewed CORRECT; no further code changes; PENDING user UI round-trip test",
+    "user_ask": "check full setup export/import ok chưa → rồi 'chạy agent team coi lại kĩ' + 'ghi lỗi vá từ từ, tôi test trực tiếp sau'",
+    "workflows": ["wf_c0974b8d-f65 (audit 8-agent: 5 scout layer→reconcile→verify)", "wf_a89bd81f-faf (re-review 8-agent: 4 lens→reconcile→adversarial verify)"],
+    "found_fixed": "CRITICAL: POST /api/importActions không tồn tại → import .tfc có tick Actions = 404 → 'Import failed' + mất trắng cả lần import. FIX: NEW routes/import-actions.js (overwrite-by-name, returns newRecordMappings keyed by imported original a.id) + mount index.js. Verified HTTP/DB round-trip 2 lượt (status 200, mapping int, config round-trip, overwrite keeps unrelated, no mass wipe).",
+    "re_review_verdict": "fix CORRECT-with-caveats → all 3 caveats ADVERSARIALLY REFUTED (adversariallyVerifiedReal: []). DO NOT 'fix' these — refuted reasons recorded so future agents don't chase: (1) profileId blob-vs-column = INERT, zero consumers read per-action profileId, pre-existing/systemic (native REST actions also report blob profileId), proposed precedent FALSE (ACTION_COLUMN_KEYS excludes profileid); (2) no size cap = loopback-only NOTE hardening; (3) duplicate a.id = tamper-only, bundle matches by-name first, fix was log-only.",
+    "audit_flow_verdicts": "export .tfc=WORKS (AES v3 + data:URL, Electron will-download early-returns on data: main.js:1268); import settings/sounds/events (Actions UNCHECKED)=WORKS+persist (settings.save→/api/updateSettings→SQLite); import Actions=was BROKEN→fixed; backup.js /api/backup/*=correct but DEAD (no UI, QA/CLI-only) + ProfileId-orphan + no rebuildAndBroadcast = real-but-CONTAINED, document-and-defer.",
+    "deferred_documented": "backup.js ProfileId-orphaning on cross-install restore + missing post-import broadcast — only reachable via UI-less /api/backup/import (qa/registry.js + electron CLI). Leave per minimal-change until/unless wired to UI. Stale 'BLOCK updateSettings' comments in blockScript.txt:4153,4497 are misleading (code does NOT block updateSettings) — comment-only, deferred.",
+    "backup": "backend-node/src/index.js.bak-2026-06-23-pre-importactions",
+    "fixlog": "FIXLOG [2026-06-23] entry written",
+    "pending_user": "RESTART Electron/backend → UI round-trip: Import Settings → .tfc có actions → tick Actions → expect 'Import Done' + reload + actions hiện + events/timer vẫn trigger đúng action."
+  },
   "m_review_flow": {
     "status": "DONE — full clone-flow audit + fix. 18 findings fixed (1 CRITICAL + 8 HIGH + 9 MEDIUM), 2 refuted.",
     "date": "2026-06-11",

@@ -196,6 +196,18 @@ function buildDynamicSettings(source, frontendChannelName, featureBaseToken, own
   };
 
   for (const [k, v] of Object.entries(source || {})) {
+    // RELEASE FIX (2026-06-16, pre-release audit — 3rd & last leak path): per-viewer
+    // points data (points_user_<u> balance, pointsmeta_<u> identity) + the self-
+    // referential dynamicsettings blob are NOT UI settings. The bundle dumps
+    // channel.dynamicSettings into localStorage on boot; with ~20k stale points rows
+    // this /api/me response hit ~6MB → QuotaExceeded → BLANK PAGE on the customer's
+    // machine. The WRITE path (routes/settings.js:90-92) and the widget BROADCAST
+    // (widget-settings-cache.js buildMerged) already strip these — this READ path was
+    // the missing third. Keep the `points.*` CONFIG namespace; drop only the two
+    // per-viewer prefixes + dynamicsettings. (TODO: extract a shared stripNonWidgetKeys
+    // helper for all 3 paths to end the drift that caused this.)
+    if (k.indexOf('pointsmeta_') === 0 || k.indexOf('points_user_') === 0) continue;
+    if (k.toLowerCase() === 'dynamicsettings') continue;
     result[k] = v ?? '';
   }
 
@@ -459,7 +471,7 @@ function handleMe(req, res) {
       updatedAt: channel.UpdatedAt,
       isPro,
       subscription: { isPro, plan, active },
-      userFeatures: { isPro, proInfo: { plan, active } },
+      userFeatures: { isPro, proInfo: { plan, active, isActiveSubscription: true, paymentGateway: 'agency_admin', isVerified: true, expire: null, customerId: null, updateUrl: null } },
       profiles: profs.map(buildProfilePayload),
     },
     // channeluser: per Gate 23b captured Pro shape — bundle expects OBJECT
@@ -483,7 +495,7 @@ function handleMe(req, res) {
       createdAt: channel.CreatedAt,
       updatedAt: channel.UpdatedAt,
     },
-    userFeatures: { isPro, proInfo: { plan, active } },
+    userFeatures: { isPro, proInfo: { plan, active, isActiveSubscription: true, paymentGateway: 'agency_admin', isVerified: true, expire: null, customerId: null, updateUrl: null } },
     profile: null,
     cookieAuth: false,
     wsAuthToken,

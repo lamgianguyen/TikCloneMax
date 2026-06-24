@@ -777,7 +777,11 @@ if (typeof module !== 'undefined' && module.exports) {
             const variation = getSetting("variation") !== undefined ? getSetting("variation") : "simple_snow_1";            
             
             const video = document.querySelector('#video');
-            const source = video.querySelector('#source');
+            const source = video && video.querySelector('#source');
+            // [GUARD-2026-06-19] updateSettings can fire from socketioclient before
+            // <body> is parsed (script is in <head>) → #video/#source still null →
+            // "Cannot set properties of null (setting 'src')". Bail until DOM ready.
+            if (!source) return;
             source.src = ASSET_MAP[variation];
 
             video.load();

@@ -30,6 +30,11 @@ module.exports = {
       expect: { status: 200 }, severity: 'MEDIUM', gate: 'Gate 21' },
     { id: 'api.tiktok.stats', method: 'GET', path: '/api/tiktok/stats',
       expect: { status: 200, jsonHas: ['stats'] }, severity: 'LOW' },
+    // World Cup ticker data proxy (ported 2026-06-16). Proxy ALWAYS 200: live data
+    // in-season, {matches:[]} on upstream error / season-end — so the widget's poll
+    // accepts it → auto-hides (a non-200 would be IGNORED by the widget → no hide).
+    { id: 'api.worldcup.matches', method: 'GET', path: '/api/worldcup/matches',
+      expect: { status: 200, jsonHas: ['matches'] }, severity: 'LOW', gate: 'World Cup ticker (ported)' },
 
     // ── me / auth / config / settings (boot hot-path) ─────────────────
     { id: 'api.me', method: 'GET', path: '/api/me',
@@ -213,6 +218,13 @@ module.exports = {
     'webcam', 'overlay', 'talking', 'chat', 'eventcarousel', 'fallingsnow', 'firework',
     'ranking', 'topgifter', 'topliker', 'lastx', 'viewercount', 'myactions', 'timer',
     'socialmediarotator', 'commandinfo', 'userinfo', 'transactionviewer', 'likefountain',
+    // Ported 2026-06-16 (gốc Jun16 features). worldcupticker = SEASONAL (data via
+    // /api/worldcup/matches proxy); followercount data via tiktok-bridge updateFollowerCount.
+    // countdowngoals data via socket relay countdownGoalsStatus (control page → backend → widget).
+    'worldcupticker', 'followercount', 'countdowngoals',
+    // Ported 2026-06-19 (gốc post-Jun16 bundle). penaltybattle = World Cup shootout,
+    // data via socket relay penaltyShot + penaltyBoard.
+    'penaltybattle',
   ],
 
   // ── L4: bundle-drift gate-health (flags, does NOT block) ────────────────────

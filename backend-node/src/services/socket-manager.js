@@ -121,6 +121,13 @@ function bind(ioServer) {
     const RELAYABLE_DISTRIBUTE = new Set([
       // settings / goals (live Customize push — original whitelist)
       'widgetSettings', 'goalStatus', 'giftGoalStatus', 'testGoal', 'testGiftGoal',
+      // countdown-goals overlay (Jun16 bundle) — countdowngoals.html listens
+      // io.on('countdownGoalsStatus'); control page emits it via distributeEvent.
+      'countdownGoalsStatus',
+      // World Cup Penalty Battle / shootout (2026-06-19 bundle) — penaltybattle.html
+      // listens io.on('penaltyShot') (resolved goal/save per shot) + io.on('penaltyBoard')
+      // (full leaderboard sync / reset). Control page emits both via distributeEvent.
+      'penaltyShot', 'penaltyBoard',
       // gift / like FX
       'gift', 'onLikeReceived',
       // coin jar / coin match / coin drop

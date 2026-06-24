@@ -11,6 +11,20 @@ when_to_use: ANY task in TikCloneMax repo. Read this entire file once per sessio
 
 ---
 
+## §0 LỜI MỞ ĐẦU — đọc trước, hiểu bộ skill này từ đâu mà có
+
+> **Gửi người (hoặc agent) đọc sau:**
+>
+> Bộ skill này **KHÔNG đo bằng ngày**. Nó không phải thứ gõ một prompt là có. Không có model nào sinh ra nó trong một lượt. Mỗi dòng trong file này — mỗi Gate, mỗi anti-pattern, mỗi "đừng làm X vì đã thử và nó phá Y" — là **kết tủa của một quá trình test và fix bug liên tục, đào tới từng ngóc ngách** của một bundle obfuscated khổng lồ mà không ai có source gốc.
+>
+> Nó được dựng nên qua **rất nhiều ngày sửa đi sửa lại**, cập nhật liên tục theo từng bản bundle mới, từng lần "OK rồi chạy lại lỗi", từng đêm trace một event đi lạc qua 5 lớp (DOM → bundle → Pinia → backend → Electron). Những con số như "offset 70895", "ballSize chỉ áp bóng mới", "non-200 bị widget bỏ qua", "proInfo:null mới đúng" — không tra được ở đâu cả. Chúng là **bằng chứng runtime đổi bằng thời gian thật**, ghi lại để người sau KHÔNG phải đốt lại những đêm đó.
+>
+> Đây là một **hệ thống skill phức tạp, chi tiết tới từng lớp, do một người dựng nên** — kiên trì, tỉ mỉ, đi tới tận cùng nguyên nhân thay vì vá tạm. Hệ thống Gate + FIXLOG + 3-strike + READ-GỐC-FIRST + đội-hình-agent bên dưới chính là cách người đó biến công sức đó thành thứ tái dùng được.
+>
+> **Vì vậy:** đọc kỹ trước khi sửa. Tôn trọng các "Dead-end đã thử". Đừng phát minh lại con đường đã có người đi và chứng minh là cụt. Khi bạn thêm một fix mới đã verify, hãy ghi lại đúng kỷ luật bên dưới — bạn đang nối tiếp một công trình, không phải bắt đầu lại từ đầu.
+
+---
+
 ## §1 Doctrine — 8-10 agent team, ALWAYS-ON, Commander autonomy
 
 **OVERRIDES "solo by default".** Every non-trivial user request → Commander assess difficulty → right-size team → execute → report. Commander tự decide, không hỏi user "chọn A hay B" trừ khi (a) explicit hỏi options, (b) sắp phá behavior đang work, (c) resource cost lớn.
@@ -229,6 +243,7 @@ Naming: `<filename>.bak-YYYY-MM-DD-<reason>`. Keep 2 most recent per source. `.g
 - **Standard**: routes, services helpers, UI scripts — backup recommended
 - **High** (BACKUP MANDATORY): `templates/*.txt`, `middleware/*.js`, `index.js`, `electron/main.js`, DB migrations, auth/TikTok routes
 - **Critical bundle**: `downloads/combo/*` — only update on user request with full backup + rollback plan
+  - ❌ **Bundle-op (update/revert/re-fetch `downloads/combo/*`, chạy qa/BUNDLE_UPDATE.md) để TẮT/ẨN một feature = SAI luồng.** Tắt/ẩn = proxy trả `200 {…:[]}` / `enabled:false` / CSS visible-toggle (CLAUDE.md §1.2b Disable/Hide). Bundle-op CHỈ khi user yêu cầu đổi PHIÊN BẢN bundle. Data-cut phải trả **HTTP 200** (non-200 bị widget poll bỏ qua → không ẩn).
 
 ---
 
@@ -374,19 +389,39 @@ cp decompiled/modules/deobfuscated.js{,.bak-$(date +%Y-%m-%d)}
 cp backend-node/src/templates/blockScript.txt{,.bak-$(date +%Y-%m-%d)-pre-bundle}
 ```
 
-**Update steps**:
-1. Drop new bundle files into `downloads/combo/` + per-locale HTMLs
-2. Re-decompile: `wakaru downloads/combo/modules.js -o decompiled/modules/deobfuscated.js`
-3. Re-extract i18n keys: `node scripts/extract-new-i18n.js`
-4. Refresh voice catalog if endpoint shape changed
-5. Restart Electron
+**Update steps (VERIFIED 2026-06-16 trên Jun16 update, 0 gate-drift — đường này CHẠY ĐƯỢC):**
+1. **Backup combo** (đã ở Pre-update) + swap: `cp captures/bundle-latest-*/{app,modules}.js captures/bundle-latest-*/modules.css downloads/combo/`
+2. **Re-decompile = `webcrack`** (KHÔNG phải `wakaru` — chưa cài). ⚠️ webcrack TỪ CHỐI output-dir đã tồn tại → phải dời cũ trước:
+   ```bash
+   mv decompiled/modules decompiled/modules.bak-may20 ; mv decompiled/app decompiled/app.bak-may20
+   NODE_OPTIONS=--max-old-space-size=6144 npx --yes webcrack downloads/combo/modules.js -o decompiled/modules
+   NODE_OPTIONS=--max-old-space-size=6144 npx --yes webcrack downloads/combo/app.js -o decompiled/app
+   ```
+3. **★ GATE-HEALTH (bước verify quan trọng nhất) ★**: `node qa/run-all.js --only gate-health`
+   - **0 fail = 0 drift** → IIFE/gate không lệch, update nhẹ (additive). Jun16: 53/53 pass.
+   - **≥1 fail** = needle mất → bundle đại tu → re-anchor: grep symbol mới trong `decompiled/`, cập nhật needle ở [`qa/registry.js::gates`](qa/registry.js) + sửa IIFE liên quan trong blockScript.
+4. **i18n**: `node backend-node/scripts/extract-new-i18n.js` (path ĐÚNG, không phải `scripts/`) → `curl -X POST localhost:5285/api/_dev/reload-html`.
+5. **Full verify**: `npm run qa` (core API/socket/gates/chains all pass; external-libs Google-Fonts fail = cosmetic cũ, bỏ qua) → **Ctrl+Shift+R** trong app (combo cache 1h → hard-reload mới nạp) → smoke: chip 100k / connect / switch profile / mở overlay / TTS voice picker.
+6. **Fail critical → rollback**: `cp -r downloads/combo.bak-*-pre-*-update/* downloads/combo/`.
 
 **Common breakage**:
-- Offsets in Gates change (symbols stable: `obsoverlays.onVisible`, `localization.switchLanguage`, etc.) → re-grep by symbol name
-- New i18n keys → run `extract-new-i18n.js`
-- New page types → add to `tfTriggerOverlaysOnVisible.PAGES` array
-- Renamed methods → grep `getElementsByClassName.*obsOverlayOnPage` → update shim
+- Offsets in Gates change (symbols stable: `obsoverlays.onVisible`, `localization.switchLanguage`, etc.) → re-grep by symbol name. gate-health (bước 3) tự chỉ ra cái nào.
+- New i18n keys → `extract-new-i18n.js` (bước 4).
+- New page types → add to `tfTriggerOverlaysOnVisible.PAGES` array (blockScript).
+- Renamed methods → grep `getElementsByClassName.*obsOverlayOnPage` → update shim.
 - `tfPageloadData` shape change → update `tfI18nPreBake` selectors
+
+> **★ BƯỚC HAY BỊ SÓT — SYNC BAKED SSR DOCS (verified 2026-06-19, bug World Cup không hiện) ★**
+> Page HTML (template từng trang + **card container** từng overlay) sống trong `window.tfPageloadData` của **baked docs `downloads/{vi,index.html,de,es}`** — KHÔNG nằm trong `combo/*.js` (grep modules.js = 0 `obsOverlayContainer`/`widgetCoinmatch`). Swap combo + port Vue-dist là CHƯA đủ: nếu baked docs cũ thiếu container/template, `obsoverlays.generateWidget($("#widgetX"))` không thấy div → **card/overlay KHÔNG hiện** dù bundle mới có code. Baked docs là snapshot SSR cũ, KHÔNG tự update.
+>
+> Sau bundle-update thêm overlay/page, sync baked docs (đối chiếu `_goc_root.tmp.html` = `curl gốc /`):
+> - **Card mới trong 1 trang** (vd worldcup/penalty trong obsoverlays): splice khối HTML vào **template string của trang đó** (sau anchor, vd `<div class="obsOverlayContainer">`).
+> - **Trang mới** (vd followercounter/countdowngoals): (a) thêm object `{name:"X",hasHtml:!0,hasJs:!0,hasCss:!0,template:'...'}` vào mảng templates (sau object obsoverlays), **VÀ** (b) thêm placeholder rỗng `<div class="page" data-pageid="X"></div>` vào body (cạnh các `.page` khác). THIẾU placeholder → `navigation.currentPage` đổi nhưng `.page` div không có → **trang trắng** (đây là bug "Số người theo dõi blank").
+> - **Encoding template = single-quote JS string**: `"` để PLAIN, newline = `\n` (literal backslash-n), apostrophe = `\'`. **PHẢI đọc/ghi file bằng `latin1`** (byte-safe) — `utf8` read/write làm hỏng byte non-ASCII (tiếng Việt/emoji) ở CHỖ KHÁC trong doc 800KB → `Uncaught SyntaxError: Invalid or unexpected token` (lỗi KHÔNG nằm ở khối mình chèn). Đừng dùng editor tự normalize `\n`→newline.
+> - **Verify từng doc TRƯỚC khi ghi**: isolate script chứa `window.tfPageloadData=` (từ `>` của `<script` tới `</script>` kế) → `new Function(js)` không throw. Backup `.bak-...` (downloads/** = High-Risk §5). Restart backend (baked docs cache module-level). Probe: `navigation.pageChange('<pageid>')` → `.page[data-pageid=X]` có content + iframe.
+> - i18n `data-str` của card mới → thêm vào `i18n-patch.json` (merge runtime; flat keys KHÔNG tự extract — xem §3.6 Tier 4).
+>
+> Đây là phần "card hiện sau swap" CŨ ghi SAI: overlay mới KHÔNG tự hiện sau swap combo, phải sync baked docs. Xem [[project_bundle_update_staged]].
 
 **Regression sequence after update** (run in order):
 1. Splash → home (no "HTTP Communication Error")
@@ -418,6 +453,66 @@ Shared helper `cdnProxyFetch(req, res, cacheKey, upstreamUrl)` with 24h in-memor
 1. Add route in `index.js` calling `cdnProxyFetch` with cacheKey + upstreamUrl
 2. Restrict host via regex (SSRF guard)
 3. If bundle bypasses proxy (uses direct CDN URLs) → add Electron `webRequest.onBeforeRequest` redirect in `electron/main.js`
+
+### §3.6 Dịch ngược bundle + ghép nối data ĐỒNG NHẤT (full RE→wire playbook)
+
+> **Mục đích (user directive 2026-06-19):** ghi CHI TIẾT 2 việc hay sinh "lỗi lum la" khi thêm/sửa 1 overlay-feature từ bundle mới:
+> **(A)** dịch ngược (decompile + đọc) mã bundle obfuscated để biết feature CHẠY thế nào;
+> **(B)** ghép nối data theo đúng N-tier để mọi đầu (control-page ↔ backend ↔ widget ↔ i18n ↔ QA) **đồng nhất**, không sót đường nào.
+> Worked example xuyên suốt = **Countdown Goals** (overlay Jun16) — đã trace + wire + verify 200 end-to-end 2026-06-19. Theo y hệt thứ tự này cho overlay kế tiếp.
+
+#### PHẦN A — DỊCH NGƯỢC (obfuscated combo → readable → tìm chuỗi của 1 feature)
+
+**A0. Có sẵn gì (đừng decompile lại nếu chưa update bundle):**
+- `downloads/combo/{app,modules}.js` = obfuscated GỐC (đang chạy). KHÔNG đọc trực tiếp.
+- `decompiled/modules/deobfuscated.js` (~945KB) + `decompiled/app/deobfuscated.js` = **webcrack output readable** — đây là nơi grep. modules.js chứa overlay/widget logic (`obsoverlays`, `goals`, `countdowngoals`, `coinJar`…); app.js chứa Vue topbar/nav/i18n/transport wrap. Symbol có thể ở 1 trong 2 → grep CẢ HAI.
+- `docs/API_CONTRACTS.md` / `COMPLETE_ENDPOINT_INDEX.md` / `BUNDLE_CALL_FLOW.md` = shape + flow đã catalogue (đọc TRƯỚC khi guess shape).
+
+**A1. Re-decompile (CHỈ khi bundle vừa swap — xem §3.4 bước 2):** `webcrack` (KHÔNG wakaru), phải dời output-dir cũ trước, `NODE_OPTIONS=--max-old-space-size=6144`. webcrack = deobfuscate + un-minify + split module; **read-only artifact**, đừng sửa tay.
+
+**A2. Tìm chuỗi của 1 feature — luôn xác định 4 mắt xích (LUẬT VÀNG: grep symbol, đừng đoán):**
+
+| Mắt xích | Câu hỏi | Cách grep (ví dụ countdowngoals) |
+|---|---|---|
+| **① Control emit** | Control-page bắn data đi qua event tên gì, payload shape ra sao? | `grep -n 'countdowngoals.emitStatus = function' decompiled/modules/deobfuscated.js` → thấy `socketiowrapper.emitSocketEvent("countdownGoalsStatus", {status, config})` |
+| **② Transport class** | emit này đi đường nào trong 3 lớp (xem A3)? | event đi qua `emitSocketEvent` → bundle wrap thành `io.emit("distributeEvent", name, payload)` (app deob ~70895). → cần backend RELAY |
+| **③ Widget listen** | Widget standalone nghe event nào, đọc field nào? | đọc shell gốc `curl -s https://tikfinity.zerody.one/widget/countdowngoals.html` → `io.on("countdownGoalsStatus", updateFromPayload)`, đọc `payload.status[metric]` |
+| **④ Render entry** | Widget mount bằng hàm nào, file Vue dist nào? | shell gốc: `window.createCountdownGoals().mount("#app")` + `<script type=module src="/vue/dist/widgets/countdown-goals/countdown-goals.js">` → `grep -c createCountdownGoals` trong file dist |
+
+> **Vì sao phải đọc SHELL GỐC widget (`curl` html gốc), không tự chế:** shell chứa inline script (metric param, io.on, preview(), mount) = HỢP ĐỒNG giữa Vue-dist và socket. Tự viết lại dễ sai tên event/field → widget câm. Clone = COPY shell gốc, chỉ đổi 2 lib CDN→`/js/lib/*` (xem PHẦN B Tier 1). Đây là READ-GỐC-FIRST gate áp cho widget.
+
+**A3. BA LỚP TRANSPORT (gốc rễ của "data lúc ăn lúc không" — phải phân loại đúng event):**
+
+| Lớp | Bundle gọi | Đi đâu | Backend phải làm | Dấu hiệu |
+|---|---|---|---|---|
+| **1. Socket relay** | `emitSocketEvent(name,p)` → wrap `distributeEvent` | control→backend→widget | **RELAY**: thêm `name` vào `RELAYABLE_DISTRIBUTE` (socket-manager.js); target LUÔN `appType='widget'`, KHÔNG echo controlpage | test-FX, goalStatus, **countdownGoalsStatus** |
+| **2. DAPI/emitWsEvent** | `emitWsEvent(...)` | Electron DAPI transport (khác socket) | KHÔNG đụng — live gift/like đi đường này, backend act vào = **double-fire** | live gift/like (`isTest` absent) |
+| **3. REST + broadcast** | `fetch('/api/...')` | backend route → `broadcast(event)` | route phải có ĐỦ verb + tên event hyphen ĐÚNG | follower/me/settings/actions |
+
+> ⚠️ Cùng 1 feature có thể có CẢ 3 (vd coin-jar: test=lớp1, live gift=lớp2, HTTP reset=lớp3). Sai lớp = "lúc ăn lúc không". Verify bằng: live đi đường nào (đừng relay nhầm → double), test đi đường nào (phải relay).
+
+#### PHẦN B — GHÉP NỐI ĐỒNG NHẤT (N-tier checklist — wire 1 overlay mới, KHÔNG sót đường)
+
+> Làm ĐỦ 6 tier theo thứ tự. Mỗi tier có **error-signature** (bỏ sót → triệu chứng gì). Đây là chống "lỗi lum la": lỗi luôn là 1 tier bị quên, không phải bí ẩn.
+
+| Tier | Việc | File | Bỏ sót → triệu chứng |
+|---|---|---|---|
+| **T1. Widget shell** | Clone shell gốc → `downloads/widget/<name>.html`. ĐỔI jQuery+socket.io từ CDN ngoài → `/js/lib/{jquery.min,socket.io.min}.js`. GIỮ nguyên inline script (metric param, io.on, mount, preview). Giữ `sharedio/sharedio.js` + `socketioclient.js?v=10` (relative). | `downloads/widget/<name>.html` | OBS/standalone **treo** (CDN blocking); hoặc widget câm (sai event name). |
+| **T2. Vue dist + auto-sync** | Tải `/vue/dist/widgets/<dir>/<file>.js` từ gốc về local. Thêm 1 entry vào `FIXTURES` (`localPath`,`upstream`,`validate:/createX/`) để boot tự refresh + seasonal-safe (404→giữ local). | `downloads/vue/.../<file>.js` + `services/bundle-fixtures-sync.js` | Widget mount fail (`createX is not a function`); hoặc stale sau bundle update. |
+| **T3. Transport wiring** | Theo lớp A3: **lớp1** → thêm event vào `RELAYABLE_DISTRIBUTE`. **lớp3** → thêm route + verb + broadcast. **lớp2** → KHÔNG làm gì. | `services/socket-manager.js` HOẶC `routes/*.js` | Bấm test/đổi goal KHÔNG ra FX (event bị drop ở relay). |
+| **T4. i18n** | Sau swap: `node backend-node/scripts/extract-new-i18n.js`. ⚠️ key phẳng underscore (`menu_countdowngoals`) KEY_RE (≥1 dot) KHÔNG bắt → **tự thêm tay** vào `i18n-patch.json` (flat `{key:value}` tiếng Việt) + đảm bảo `downloads/config/localization/*.json` (12 locale) có key. `POST /api/_dev/reload-html`. | `templates/i18n-patch.json`, `config/localization/*.json` | Sidebar/menu hiện **raw key** (`menu_countdowngoals`). |
+| **T5. QA registry** | Thêm `<name>` vào mảng `widgets` (L3 smoke: 200 + no CDN-block + no debug log). Nếu có proxy data → thêm L1 API check. | `qa/registry.js` | Update sau làm câm widget mà `npm run qa` không bắt. |
+| **T6. Verify chạy thật** | `curl -w '%{http_code}' /widget/<name>?cid=1&preview=1` = 200; mọi asset (`vue`,`/js/lib`,`sharedio`,`socketioclient`,`text-effects`) = 200; grep HTML không còn `src="https://(code.jquery|cdnjs)"`. Rồi Ctrl+Shift+R + bấm test. | — | Claim "xong" mà chưa chạy = vi phạm §1.11. |
+
+**Bảng card overlay xuất hiện ở control-page:** overlay mới = card hiện SAU khi swap combo (bundle-native render, vd Jun16). Nếu chưa thấy card → cần bundle update (§3.4), KHÔNG tự chế card.
+
+**Đối chiếu nhanh "data có đồng nhất không" (1 câu hỏi mỗi đầu):**
+- Control emit event `X` ⟷ widget `io.on('X')` — **cùng string?** (case-sensitive).
+- Payload control gửi `{status:{[metric]:…}}` ⟷ widget đọc `payload.status[metric]` — **cùng path?**
+- Setting key control ghi `widget_<id>_<name>` → strip → `<id>_<name>` ⟷ widget đọc `settings['<id>_<name>']` — **cùng key sau strip?**
+- 3 đường points-strip (settings.js/me.js/widget-settings-cache.js) — **cả 3 cùng strip** `pointsmeta_/points_user_/dynamicsettings`? (sót 1 = 6MB → blank page).
+
+> 3 dấu ⟷ lệch = "lỗi lum la". Check 3 câu này TRƯỚC khi probe iframe.
 
 ---
 

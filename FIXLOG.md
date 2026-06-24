@@ -15,6 +15,41 @@
 
 ---
 
+## [2026-06-23] Import Settings (.tfc) có tick "Actions" → "Import failed" + MẤT TRẮNG cả lần import — ROOT: thiếu route `POST /api/importActions` — FIX: thêm route trả `newRecordMappings`
+
+**Status:** SOLVED (verified end-to-end HTTP round-trip trên DB live). Phát hiện bởi audit wf `audit-setup-export-import` (8 agent: 5 scout layer → Opus reconcile → adversarial verify; CRITICAL được verifier xác nhận isReal=true với full file:line chain).
+
+**Triệu chứng:** Nút "Import Settings from file" → chọn `.tfc` → tick ô **Actions** → bấm Start Import → toast **"Import failed"** (kèm "API Error (404)"). Tệ hơn: settings/sounds/events chọn CÙNG lần đó cũng mất, KHÔNG reload.
+
+**Root cause:** Bundle `setup.doImport` (deob modules:3399) `await api.doAction("POST","importActions",{targetProfileId,actions})` và đọc `resp.newRecordMappings` (3403) để remap event/timer → action id mới. `api.doAction` build URL = `apiBasePath('/api/') + 'importActions'` = `/api/importActions`. **Route đó KHÔNG tồn tại** — `importActions` chỉ là helper nội bộ [seed.js:99](backend-node/src/routes/seed.js#L99) (KHÔNG mount; seed router chỉ có GET /status + POST /). Không stub fallback → catch-all [index.js:831](backend-node/src/index.js#L831) trả **404**. 404 → `api.doAction` error cb → Promise reject → `doImport` (async, KHÔNG try/catch nội bộ) throw NGAY tại await — TRƯỚC mọi `settings.set`/`settings.save()` (sequenced sau, modules:3435-3557) → cả lần import bị poison. (Gate `importActions` chỉ fire khi tick Actions; bỏ tick → nhánh 3386 short-circuit, import settings/sounds/events vẫn OK.)
+
+**Audit verdict các flow khác (cùng wf):** export `.tfc` (client-side AES v3 + data:URL download) = WORKS; Electron `will-download` không chặn data:URL (main.js:1268 early-return) = WORKS; import KHÔNG-Actions (settings/sounds/events → settings.save → POST /api/updateSettings → SQLite UPSERT) = WORKS & persist; `/api/backup/*` đúng nhưng DEAD (không UI nào gọi, chỉ QA harness) + có gap ProfileId-orphan cross-install (MEDIUM, chưa fix vì chưa surface UI).
+
+**Fix that worked (NEW [import-actions.js](backend-node/src/routes/import-actions.js) + mount [index.js](backend-node/src/index.js)):** `POST /api/importActions` → resolve channelId (auth||findDefault) + profileId (body.targetProfileId||channel.ProfileId||1) → 1 better-sqlite3 txn: **overwrite-by-name** (xoá action TRÙNG TÊN trong (channel,profile), GIỮ action khác — khớp text dialog "same name overwritten", KHÔNG wipe-all như seed.js) → `actions.create` từng cái (ConfigJson=JSON.stringify(a) như seed importer, mapAction đọc lại media/dynamicConfig) bắt `lastInsertRowid` → `newRecordMappings[a.id]=newId` (KEY phải = imported original id, bundle lookup `_0x2ddb56[importedAction.id]` modules:3418) → `res.json({status:200,message:'OK',newRecordMappings})` (api.doAction jQuery dataType:json → success nhận raw body, đọc top-level `.newRecordMappings`). Broadcast `actionsChanged`. Backup `index.js.bak-2026-06-23-pre-importactions`.
+
+**Verify:** boot backend → 2 lượt POST /api/importActions: (1) status 200, `newRecordMappings` keyed `9001→1,9002→2` (int), config round-trip (imageUrl/cooldown/audioUrl đọc lại đúng); (2) overwrite-by-name: same-name → đúng 1 row, old id thay bằng new id + content mới, action không-trùng GIỮ, action mới THÊM, total=3 (no mass wipe). Cleanup probes → DB về 0. **Cần restart Electron/backend để pick up route mới.**
+
+**Bài học:** bundle gọi nhiều top-level `/api/<verb>` qua `api.doAction` (importActions, updateSettings, importMedia…). Khi 1 feature "im lặng fail", grep verb đó trong backend routes TRƯỚC — có thể route chưa port. Đừng đoán UI.
+
+**Re-review (wf `review-export-import`, 8 agent adversarial) — fix CONFIRMED CORRECT, `adversariallyVerifiedReal: []`. ⚠️ ĐỪNG "vá" 3 caveat sau (đã REFUTED, vá vào là sai/thừa):**
+- ❌ "Imported action lưu verbatim làm ConfigJson → mapAction đọc `profileId` từ blob thay vì cột" → **INERT:** grep 0 chỗ đọc per-action `action.profileId`; grid không hiện/dùng nó; visibility do **cột** ProfileId quyết (đúng). Là **pre-existing/systemic** — action tạo qua REST trên profile≠1 cũng report `profileId:1` từ blob. "Precedent" của fix đề xuất (serializeConfigJson strip profileId) là **SAI** — `ACTION_COLUMN_KEYS` KHÔNG có `profileid`. Vá vào = special-case import lệch REST, zero lợi ích.
+- ❌ "Không cap `body.actions`" → loopback-only (CSRF/Origin guard index.js:113-119), self-inflicted, txn rollback. NOTE-hardening, không phải defect.
+- ❌ "Duplicate `a.id` collapse mapping" → tamper-only (phải decrypt+sửa tay+re-encrypt .tfc AES); bundle match BY-NAME trước (deob:3415); fix đề xuất chỉ là `logger.warn` → tự xác nhận không có defect thật. YAGNI.
+
+**Còn lại (real nhưng CONTAINED, defer):** `backup.js /api/backup/import` giữ ProfileId verbatim (no FK/clamp) → orphan rows cross-install + thiếu rebuildAndBroadcast. CHỈ tới được qua QA/CLI (qa/registry.js + electron CLI), KHÔNG nút UI nào gọi → để nguyên tới khi (nếu) wire UI. Comment "BLOCK updateSettings" (blockScript.txt:4153,4497) STALE/SAI (code KHÔNG block updateSettings) — comment-only, gây hiểu nhầm, chưa sửa.
+
+## [2026-06-16] `/api/me` trả ~6MB → blank page máy khách (RELEASE BLOCKER) — ROOT: đường thứ 3 sót strip pointsmeta — FIX: strip trong me.js buildDynamicSettings
+
+**Status:** SOLVED (verified DB thật: 6.0MB→52KB). Phát hiện bởi pre-release audit (wf `pre-release-customer-audit`, verified curl 6,157,200 bytes + DB 24,857 rows). **Cùng CLASS với [2026-06-15] widget QuotaExceeded — đây là đường RÒ thứ 3.**
+
+**Triệu chứng:** `GET /api/me` trả **6.1MB** (đo curl). Bundle dump `channel.dynamicSettings` vào localStorage lúc boot → QuotaExceeded → **trang trắng ở máy khách** (đúng failure-mode comment settings.js:70-89 cảnh báo). Re-post mỗi save.
+
+**Root cause:** `routes/me.js buildDynamicSettings` (loop ~198-200) copy MỌI key DB vào result, KHÔNG strip — gồm **5,909 `points_user_` + 13,867 `pointsmeta_` = 94% payload**. 3 đường đụng bag points: WRITE (settings.js:90-92 ✓), BROADCAST (widget-settings-cache buildMerged ✓), **READ (me.js ✗ — sót)**. Drift giữa 3 đường = lý do sót 3 lần.
+
+**Fix that worked ([me.js](backend-node/src/routes/me.js) buildDynamicSettings loop):** `if (k.indexOf('pointsmeta_')===0 || k.indexOf('points_user_')===0) continue; if (k.toLowerCase()==='dynamicsettings') continue;`. Verified simulate trên DB live: 21,093 keys/6.0MB → 1,316 keys/52KB (−99%, dưới quota). **Cần restart backend.**
+
+**Bài học (TODO):** tách `stripNonWidgetKeys()` dùng CHUNG cho cả 3 đường → hết drift (đã sót 3 lần vì mỗi đường tự strip riêng). Xem [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
+
 ## [2026-06-15] Widget standalone (cannon…) CHẾT TRẮNG — `QuotaExceededError: setItem 'cachedSettings'` — ROOT: bag broadcast chứa 19.5k rows pointsmeta vượt quota localStorage 5MB — FIX: strip ở READ (buildMerged), không chỉ WRITE
 
 **Status:** SOLVED (đo DB live xác nhận). Phát hiện bằng `qa/.measure/probe-runner.js` (bắt đúng lỗi+dòng cannon.html:208 trong 8s). **KHÔNG phải regression từ edit blockScript** — blockScript không nhúng vào widget standalone.
@@ -585,17 +620,17 @@ Reset = FE/widget-only, ephemeral, backend stateless. Lag do jar KHÔNG cap tổ
 
 <!-- QA-AUTO-FAILURES:BEGIN -->
 
-### 🤖 AUTO-DETECTED FAILURES — 2026-06-11 08:26 (run 20260611-082628)
+### 🤖 AUTO-DETECTED FAILURES — 2026-06-19 08:06 (run 20260619-080627)
 
 > Tự sinh bởi `qa/run-all.js`. Mỗi FAIL = 1 strike (§6.1). Sau khi fix, ghi root-cause vào
 > entry FIXLOG thường (ngoài block này) rồi re-run để xác nhận PASS.
 
 - **[HIGH] widget.cannon.external-libs** (L3 Widget) — widget.cannon.external-libs
-  - Symptom: CDN cdnjs.cloudflare.com: … <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.1…
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
 - **[HIGH] widget.wheel.external-libs** (L3 Widget) — widget.wheel.external-libs
-  - Symptom: CDN cdnjs.cloudflare.com: … <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/latest/T…
+  - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
 - **[HIGH] widget.wheelofactions.external-libs** (L3 Widget) — widget.wheelofactions.external-libs
@@ -607,25 +642,17 @@ Reset = FE/widget-only, ephemeral, backend stateless. Lag do jar KHÔNG cap tổ
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
 - **[HIGH] widget.webcam.external-libs** (L3 Widget) — widget.webcam.external-libs
-  - Symptom: CDN code.jquery.com: … <script src="https://code.jquery.com/jquery-3.5.1.min.js" cr…
-  - Gate ref: widget-external-libs
-  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
-- **[HIGH] widget.overlay.external-libs** (L3 Widget) — widget.overlay.external-libs
-  - Symptom: CDN code.jquery.com: … <script src="https://code.jquery.com/jquery-3.5.1.min.js" cr…
+  - Symptom: CDN fonts.googleapis.com: …econnect" href="https://fonts.googleapis.com"> <link rel="preco…
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
 - **[HIGH] widget.talking.external-libs** (L3 Widget) — widget.talking.external-libs
-  - Symptom: CDN code.jquery.com: … <script src="https://code.jquery.com/jquery-3.5.1.min.js" cr…
+  - Symptom: CDN fonts.googleapis.com: …econnect" href="https://fonts.googleapis.com"> <link rel="preco…
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
 - **[HIGH] widget.eventcarousel.external-libs** (L3 Widget) — widget.eventcarousel.external-libs
   - Symptom: CDN fonts.googleapis.com: …econnect" href="https://fonts.googleapis.com"> <link rel="precon…
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
-- **[HIGH] widget.eventcarousel.serve** (L3 Widget) — widget.eventcarousel.serve
-  - Symptom: status=404 bytes=160
-  - Gate ref: Gate 35
-  - Fix hint: GET /widget/eventcarousel?cid=1&preview=1 must return 2xx HTML — check route + file serving
 - **[HIGH] widget.fallingsnow.external-libs** (L3 Widget) — widget.fallingsnow.external-libs
   - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
   - Gate ref: widget-external-libs
@@ -654,10 +681,6 @@ Reset = FE/widget-only, ephemeral, backend stateless. Lag do jar KHÔNG cap tổ
   - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
-- **[HIGH] widget.myactions.external-libs** (L3 Widget) — widget.myactions.external-libs
-  - Symptom: CDN cdn.jsdelivr.net: … <script src="https://cdn.jsdelivr.net/npm/@lottiefiles/lottie…
-  - Gate ref: widget-external-libs
-  - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
 - **[HIGH] widget.timer.external-libs** (L3 Widget) — widget.timer.external-libs
   - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
   - Gate ref: widget-external-libs
@@ -678,18 +701,10 @@ Reset = FE/widget-only, ephemeral, backend stateless. Lag do jar KHÔNG cap tổ
   - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
-- **[MEDIUM] chain.points.db** (Chain) — DB persist (balance + identity)
-  - Symptom: points_user_qa_pts_2c70lx=null (want 1234); pointsmeta_qa_pts_2c70lx.userId=null (want 991781141187997)
-  - Gate ref: Chain3
-  - Fix hint: services/points.js setBalance writes points_user_<username>@ProfileId=1; recordIdentity writes pointsmeta_<username> JSON.userId.
-- **[HIGH] chain.goals.create.db** (Chain) — Goals row after create
-  - Symptom: Goals row not found for Name='E2E goal' ChannelId=1 ProfileId=2
-  - Gate ref: Chain 4
-  - Fix hint: Verify DB_PATH resolves to the live DB (config.js) and ProfileId scope matches the route.
-- **[HIGH] chain.goals.update.db** (Chain) — Goals row after update
-  - Symptom: expected Target=999; got no row
-  - Gate ref: Chain 4
-  - Fix hint: Check goals model patch() updates Target.
+- **[HIGH] perf.log.errors** (Perf) — perf.log.errors
+  - Symptom: 1 error(s): [01:06:07.594] [32mINFO[39m: [36m[SocketManager] Client disconnected: wxwA97mEZOs61ORMAAAc (transport er…
+  - Gate ref: perf-sample
+  - Fix hint: Backend logged error/crash — trace root cause from the sample, then re-run
 
 <!-- QA-AUTO-FAILURES:END -->
 

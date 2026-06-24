@@ -361,6 +361,13 @@ async function tryConnectOnce(clean, channelId, attempt) {
           if (info && _state.username === clean) {
             _state.roomInfo = info;
             logger.info(`[TikTokBridge] roomInfo fetched (owner=${info?.owner?.nickname || '?'})`);
+            // Seed the Follower Counter widget (followercount) with the live total.
+            // Widget listens io.on('updateFollowerCount', {followerCount}); base from
+            // roomInfo here, then the 'follow' handler bumps it +1 per new follower.
+            try {
+              _state.followerCount = accountSnapshot().followerCount || 0;
+              broadcast(_state.channelId, 'updateFollowerCount', { followerCount: _state.followerCount });
+            } catch (e) { /* ignore — widget keeps placeholder until first follow */ }
           }
         })
         .catch((err) => {
@@ -384,9 +391,26 @@ async function tryConnectOnce(clean, channelId, attempt) {
         setImmediate(() => {
           Promise.resolve()
             .then(() => conn.fetchRoomInfo?.())
-            .then((info) => { if (info && _state.username === clean) _state.roomInfo = info; })
+            .then((info) => {
+              if (info && _state.username === clean) {
+                _state.roomInfo = info;
+                // Seed Follower Counter widget on the SOFT-success path too (hard-success
+                // does this; without it the widget sticks on placeholder 1234 until the
+                // first live 'follow'). pre-release audit 2026-06-16.
+                try {
+                  _state.followerCount = accountSnapshot().followerCount || 0;
+                  broadcast(_state.channelId, 'updateFollowerCount', { followerCount: _state.followerCount });
+                } catch (e) { /* ignore */ }
+              }
+            })
             .catch(() => {});
         });
+      } else {
+        // roomInfo already captured from the connection (roomSoft) — seed now.
+        try {
+          _state.followerCount = accountSnapshot().followerCount || 0;
+          broadcast(_state.channelId, 'updateFollowerCount', { followerCount: _state.followerCount });
+        } catch (e) { /* ignore */ }
       }
       logger.warn(
         { err: err?.message || err },
@@ -817,6 +841,9 @@ function wireEvents(conn, channelId, username) {
     broadcast(channelId, 'follow', payload);
     aggregates.recordFollow(channelId, { userId: u.userId, username: u.uniqueId, nickname: u.nickname, profilePictureUrl: u.profilePictureUrl });
     bumpGoals(channelId, 'follows', 1);
+    // Follower Counter widget: bump the running total + push so it ticks live.
+    _state.followerCount = (_state.followerCount || 0) + 1;
+    broadcast(channelId, 'updateFollowerCount', { followerCount: _state.followerCount });
     webhooks.dispatch(channelId, 'follow', payload).catch((err) => {
       logger.warn({ err, event: 'follow' }, 'webhook dispatch failed');
     });

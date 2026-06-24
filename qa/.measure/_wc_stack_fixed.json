@@ -1,0 +1,1013 @@
+{
+  "url": "http://localhost:5285/",
+  "startedAt": "2026-06-19T16:21:05.137Z",
+  "console": [
+    {
+      "type": "warning",
+      "text": "[reload-guard] INSTALLED at 1781886065828 href=http://localhost:5285/"
+    },
+    {
+      "type": "log",
+      "text": "[TF-seed-defaults] seeded 1 default localStorage settings"
+    },
+    {
+      "type": "log",
+      "text": "[tf-popup] script loaded"
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] No token, staying in guest mode"
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] Early init: channelId=1"
+    },
+    {
+      "type": "log",
+      "text": "[TF-live-badge] connected=false isLive=false roomId=null"
+    },
+    {
+      "type": "log",
+      "text": "[TF] TikTok connect module loaded"
+    },
+    {
+      "type": "log",
+      "text": "[TF-i18n-prebake] intercepted assign — merged 130 into locales [en]"
+    },
+    {
+      "type": "log",
+      "text": "[TF-i18n-patch] merged 0 key-insertions into locales [en]"
+    },
+    {
+      "type": "log",
+      "text": "[TF-cdn-rewrite] installed — gift imgs → /tiktok-img-cache/"
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] No auth token, skipping API hydrate"
+    },
+    {
+      "type": "log",
+      "text": "[TF-i18n-prebake] intercepted assign — merged 0 into locales [en]"
+    },
+    {
+      "type": "log",
+      "text": "Parallel loaded: [/js/guard/obf/trc.js, /js/lib-bundle.min.js]"
+    },
+    {
+      "type": "log",
+      "text": "Sentry initialized (Spotify errors only)"
+    },
+    {
+      "type": "log",
+      "text": "Sequentially loaded [1/1]: /combo/app.js"
+    },
+    {
+      "type": "log",
+      "text": "All scripts loaded successfully"
+    },
+    {
+      "type": "log",
+      "text": "[TF-DEBUG] posthog.getFeatureFlag(\"new-navigation-design\") => true"
+    },
+    {
+      "type": "log",
+      "text": "[TF-aiTts-force] hasBackendContext now returns true always"
+    },
+    {
+      "type": "warning",
+      "text": "[TF-intervalfix] setIntervalFix driver started manually (TTS queue + bundle loops)"
+    },
+    {
+      "type": "log",
+      "text": "[TF-i18n-switch] localization.switchLanguage patched"
+    },
+    {
+      "type": "info",
+      "text": "appconfig loaded {appVersion: 1.70.1, apiBasePath: /api/, connectorHost: , myinstantsApiHost: /myinstants-proxy/, authApiHost: }"
+    },
+    {
+      "type": "log",
+      "text": "[TF-i18n-switch] set tf_locale=EN tf_lang=en"
+    },
+    {
+      "type": "log",
+      "text": "[TF-DEBUG] posthog.getFeatureFlag(\"new-navigation-design\") => true"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Counter not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Counter not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Counter not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Widget not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Setting not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Dock not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Modal not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Commands not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Song Requests not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Song Requests not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Song Requests not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Song Requests not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property Song Requests not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property menu_agency_registry not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property menu_my_applications not found"
+    },
+    {
+      "type": "warning",
+      "text": "translation property obsoverlays_worldcupticker_theme_team not found"
+    },
+    {
+      "type": "log",
+      "text": "[TF-DEBUG] posthog.getFeatureFlag(\"new-navigation-design\") => true"
+    },
+    {
+      "type": "info",
+      "text": "27 modules loaded"
+    },
+    {
+      "type": "log",
+      "text": "loginChannel called with params: {channelName: null, noRestore: undefined, triggerAgencyValidation: false, stackTrace: Error\n    at loginChannel (http://localhost:5285/c… (<anonymous>:1:21494)\n    at <anonymous>:1:21701}"
+    },
+    {
+      "type": "warning",
+      "text": "[TF-Restore] swallowed POST /api/me settings.restore"
+    },
+    {
+      "type": "warning",
+      "text": "[STRETCH-DIAG] stretchIframes patched → non-blocking (rAF, parallel, 20px step)"
+    },
+    {
+      "type": "warning",
+      "text": "[RESET-DIAG] coinJar.resetJar hooked (HTTP fallback armed)"
+    },
+    {
+      "type": "warning",
+      "text": "getAllGiftsCached called without getAllGifts"
+    },
+    {
+      "type": "log",
+      "text": "[TF-itemTpl] sounds.loadData wrapped — gift imgs will use proxy URL directly"
+    },
+    {
+      "type": "verbose",
+      "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o"
+    },
+    {
+      "type": "verbose",
+      "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o"
+    },
+    {
+      "type": "log",
+      "text": "[TF-preload-triggers] warmed triggerDataSource: 200"
+    },
+    {
+      "type": "log",
+      "text": "[TF-credit-force] patched 2 store(s) → 100k Pro"
+    },
+    {
+      "type": "log",
+      "text": "[TF-overlay-visible] fired init() for start"
+    },
+    {
+      "type": "log",
+      "text": "[TF-overlay-visible] fired onVisible for start"
+    },
+    {
+      "type": "log",
+      "text": "[TF-overlay-visible] fired onVisible for start"
+    },
+    {
+      "type": "log",
+      "text": "[TF] Native inline button initialized via direct dxButton call"
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] Applying guest state mechanisms..."
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] Registering document-level event blockers"
+    },
+    {
+      "type": "log",
+      "text": "[TF] browserbridge hooked"
+    },
+    {
+      "type": "verbose",
+      "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o"
+    },
+    {
+      "type": "verbose",
+      "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o"
+    },
+    {
+      "type": "verbose",
+      "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o"
+    },
+    {
+      "type": "warning",
+      "text": "[STRETCH-DIAG] non-blocking stretch done in 0ms for 24 iframes"
+    },
+    {
+      "type": "warning",
+      "text": "[STRETCH-DIAG] non-blocking stretch done in 0ms for 24 iframes"
+    },
+    {
+      "type": "log",
+      "text": "[TF-fetch-trace] GET https://tts.tikfinity.com/api/tts/user"
+    },
+    {
+      "type": "log",
+      "text": "[TF-voice-mock] /api/tts/user intercept — returning quota payload"
+    },
+    {
+      "type": "log",
+      "text": "[TF-fetch-trace] GET https://tts.tikfinity.com/api/tts/voices"
+    },
+    {
+      "type": "log",
+      "text": "[TF-voice-mock] fetch intercept → https://tts.tikfinity.com/api/tts/voices"
+    },
+    {
+      "type": "log",
+      "text": "[TF-voice-mock] returning 120 voices, bodyLen=106671"
+    },
+    {
+      "type": "log",
+      "text": "[TF-voice-mock] first voice fields: vendorId,voiceId,voiceName,languageCode,gender,vendorSpecificAttributes,displayName,id,name,provider"
+    },
+    {
+      "type": "log",
+      "text": "[TF-voice-mock] first voice: {vendorId: ttsm, voiceId: 8393d2bc-88d4-4fd1-a4ac-074b4bae94ba, voiceName: Vera, languageCode: en-us, gender: female}"
+    },
+    {
+      "type": "log",
+      "text": "[TF-voice-mock] bundle called .json() — parsed voices.length=120"
+    },
+    {
+      "type": "log",
+      "text": "[TF] AI voices loaded: 120"
+    },
+    {
+      "type": "log",
+      "text": "[TF-overlay-visible] fired onVisible for start"
+    },
+    {
+      "type": "warning",
+      "text": "[STRETCH-DIAG] non-blocking stretch done in 0ms for 24 iframes"
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] Applying guest state mechanisms..."
+    },
+    {
+      "type": "log",
+      "text": "[TF-credit-force] patched 1 store(s) → 100k Pro"
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] Applying guest state mechanisms..."
+    },
+    {
+      "type": "log",
+      "text": "[TF-GUARD] Auto-dismissed splash screen"
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] Applying guest state mechanisms..."
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] Applying guest state mechanisms..."
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] Applying guest state mechanisms..."
+    },
+    {
+      "type": "log",
+      "text": "Removed expired images 0"
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] Applying guest state mechanisms..."
+    },
+    {
+      "type": "warning",
+      "text": "[STRETCH-DIAG] non-blocking stretch done in 0ms for 24 iframes"
+    },
+    {
+      "type": "log",
+      "text": "[TF-overlay-visible] fired init() for obsoverlays"
+    },
+    {
+      "type": "warning",
+      "text": "[STRETCH-DIAG] non-blocking stretch done in 0ms for 24 iframes"
+    },
+    {
+      "type": "log",
+      "text": "[TF-overlay-visible] fired onVisible for obsoverlays"
+    },
+    {
+      "type": "warning",
+      "text": "[STRETCH-DIAG] non-blocking stretch done in 12ms for 24 iframes"
+    },
+    {
+      "type": "log",
+      "text": "[TF-Auth] Applying guest state mechanisms..."
+    }
+  ],
+  "pageerrors": [],
+  "inPageErrors": [],
+  "badResponses": [],
+  "requestFailed": [
+    {
+      "url": "http://localhost:5285/vue/dist/widgets/coin-jar/coin-jar.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/coinjar/socketioclient.js?v=10",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/coinjar/sharedio/sharedio.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/vue/dist/widgets/coin-match/coin-match.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/coinmatch/sharedio/sharedio.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/coinmatch/socketioclient.js?v=10",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/socketioclient.js?v=10",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/sharedio/sharedio.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/vue/dist/widgets/world-cup-ticker/world-cup-ticker.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/vue/dist/widgets/world-cup-penalty-battle/world-cup-penalty-battle.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/socketioclient.js?v=10",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/sharedio/sharedio.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/wheelofactions/sharedio/sharedio.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/wheelofactions/socketioclient.js?v=10",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/vue/dist/widgets/wheel-of-actions/wheel-of-actions.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://fonts.googleapis.com/css2?family=Exo+2:wght@400;700&family=Lexend:wght@800&family=Luckiest+Guy&display=swap",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/socialmediarotator/sharedio/sharedio.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/vue/dist/widgets/social-media-rotator/social-media-rotator.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/socialmediarotator/socketioclient.js?v=10",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/matter.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/img/cannon.png",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://fonts.googleapis.com/css2?family=Edu+AU+VIC+WA+NT+Dots:wght@400..700&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/streambuddies/assets/index-Bnj4Dw6Q.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/socketioclient.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/streambuddies/buddiestester.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/text-effects.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/chat/socketioclient.js?v=10",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/chat/sharedio/sharedio.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/userinfo/img/gold_crown.svg",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/commandinfo/img/gold_crown.svg",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/TweenMax.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/circletype.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/img/nothumb.webp",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/ranking/img/gold_crown.svg",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/topgifter/img/gold_crown.svg",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/topliker/img/gold_crown.svg",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/jquery.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/myactions/?cid=1&screen=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/timer/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/songrequests/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/viewercount/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/carousel/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/penaltybattle?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/coinmatch/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/wheelofactions/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/cannon?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/likefountain?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/fallingsnow?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/socialmediarotator/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/firework/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/emojify/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/chat/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/gifts/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/transactionviewer/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/userinfo/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/commandinfo/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/wheel/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/topgifter/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/topliker/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/ranking/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/coindrop/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/myactions/?cid=1&screen=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/streambuddies/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/timer/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/songrequests/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/viewercount/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/carousel/?cid=1&preview=1",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/coinjar/socketioclient.js?v=10",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/widget/coinjar/sharedio/sharedio.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/js/lib/socket.io.min.js",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5285/vue/dist/widgets/coin-jar/coin-jar.js",
+      "failure": "net::ERR_ABORTED"
+    }
+  ],
+  "probe": {
+    "viewport": {
+      "w": 1280,
+      "h": 720
+    },
+    "section": {
+      "x": 343,
+      "y": 423,
+      "w": 920,
+      "h": 1621,
+      "right": 1263
+    },
+    "cardsWrap": {
+      "x": 344,
+      "y": 577,
+      "w": 918,
+      "h": 1466,
+      "right": 1262
+    },
+    "cardCount": 2,
+    "cardBoxes": [
+      {
+        "x": 360,
+        "y": 593,
+        "w": 886,
+        "h": 661,
+        "right": 1246
+      },
+      {
+        "x": 360,
+        "y": 1270,
+        "w": 886,
+        "h": 758,
+        "right": 1246
+      }
+    ],
+    "sideBySide": false,
+    "card0_computed": {
+      "flex-grow": "1",
+      "flex-shrink": "1",
+      "flex-basis": "380px",
+      "min-width": "850px",
+      "width": "886px",
+      "max-width": "none"
+    },
+    "card0_classes": "obsOverlayOnPage greyBackgroundSection greyBackgroundSectionOverlayFix",
+    "normalCard": {
+      "x": 343,
+      "y": 2060,
+      "w": 850,
+      "h": 861,
+      "right": 1193
+    }
+  },
+  "finishedAt": "2026-06-19T16:21:21.515Z",
+  "summary": {
+    "consoleErrors": 0,
+    "pageerrors": 0,
+    "inPageErrors": 0,
+    "badResponses": 0,
+    "requestFailed": 112
+  }
+}

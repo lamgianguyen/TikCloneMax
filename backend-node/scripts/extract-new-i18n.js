@@ -67,5 +67,25 @@ for (const k of Object.keys(missing).slice(0, 10)) {
   console.log(`  ${k} = ${missing[k]}`);
 }
 
-fs.writeFileSync(OUT, JSON.stringify(missing, null, 2), 'utf8');
-console.log(`\nWrote ${OUT} (${fs.statSync(OUT).size} bytes)`);
+// MERGE, do NOT overwrite. i18n-patch.json holds hand-curated values (Vietnamese
+// labels for menu_* / overlay keys etc. added manually because KEY_RE below only
+// matches DOTTED keys — flat underscore keys like "menu_countdowngoals" are NEVER
+// auto-extracted; see SKILL.md §3.6 Tier 4). Existing keys WIN over freshly
+// extracted English so re-running after a bundle update augments instead of
+// clobbering the curated fix. Delete a key from the JSON by hand to force re-extract.
+let existing = {};
+try {
+  if (fs.existsSync(OUT)) existing = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+} catch (err) {
+  console.warn(`! could not parse existing ${OUT} (${err.message}) — treating as empty`);
+}
+const merged = Object.assign({}, missing, existing); // existing curated values take precedence
+const addedCount = Object.keys(merged).length - Object.keys(existing).length;
+
+fs.writeFileSync(OUT, JSON.stringify(merged, null, 2), 'utf8');
+console.log(`\nMerged: kept ${Object.keys(existing).length} existing + added ${addedCount} new = ${Object.keys(merged).length} total`);
+console.log(`Wrote ${OUT} (${fs.statSync(OUT).size} bytes)`);
+console.log(`\n⚠ FLAT underscore keys (no dot, e.g. menu_countdowngoals) are NOT auto-extracted.`);
+console.log(`  After a bundle update, eyeball new overlay menu labels in the sidebar; if a raw`);
+console.log(`  key shows, add it MANUALLY to ${path.basename(OUT)} with a Vietnamese value, then`);
+console.log(`  POST /api/_dev/reload-html. (SKILL.md §3.6 Tier 4.)`);

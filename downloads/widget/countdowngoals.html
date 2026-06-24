@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="/js/guard/obf/trc.js"></script>
+
+    <link rel="stylesheet" href="/css/text-effects.css">
+
+    <!-- Clone: jQuery + socket.io LOCAL từ /js/lib/* (gốc nạp 2 lib này từ CDN ngoài → hang OBS). -->
+    <script src="/js/lib/jquery.min.js"></script>
+    <script src="/js/lib/socket.io.min.js"></script>
+
+    <script src="sharedio/sharedio.js"></script>
+    <script src="socketioclient.js?v=10"></script>
+    <script src="/js/text-effects.js"></script>
+
+    <script type="module" crossorigin src="/vue/dist/widgets/countdown-goals/countdown-goals.js"></script>
+    <style>
+        html,
+        body {
+            margin: 0;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+        }
+
+        #app {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const metric = params.get("metric") || "likes";
+        let hasReceivedLiveStatus = false;
+
+        function createFallbackStatus(goal) {
+            const safeGoal = Math.max(1, parseInt(goal || 0, 10) || 100);
+            const current = 0;
+            return {
+                current,
+                goal: safeGoal,
+                originalGoal: safeGoal,
+                percentage: Math.min(100, Math.floor((current / safeGoal) * 100)),
+                remaining: Math.max(0, safeGoal - current),
+                reached: current >= safeGoal,
+                hidden: false
+            };
+        }
+
+        function updateFromPayload(payload) {
+            if (!window.updateCountdownGoalsStatus || !payload?.status) return;
+
+            const metricStatus = payload.status[metric];
+            if (!metricStatus) return;
+            hasReceivedLiveStatus = true;
+            window.updateCountdownGoalsStatus(payload);
+        }
+
+        window.addEventListener("load", () => {
+            const CountdownGoals = window.createCountdownGoals();
+            CountdownGoals.mount("#app");
+
+            io.on("countdownGoalsStatus", updateFromPayload);
+
+        });
+
+        function preview() {
+            if (!window.updateCountdownGoalsStatus) return;
+            if (hasReceivedLiveStatus) return;
+
+            const goal = settings?.["countdowngoals_" + metric + "_value"] || 100;
+            const status = createFallbackStatus(goal);
+
+            window.updateCountdownGoalsStatus({
+                status: { [metric]: status },
+                config: {}
+            });
+        }
+    </script>
+</head>
+
+<body>
+    <div id="app"></div>
+</body>
+
+</html>

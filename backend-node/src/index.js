@@ -41,6 +41,7 @@ const uploadRouter = require('./routes/upload');
 const webhooksRouter = require('./routes/webhooks');
 const obsRouter = require('./routes/obs');
 const tikfinityImportRouter = require('./routes/tikfinity-import');
+const importActionsRouter = require('./routes/import-actions');
 const tiktokRouter = require('./routes/tiktok');
 
 // --- Apply DB migrations + seed BEFORE we accept any HTTP traffic. -----------
@@ -317,6 +318,7 @@ app.use('/api', uploadRouter);            // /uploadFile, /uploadMedia, /upload,
 app.use('/api/webhooks', webhooksRouter); // /webhooks (CRUD + /test)
 app.use('/api/obs', obsRouter);           // /obs/status, /obs/connect, /obs/scenes, ...
 app.use('/api/import', tikfinityImportRouter); // /import/tikfinity, /import/tikfinity/test
+app.use('/api', importActionsRouter);          // /importActions (native .tfc Import → Actions reinsert)
 app.use('/api/tiktok', tiktokRouter);           // /tiktok/status, /tiktok/connect, /tiktok/disconnect, /tiktok/stats
 
 // Myinstants sound library proxy — TRANSPARENT pass-through to zerody.
@@ -630,6 +632,55 @@ app.get(/^\/widget\/streambuddies\/(assets\/.+|images\/.+|sounds\/.+|buddiestest
     'https://tikfinity.zerody.one/widget/streambuddies/' + req.params[0]);
 });
 
+// /api/worldcup/matches → proxy gốc TikFinity (data trận đấu World Cup 2026 LIVE).
+// Public endpoint (no auth, như getAllGifts). Widget worldcupticker POLL endpoint
+// này (2× setInterval). Tỷ số/phút đổi liên tục khi đang đá → cache NGẮN 20s (giảm
+// tải gốc nhưng vẫn gần real-time). Registered SAU /api routers (đều pass-through
+// khi không khớp) + TRƯỚC /api 404 catch-all. Serve stale-cache khi upstream lỗi.
+let _worldcupCache = null;
+// Serve stale ON ERROR only within this window — covers transient upstream blips
+// (CDN hiccup, the gap between matches) WITHOUT showing stale forever. When the
+// World Cup ENDS and gốc removes the endpoint (permanent 404), stale expires after
+// this window → proxy returns {matches:[]} → the widget's CSS opacity-toggle
+// (.ticker.is-hidden = !visible; empty pool → visible=false → opacity:0) HIDES it
+// automatically — verified pixel-blank on OBS, wf worldcup-seasonal-autohide-verify
+// (user: "hết mùa thì ẩn"). Backend restart also clears the cache.
+const WORLDCUP_STALE_MAX_MS = 6 * 60 * 60 * 1000; // 6h
+app.get('/api/worldcup/matches', async (req, res) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  const staleOk = () => _worldcupCache && Date.now() - _worldcupCache.at < WORLDCUP_STALE_MAX_MS;
+  if (_worldcupCache && Date.now() - _worldcupCache.at < 20000) {
+    return res.send(_worldcupCache.body);
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const r = await fetch('https://tikfinity.zerody.one/api/worldcup/matches', {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: ctrl.signal,
+    });
+    if (!r.ok) {
+      if (staleOk()) return res.send(_worldcupCache.body); // recent stale on upstream error
+      // HTTP 200 (NOT upstream's 4xx): the widget's poll REJECTS non-200 → a 404
+      // body would be IGNORED → widget keeps showing the last match. 200+empty →
+      // poll empties its pool → .ticker.is-hidden (opacity:0) → auto-hides.
+      // (verifier caught this — a 404 here breaks "hết mùa thì ẩn".)
+      return res.json({ status: 200, message: 'no matches', matches: [] });
+    }
+    const body = Buffer.from(await r.arrayBuffer());
+    _worldcupCache = { body, at: Date.now() };
+    return res.send(body);
+  } catch (err) {
+    if (staleOk()) return res.send(_worldcupCache.body); // recent stale on network error
+    logger.warn({ err: err?.message || err }, '[WorldCup] matches proxy failed');
+    return res.json({ status: 200, message: 'no matches', matches: [] }); // 200 so widget poll accepts → hides
+
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 // /tiktok-img-cache/<host>/<path...> → https://<host>/<path...>
 // Caches gift / animation thumbnails from TikTok CDN. Without this, the
 // Sound Alerts trigger dropdown fetches ~50 cross-origin WebP images per
@@ -760,6 +811,18 @@ app.use(
         // Bundle assets are content-hashed-ish (well, names are stable enough)
         // — cache them aggressively in renderer.
         res.setHeader('Cache-Control', 'public, max-age=3600');
+      }
+      // SECURITY (pre-release audit 2026-06-16): neutralize SVG inline-script XSS.
+      // A served .svg NAVIGATED-TO directly (e.g. /uploads/image/evil.svg) runs JS in
+      // the app origin → can steal tf_login_token + hit destructive endpoints. CSP
+      // `sandbox` (empty = no script, no same-origin) runs it harmlessly; the SVG
+      // still renders shapes/inline-styles, and an <img>-embedded SVG is unaffected
+      // (response CSP only binds when the SVG IS the top document). nosniff blocks
+      // MIME-confusion. Belt-and-braces over the upload-whitelist drop in upload.js.
+      const _norm = filePath.replace(/\\/g, '/');
+      if (ext === '.svg' || _norm.includes('/uploads/')) {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Security-Policy', 'sandbox');
       }
     },
   })
