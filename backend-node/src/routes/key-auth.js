@@ -1,8 +1,8 @@
 // POST /api/auth/key-login — Serial Key gate.
 //
 // Direct port of `backend/Controllers/KeyAuthController.cs`. Calls the
-// TikfinityServer license validator at AUTH_HOST (default
-// http://127.0.0.1:5194), and on success mints a local JWT bound to either
+// license validator at AUTH_HOST (default https://tikpr0.com → /api/keys/validate),
+// and on success mints a local JWT bound to either
 // an existing channel keyed by the license keyId or a freshly created one.
 //
 // This is the ONLY auth path the desktop bundle actually uses in production
@@ -82,7 +82,7 @@ router.post('/key-login', async (req, res) => {
     });
   }
 
-  const baseUrl = (config.AUTH_HOST || 'http://127.0.0.1:5194').replace(/\/+$/, '');
+  const baseUrl = (config.AUTH_HOST || 'https://tikpr0.com').replace(/\/+$/, '');
   const validateUrl = `${baseUrl}/api/keys/validate`;
 
   const ctrl = new AbortController();
