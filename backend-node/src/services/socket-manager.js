@@ -137,7 +137,10 @@ function bind(ioServer) {
       // wheel
       'onSpinWheel', 'spinWheel',
       // aggregates / misc overlay
-      'updateTopGifter', 'updateTopLiker', 'updateViewerCount', 'topGiftData',
+      // updateFollowerCount: followercount.html io.on('updateFollowerCount') — control-page
+      // Test button + progress/milestone preview emit it via distributeEvent. Live follow
+      // uses a separate server-originated tiktok-bridge broadcast → no double-fire (Gate 35 RC-1).
+      'updateTopGifter', 'updateTopLiker', 'updateViewerCount', 'updateFollowerCount', 'topGiftData',
       'newTransaction', 'showCommandResult', 'showCommands', 'showCustomCommands', 'showUserScore',
       // timer / countdown — timer.html + timer/index.html consume io.on('timerUpdate')
       // ONLY (no REST path); this is the event the staged Countdown Goal bundle needs.

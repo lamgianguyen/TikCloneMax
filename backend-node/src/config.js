@@ -85,7 +85,7 @@ module.exports = {
   DB_PATH: path.join(DATA_DIR, 'tikfinity.db'),
 
   // Cloud auth gate. Local-only by default; renderer overrides via env if needed.
-  AUTH_HOST: process.env.TIKFINITY_AUTH_HOST || 'http://127.0.0.1:5194',
+  AUTH_HOST: process.env.TIKFINITY_AUTH_HOST || 'https://tikpr0.com',
 
   JWT_SECRET,
   JWT_ISSUER: 'tikfinity-local',

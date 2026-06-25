@@ -629,7 +629,7 @@ app.get(/^\/flag-icons\/(.+)$/, async (req, res) => {
 // assets + sprite/sound files don't exist locally → 404. Proxy fetches.
 app.get(/^\/widget\/streambuddies\/(assets\/.+|images\/.+|sounds\/.+|buddiestester\.js)$/, async (req, res) => {
   return cdnProxyFetch(req, res, 'streambuddies/' + req.params[0],
-    'https://tikfinity.zerody.one/widget/streambuddies/' + req.params[0]);
+    'https://tikpr0.com/widget/streambuddies/' + req.params[0]);
 });
 
 // /api/worldcup/matches → proxy gốc TikFinity (data trận đấu World Cup 2026 LIVE).
@@ -656,7 +656,7 @@ app.get('/api/worldcup/matches', async (req, res) => {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10000);
   try {
-    const r = await fetch('https://tikfinity.zerody.one/api/worldcup/matches', {
+    const r = await fetch('https://tikpr0.com/api/worldcup/matches', {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       signal: ctrl.signal,
     });

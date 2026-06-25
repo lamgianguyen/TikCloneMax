@@ -6,8 +6,8 @@ const path = require('path');
 
 const isDev = !app.isPackaged;
 
-process.env.TIKFINITY_HOST = isDev ? 'http://localhost:8081' : 'https://tikfinity.zerody.one';
-process.env.TIKFINITY_HOST_FALLBACK = 'http://tikfinity-origin.zerody.one';
+process.env.TIKFINITY_HOST = isDev ? 'http://localhost:8081' : 'https://tikpr0.com';
+process.env.TIKFINITY_HOST_FALLBACK = 'https://tikpr0.com';
 
 // Update main.js
 let loadMain = (isRetry) => {

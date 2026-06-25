@@ -27,7 +27,7 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('../logger').child({ scope: 'fixtures-sync' });
 
-const GOC_BASE = 'https://tikfinity.zerody.one';
+const GOC_BASE = process.env.UPSTREAM_HOST || 'https://tikpr0.com';
 const TIMEOUT_MS = 20_000;
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +

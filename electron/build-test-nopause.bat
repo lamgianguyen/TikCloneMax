@@ -15,7 +15,7 @@ call npm install --omit=dev --no-fund --no-audit
 if %errorlevel% neq 0 (
     echo ERROR: backend-node npm install failed!
     popd
-    pause
+    REM pause-skipped
     exit /b 1
 )
 popd
@@ -32,7 +32,7 @@ if %errorlevel% neq 0 (
     echo ERROR: @electron/rebuild on better-sqlite3 failed.
     echo If the prebuilt is missing, you may need a C++ toolchain. See:
     echo   https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md
-    pause
+    REM pause-skipped
     exit /b 1
 )
 
@@ -40,7 +40,7 @@ echo     Staging backend-node \(electron-builder will filter out data/node_modul
 xcopy "%ROOT%\backend-node" "%STAGE%\backend-node" /E /I /Q /Y >nul
 if %errorlevel% neq 0 (
     echo ERROR: Failed to stage backend-node!
-    pause
+    REM pause-skipped
     exit /b 1
 )
 
@@ -48,7 +48,7 @@ echo [2/4] Copying frontend (downloads) into stage...
 xcopy "%ROOT%\downloads" "%STAGE%\downloads" /E /I /Q /Y >nul
 if %errorlevel% neq 0 (
     echo ERROR: Failed to copy downloads!
-    pause
+    REM pause-skipped
     exit /b 1
 )
 
@@ -56,7 +56,7 @@ echo [3/4] Installing Electron dependencies...
 call npm install --no-fund --no-audit
 if %errorlevel% neq 0 (
     echo ERROR: Electron npm install failed!
-    pause
+    REM pause-skipped
     exit /b 1
 )
 
@@ -64,7 +64,7 @@ echo [4/4] Packaging Electron app (electron-builder)...
 call npx electron-builder --win
 if %errorlevel% neq 0 (
     echo ERROR: Electron build failed!
-    pause
+    REM pause-skipped
     exit /b 1
 )
 
@@ -74,4 +74,4 @@ echo.
 echo NSIS installer:  electron\dist\TikPro Setup 1.0.0.exe
 echo Portable build:  electron\dist\TikPro 1.0.0.exe
 echo.
-pause
+REM pause-skipped

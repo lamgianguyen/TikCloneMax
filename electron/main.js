@@ -198,7 +198,7 @@ function bootstrap() {
             console.error('[Electron] Backend startup failed:', err.message);
             dialog.showErrorBox(
                 'Startup Error',
-                'Không thể khởi động TikFinity backend.\n\n' +
+                'Không thể khởi động TikPro backend.\n\n' +
                 `Hãy chắc chắn port ${BACKEND_PORT} đang rảnh và Node.js có sẵn (nếu chạy từ source).\n\n` +
                 err.message
             );
@@ -397,7 +397,7 @@ function startBackend() {
             if (isQuitting || !wasCurrent) return;
             dialog.showMessageBox({
                 type: 'error',
-                title: 'TikFinity Backend Error',
+                title: 'TikPro Backend Error',
                 message: `Backend đã thoát bất ngờ (code: ${code}).`,
                 buttons: ['Khởi động lại', 'Thoát'],
                 defaultId: 0
@@ -721,7 +721,7 @@ function showExpiryNotice(title, body) {
         try {
             dialog.showMessageBox(mainWindow, {
                 type: 'warning',
-                title: 'TikFinity',
+                title: 'TikPro',
                 message: title,
                 detail: body,
                 buttons: ['OK']
@@ -835,7 +835,7 @@ function createLoginWindow(reason) {
         movable: true,
         show: false,
         skipTaskbar: false,
-        title: 'TikFinity — Đăng nhập',
+        title: 'TikPro — Đăng nhập',
         backgroundColor: '#1a1a1a',
         icon: getIconPath(),
         webPreferences: {
@@ -1289,7 +1289,7 @@ function configureSession() {
             width: 800,
             height: 600,
             autoHideMenuBar: true,
-            title: 'TikFinity',
+            title: 'TikPro',
             backgroundColor: '#1c1d22',
             parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
             webPreferences: { contextIsolation: false, nodeIntegration: false },
@@ -1572,7 +1572,7 @@ function createMainWindow() {
         minWidth: 1230,
         minHeight: 700,
         show: false,
-        title: 'TikFinity',
+        title: 'TikPro',
         // Match earlyCss.txt #1c1d22 so the BrowserWindow background doesn't
         // bleed a lighter strip on the right/bottom when the bundle is mid-
         // reload (e.g. during the "Connecting websocket..." splash chain).
@@ -2069,7 +2069,7 @@ function handleWindowOpen(details) {
                 width: randomInt(1800, 2300),
                 skipTaskbar: true,
                 autoHideMenuBar: true,
-                title: 'TikFinity Bridge',
+                title: 'TikPro Bridge',
                 webPreferences: {
                     contextIsolation: false,
                     backgroundThrottling: false
@@ -2127,7 +2127,7 @@ function handleWindowOpen(details) {
                 width: 800,
                 height: 600,
                 autoHideMenuBar: true,
-                title: 'TikFinity Widget',
+                title: 'TikPro Widget',
                 backgroundColor: '#000000',
                 parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
                 webPreferences: {
@@ -2152,7 +2152,7 @@ function handleWindowOpen(details) {
                 width: 560,
                 height: 720,
                 autoHideMenuBar: true,
-                title: 'TikFinity',
+                title: 'TikPro',
                 parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
                 webPreferences: {
                     contextIsolation: true,
@@ -2201,7 +2201,7 @@ function createTray() {
     if (icon.isEmpty()) icon = nativeImage.createFromBuffer(TRAY_FALLBACK_PNG);
 
     tray = new Tray(icon);
-    tray.setToolTip('TikFinity');
+    tray.setToolTip('TikPro');
     refreshTrayMenu();
     tray.on('double-click', () => mainWindow ? mainWindow.show() : createMainWindow());
 }
@@ -2236,7 +2236,7 @@ function refreshTrayMenu() {
                     buttons: ['Đăng xuất', 'Hủy'],
                     defaultId: 1,
                     cancelId: 1,
-                    title: 'TikFinity',
+                    title: 'TikPro',
                     message: 'Đăng xuất khỏi ứng dụng?',
                     detail: 'Bạn sẽ phải nhập lại Serial Key để dùng tiếp.'
                 });

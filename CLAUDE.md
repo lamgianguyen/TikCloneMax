@@ -2203,3 +2203,67 @@ checksum8 = sha256_hex("tfintegrity_v{ver}_{channelId}-{isPro}-{hasActiveTrial}-
 - **CDP patch `/api/me` renderer thành công** → `session.me.isPro=true` + `channel.updatedAt=PIN` + `navIsPro=true` (Pro logic CHẠY). **NHƯNG** probe `ricData.me=1:e134248e` — KHÔNG khớp forge `3874d37c` và không khớp combo nào với updatedAt đã thấy → **có `/api/me` THỨ HAI (timestamp mới) mà CDP renderer-Fetch KHÔNG bắt = main-process axios** (SKILL §7). → lệch → sabotage (`jq` đổi `"w"`→`"getSelection"`).
 - **→ KẾT LUẬN patch-request:** **CHỈ đủ khi bắt được MỌI `/api/me`.** Backend proxy ở tầng network (dev có sẵn) thấy CẢ main-process axios → không lọt → **patch body + PIN `channel.updatedAt` (hằng số) + forge `x-ric` với PIN đó → `ricPassed=true`, Pro từ response đầu, KHÔNG sabotage**. CDP renderer-only thì lọt → phải dùng client-side force.
 - **PIN là chìa khóa:** pin `channel.updatedAt` về 1 hằng số cho MỌI response → mọi `x-ric` giống hệt → header/body luôn khớp → hết race. Code backend Node verify self-test: `patch-chrome/patch-api-me.js` (`node patch-api-me.js` → `6fb24656 KHOP`). Doc: `tikfinity-pro-skill/docs/BACKEND-PROXY.md`.
+
+---
+
+### Gate 37: Export/Import settings — backup gốc → clone (RE 2026-06-25)
+
+> **Bối cảnh:** tool backup settings từ TikFinity gốc nạp vào clone. Câu hỏi gốc: export có gọi server zerody không? → **KHÔNG.** Mọi data đã ở client; backup lấy thẳng từ `/api/me`.
+
+**Nơi settings sống:**
+- **Gốc (server):** `/api/me` → `channel.dynamicSettings` = bag đầy đủ (`widget_*` ... lưu TEXT) của **profile đang active**. Client bundle `settings.restore(dynamicSettings)` đổ vào localStorage `setting_*` (= bản mirror cùng data).
+- **Clone:** `POST /api/updateSettings` ([routes/settings.js:50](backend-node/src/routes/settings.js#L50)) ghi vào DB `DynamicSettings` keyed **`(ChannelId, ProfileId, Key)`** ([db/models/dynamic-settings.js](backend-node/src/db/models/dynamic-settings.js), migration `IX_DynamicSettings_ChannelId_ProfileId_Key`). Nhận flat `{key:val}` HOẶC array `[{key,value}]`.
+
+**Export native gốc = LOCAL, KHÔNG gọi server** (`setup.doExport` [decompiled/modules/deobfuscated.js:3120](decompiled/modules/deobfuscated.js#L3120)):
+1. `settings.save()` (chỉ persist thường, KHÔNG phải export-upload).
+2. Lọc bag theo checkbox (channelname / sounds / events+timer) + gộp `actionsandevents.actions`.
+3. Build `{dynamicSettings, actions, version, sourceChannelId}`.
+4. **Mã hóa** → download `.tfc` LOCAL (`utils.downloadFileFromText`, filename `tikfinity_settings_profile<profileId>.tfc`).
+   - `b64 = reverse(base64(encodeURIComponent(JSON(data))).replace("=",""))`
+   - `inner = CryptoJS.AES.encrypt(JSON({b64RawData:b64}), shash(randomKey,3))`
+   - `final = CryptoJS.AES.encrypt("v3:"+btoa(randomKey)+":"+inner, "lolsurghwi378ukasfjsdf_s")` ← **master key HARDCODE** trong bundle → `.tfc` giải mã được.
+   - Import native (`setup.settingsImport`): đảo ngược; **actions** POST server `importActions` (modules:3399), dynamicSettings restore local.
+
+**⚑ Multi-profile (QUAN TRỌNG):** settings **per-profile**. `/api/me` chỉ trả profile **đang active**. Backup nhiều profile → **switch từng profile** (`window.switchProfile(id)` / POST `/api/me {profileId}`) rồi lấy `dynamicSettings` từng cái. `.tfc` native cũng per-profile (filename có profileId). Clone DynamicSettings keyed `(ChannelId, ProfileId, Key)` → import phải target đúng ProfileId (switch clone profile trước, hoặc POST `/api/me {profileId}` set active).
+
+**Recipe backup gốc → clone (KHÔNG cần crack `.tfc`):**
+1. **Export:** với mỗi profileId 1..N: switch profile gốc → đọc `/api/me` → `channel.dynamicSettings` (proxy đã chặn sẵn, plaintext). Lưu `{profileId, channelId, channelSignature, dynamicSettings}`.
+2. **Import:** với mỗi profile: set clone active profile → `POST http://localhost:5285/api/updateSettings` body = `dynamicSettings` (flat). Clone tự stringify + lưu per (ChannelId, ProfileId).
+3. **Key nhất quán gốc↔clone** (`widget_<id>_<name>`) → không cần map.
+4. **Clone tự lọc rác:** `updateSettings` drop `dynamicsettings` (self-ref bloat ~295KB) + `points_user_*`/`pointsmeta_*` (per-viewer ~10MB) — đừng lo bag to.
+5. `id`+`channelSignature` chỉ để biết backup của account nào; **import KHÔNG cần** (clone dùng channel của nó).
+6. Actions & Events = endpoint riêng (`importActions`/`/api/actions`), KHÔNG nằm trong dynamicSettings — backup riêng nếu cần.
+
+---
+
+### Gate 38: Rebrand TikPro — tách build khỏi thư mục `tikfinity` + đổi API host → `tikpr0.com` (2026-06-25)
+
+> **Yêu cầu dev (A Chí):** "đừng sài thư mục tikfinity, cho build ra thư mục khác, gán api tikpr0.com zô, host để check key". Lý do: setup clone cài ĐÈ vào `%LOCALAPPDATA%\Programs\tikfinity` (productName="TikFinity" → trùng thư mục app gốc) → local hỏng. Tách brand + trỏ về server riêng `tikpr0.com`.
+
+**Cơ chế collision (đã hiểu):** Electron NSIS install dir = `build.productName`; runtime `app.getPath('userData')` = `%APPDATA%\<app.getName()>` = package.json **`name`**. Cũ: productName="TikFinity" (→ `Programs\TikFinity` ≈ `tikfinity` case-insensitive = ĐỤNG gốc) + name="tikfinity-desktop" (→ userData `%APPDATA%\tikfinity-desktop` ĐỤNG gốc). → **PHẢI đổi cả `name` LẪN `productName`.**
+
+**Đã đổi (2026-06-25):**
+
+| File | Cũ | Mới |
+|---|---|---|
+| [electron/package.json](electron/package.json) | `name:tikfinity-desktop`, `productName:TikFinity`, `appId:com.tikfinity.desktop`, `shortcutName:TikFinity`, `author:TikFinity` | `tikpro-desktop`, `TikPro`, `com.tikpro.desktop`, `TikPro`, `TikPro` |
+| [backend index.js](backend-node/src/index.js) `/widget/streambuddies` + `/api/worldcup/matches` proxy | `https://tikfinity.zerody.one` | `https://tikpr0.com` |
+| [tikfinity-import.js:22](backend-node/src/routes/tikfinity-import.js#L22) `TIKFINITY_BASE` | `'https://tikfinity.zerody.one'` | `process.env.UPSTREAM_HOST \|\| 'https://tikpr0.com'` |
+| [bundle-fixtures-sync.js:30](backend-node/src/services/bundle-fixtures-sync.js#L30) `GOC_BASE` | nt | `process.env.UPSTREAM_HOST \|\| 'https://tikpr0.com'` |
+| [webhooks.js:140](backend-node/src/routes/webhooks.js#L140) favicon | nt | `https://tikpr0.com/favicon.ico` |
+| [index.js (root):9-10](index.js#L9) `TIKFINITY_HOST` + `_FALLBACK` | nt | `https://tikpr0.com` |
+| [config.js:88](backend-node/src/config.js#L88) `AUTH_HOST` (key-check) | `http://127.0.0.1:5194` | `process.env.TIKFINITY_AUTH_HOST \|\| 'https://tikpr0.com'` |
+
+**Config override (env):** upstream = `UPSTREAM_HOST`, key-check = `TIKFINITY_AUTH_HOST`, host bundle = `TIKFINITY_HOST`. → đổi host sau này KHÔNG cần sửa code, set env.
+
+**CỐ Ý GIỮ NGUYÊN (không đụng — minimal change, không collision):**
+- Thư mục data nội bộ `tikfinity-data` ([main.js:351](electron/main.js#L351)) + DB `tikfinity.db` ([config.js DB_PATH](backend-node/src/config.js)): nằm DƯỚI userData root đã đổi (`%APPDATA%\tikpro-desktop\...`) → KHÔNG đụng gốc → để nguyên (đổi tên = rủi ro vỡ DB-path, vô ích).
+- UI string "TikFinity" trong [main.js](electron/main.js) (window title, dialog): bundle vốn brand TikFinity (clone/mirror), dev không yêu cầu đổi → giữ.
+- Comment chứa "tikfinity.zerody.one" (mô tả): không phải code, không ảnh hưởng.
+- `electron/import-tikfinity.js` ref `tikfinity.zerody.one`: ĐÚNG — capture auth header từ tab app GỐC để import (vẫn là domain gốc).
+
+**Verify:** `node -e require('./electron/package.json')` → `productName:TikPro appId:com.tikpro.desktop`; `require config.js` → `AUTH_HOST: https://tikpr0.com`; `node --check` 5 file sửa = OK. Build mới → cài vào `Programs\TikPro` + userData `%APPDATA%\tikpro-desktop` → KHÔNG đụng TikFinity gốc.
+
+**⚠️ tikpr0.com phải serve:** `/api/getAllGifts`, `/api/getAllAnimations` (fixtures sync), `/api/worldcup/matches`, `/widget/streambuddies/*`, `/api/keys/validate` (key-check). Nếu chưa serve endpoint nào → clone degrade graceful (fixtures dùng file local sẵn, worldcup trả `{matches:[]}` tự ẩn) — KHÔNG crash.
+
+**Brand display + logo (2026-06-25):** UI text "TikFinity" → **"TikPro"** ở 11 chỗ user-facing ([electron/main.js](electron/main.js) window/dialog titles + tray tooltip, [login.html](electron/login.html), [splash.html](electron/splash.html)). **GIỮ** 7 comment trong main.js có "TikFinity" (mô tả behavior app GỐC — ref đúng, không phải brand clone). Logo mới: nguồn [electron/logo-tikpro.svg](electron/logo-tikpro.svg) (badge tối + chromatic cyan/pink "Tik" + pill "PRO") → gen `icon.ico` (multi-size 16-256), `icon.png` (256), `splash-logo.png` (256), `logo-tikpro-1024.png` (master) bằng sharp + png-to-ico. Icon cũ backup `*.bak-tikfinity`. Sửa logo → edit SVG rồi chạy lại sharp resize + pngToIco(buffers 16..256). **Domain vẫn `tikpr0.com`** (chỉ brand DISPLAY = "TikPro"; identifier `com.tikpro.desktop`/`tikpro-desktop`).

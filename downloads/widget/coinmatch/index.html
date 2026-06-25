@@ -65,7 +65,7 @@
       });
 
       function preview() {
-        if (!window.startMatch || triggered || previewing) return;
+        if (!window.startMatch || triggered || previewing || !settings) return;
         previewing = true;
 
         const payloadSettings = {

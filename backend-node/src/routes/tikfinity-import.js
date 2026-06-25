@@ -19,7 +19,7 @@ const logger = require('../logger');
 
 const router = express.Router();
 
-const TIKFINITY_BASE = 'https://tikfinity.zerody.one';
+const TIKFINITY_BASE = process.env.UPSTREAM_HOST || 'https://tikpr0.com';
 const REQUEST_TIMEOUT_MS = 30_000;
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36';

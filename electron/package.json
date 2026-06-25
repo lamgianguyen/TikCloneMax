@@ -1,8 +1,8 @@
 {
-  "name": "tikfinity-desktop",
+  "name": "tikpro-desktop",
   "version": "1.0.0",
-  "description": "TikFinity Desktop - TikTok LIVE Tools",
-  "author": "TikFinity",
+  "description": "TikPro Desktop - TikTok LIVE Tools",
+  "author": "TikPro",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -21,8 +21,8 @@
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "appId": "com.tikfinity.desktop",
-    "productName": "TikFinity",
+    "appId": "com.tikpro.desktop",
+    "productName": "TikPro",
     "directories": {
       "output": "dist"
     },
@@ -61,7 +61,7 @@
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "icon.ico",
       "uninstallerIcon": "icon.ico",
-      "shortcutName": "TikFinity",
+      "shortcutName": "TikPro",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },

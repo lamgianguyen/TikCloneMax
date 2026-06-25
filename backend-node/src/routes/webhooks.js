@@ -137,7 +137,7 @@ router.post('/test/:id', async (req, res) => {
   await webhookSvc.dispatch(channelId, 'gift', {
     uniqueId: 'tikfinity_test',
     nickname: 'TikFinity Test',
-    profilePictureUrl: 'https://tikfinity.zerody.one/favicon.ico',
+    profilePictureUrl: 'https://tikpr0.com/favicon.ico',
     giftName: 'Rose',
     diamondCount: 5,
     repeatCount: 1,
