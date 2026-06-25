@@ -78,10 +78,14 @@
         ]
       },
       {
-        "from": "../dist/app/downloads",
+        "from": "../downloads",
         "to": "downloads",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.bak*",
+          "!**/.git/**",
+          "!uploads/**",
+          "!tf-assets-cache/**"
         ]
       }
     ]
