@@ -7,6 +7,7 @@
   var _connected = false;
   var _connecting = false;
   var _currentUsername = '';
+  var _connectedUsername = '';
   // While a USER-initiated connect/disconnect is settling, the continuous
   // backend monitor must NOT reconcile (it would stomp the in-flight action
   // back to a stale backend value). Timestamp window, cleared by time.
@@ -163,6 +164,11 @@
 
     _connected = (state === 'connected');
     _connecting = (state === 'connecting');
+    if (_connected) {
+      _connectedUsername = user;
+    } else {
+      _connectedUsername = '';
+    }
 
     // Status bar
     if (state === 'connecting') {
@@ -371,25 +377,23 @@
     return false;
   }
 
-  document.addEventListener('input', function(e) {
+  // ── Change listener — save username and auto-reconnect when changes while connected ──
+  document.addEventListener('change', function(e) {
     if (!e.target || e.target.tagName !== 'INPUT' || e.target.type === 'hidden') return;
-    var val = normalize(e.target.value);
-    if (val && val.length >= 2) {
-      _currentUsername = val;
-      localStorage.setItem('setting_tiktokname', val);
-      try { if (window.session) window.session.tiktokUsername = val; } catch(ex) {}
+    if (isUsernameInput(e.target)) {
+      var val = normalize(e.target.value);
+      if (val && val.length >= 2) {
+        var oldUsername = _connectedUsername || _currentUsername;
+        _currentUsername = val;
+        localStorage.setItem('setting_tiktokname', val);
+        try { if (window.session) window.session.tiktokUsername = val; } catch(ex) {}
 
-      // Auto-reconnect when username changes while connected
-      if (_connected && isUsernameInput(e.target)) {
-        if (_autoReconnectTimer) clearTimeout(_autoReconnectTimer);
-        _autoReconnectTimer = setTimeout(function() {
-          var current = normalize(e.target.value);
-          if (_connected && current && current.length >= 2) {
-            console.log('[TF] Auto-reconnect detected username change → @' + current);
-            doDisconnect();
-            setTimeout(function() { doConnect(current, false); }, 500);
-          }
-        }, 800);
+        // Auto-reconnect only if we were already connected and username actually changed
+        if (_connected && val !== normalize(oldUsername)) {
+          console.log('[TF] Auto-reconnect detected username change → @' + val);
+          doDisconnect();
+          setTimeout(function() { doConnect(val, false); }, 500);
+        }
       }
     }
   }, true);

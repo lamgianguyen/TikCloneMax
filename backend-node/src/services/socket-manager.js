@@ -192,6 +192,7 @@ function bind(ioServer) {
       try {
         const cid = socket.data.channelId;
         if (!(cid > 0) || !payload || typeof payload !== 'object') return;
+        logger.info(`[SocketManager] RECV reportWidgetState socket=${socket.id} widgetId=${payload.widgetId} screenId=${payload.screenId}`);
         // Always forward raw state so the bundle tracks live/active widgets.
         broadcastToChannel('widgetState', payload, cid, 'controlpage');
         // First sighting of this widgetId on this channel → announce connect so

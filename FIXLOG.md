@@ -620,11 +620,15 @@ Reset = FE/widget-only, ephemeral, backend stateless. Lag do jar KHÔNG cap tổ
 
 <!-- QA-AUTO-FAILURES:BEGIN -->
 
-### 🤖 AUTO-DETECTED FAILURES — 2026-06-19 08:06 (run 20260619-080627)
+### 🤖 AUTO-DETECTED FAILURES — 2026-06-26 08:07 (run 20260626-080748)
 
 > Tự sinh bởi `qa/run-all.js`. Mỗi FAIL = 1 strike (§6.1). Sau khi fix, ghi root-cause vào
 > entry FIXLOG thường (ngoài block này) rồi re-run để xác nhận PASS.
 
+- **[LOW] api.worldcup.matches** (L1 API) — GET /api/worldcup/matches
+  - Symptom: GET /api/worldcup/matches → 200 but response body was not JSON
+  - Gate ref: World Cup ticker (ported)
+  - Fix hint: Ensure the handler for /api/worldcup/matches returns matches in its JSON body.
 - **[HIGH] widget.cannon.external-libs** (L3 Widget) — widget.cannon.external-libs
   - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
   - Gate ref: widget-external-libs
@@ -634,7 +638,7 @@ Reset = FE/widget-only, ephemeral, backend stateless. Lag do jar KHÔNG cap tổ
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
 - **[HIGH] widget.wheelofactions.external-libs** (L3 Widget) — widget.wheelofactions.external-libs
-  - Symptom: CDN fonts.googleapis.com: …econnect" href="https://fonts.googleapis.com"> <link rel="preconne…
+  - Symptom: CDN fonts.googleapis.com: …econnect" href="https://fonts.googleapis.com"> <link rel="preconn…
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
 - **[HIGH] widget.goal.external-libs** (L3 Widget) — widget.goal.external-libs
@@ -701,10 +705,66 @@ Reset = FE/widget-only, ephemeral, backend stateless. Lag do jar KHÔNG cap tổ
   - Symptom: CDN fonts.googleapis.com: …).attr("href", "https://fonts.googleapis.com/css2?family=" + fontTyp…
   - Gate ref: widget-external-libs
   - Fix hint: Localize blocking CDN lib to /js/lib/ — external libs hang OBS/plain browsers
-- **[HIGH] perf.log.errors** (Perf) — perf.log.errors
-  - Symptom: 1 error(s): [01:06:07.594] [32mINFO[39m: [36m[SocketManager] Client disconnected: wxwA97mEZOs61ORMAAAc (transport er…
-  - Gate ref: perf-sample
-  - Fix hint: Backend logged error/crash — trace root cause from the sample, then re-run
+- **[MEDIUM] gate.07.resolvevoicecfg** (L4 Gate-drift) — gate.07.resolvevoicecfg
+  - Symptom: DRIFT: Gate Gate 7 anchor 'resolveVoiceConfigFromId' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 7
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[MEDIUM] gate.08.hasbackendctx** (L4 Gate-drift) — gate.08.hasbackendctx
+  - Symptom: DRIFT: Gate Gate 8a anchor 'getAiTtsBackendContext' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 8a
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[HIGH] gate.30a.proChip** (L4 Gate-drift) — gate.30a.proChip
+  - Symptom: DRIFT: Gate Gate 30a anchor 'TTSProDropdown' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 30a
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[MEDIUM] gate.30a.freeChip** (L4 Gate-drift) — gate.30a.freeChip
+  - Symptom: DRIFT: Gate Gate 30a anchor 'TTSFreeDropdown' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 30a
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[MEDIUM] gate.30b.switchlanguage** (L4 Gate-drift) — gate.30b.switchlanguage
+  - Symptom: DRIFT: Gate Gate 30b anchor 'switchLanguage' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 30b
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[MEDIUM] gate.30c.streamprofile** (L4 Gate-drift) — gate.30c.streamprofile
+  - Symptom: DRIFT: Gate Gate 30c anchor 'streamProfileId' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 30c
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[MEDIUM] gate.30c.switchprofile** (L4 Gate-drift) — gate.30c.switchprofile
+  - Symptom: DRIFT: Gate Gate 30c anchor 'switchProfile' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 30c
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[HIGH] gate.35.coinjarreset** (L4 Gate-drift) — gate.35.coinjarreset
+  - Symptom: DRIFT: Gate Gate 35 anchor 'coin-jar:reset' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 35
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[MEDIUM] gate.35.coinmatchstart** (L4 Gate-drift) — gate.35.coinmatchstart
+  - Symptom: DRIFT: Gate Gate 35 anchor 'coin-match:start' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 35
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[MEDIUM] gate.35.spinwheel** (L4 Gate-drift) — gate.35.spinwheel
+  - Symptom: DRIFT: Gate Gate 35 anchor 'onSpinWheel' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 35
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[MEDIUM] gate.35.resetjar** (L4 Gate-drift) — gate.35.resetjar
+  - Symptom: DRIFT: Gate Gate 35-MECH anchor 'resetJar' NOT FOUND in modules/deobfuscated.js → bundle changed, review/re-anchor this gate (app may still run)
+  - Gate ref: Gate 35-MECH
+  - Fix hint: open BUNDLE_UPDATE.md → re-grep decompiled for the new symbol, update the gate fix + this needle
+- **[HIGH] chain.settings.db** (Chain) — DB persist (DynamicSettings)
+  - Symptom: row widget_cannon_ballsize = '31' (expected '94') — POST did not persist
+  - Gate ref: Gate 35
+  - Fix hint: Check DB_PATH resolution (tikfinity-data/ segment) + dynamicSettings.writeMany + resolveChannelId/resolveProfileId in routes/settings.js.
+- **[MEDIUM] chain.points.db** (Chain) — DB persist (balance + identity)
+  - Symptom: points_user_qa_pts_05r876=null (want 1234); pointsmeta_qa_pts_05r876.userId=null (want 991782436068181)
+  - Gate ref: Chain3
+  - Fix hint: services/points.js setBalance writes points_user_<username>@ProfileId=1; recordIdentity writes pointsmeta_<username> JSON.userId.
+- **[HIGH] chain.goals.create.db** (Chain) — Goals row after create
+  - Symptom: Goals row not found for Name='E2E goal' ChannelId=1 ProfileId=1
+  - Gate ref: Chain 4
+  - Fix hint: Verify DB_PATH resolves to the live DB (config.js) and ProfileId scope matches the route.
+- **[HIGH] chain.goals.update.db** (Chain) — Goals row after update
+  - Symptom: expected Target=999; got no row
+  - Gate ref: Chain 4
+  - Fix hint: Check goals model patch() updates Target.
 
 <!-- QA-AUTO-FAILURES:END -->
 

@@ -2151,9 +2151,10 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
     locs.forEach(function(lang){
       var bucket = data.localization[lang];
       if (!bucket || typeof bucket !== 'object') return;
-      for (var k in patch) {
-        if (Object.prototype.hasOwnProperty.call(patch, k) && !(k in bucket)) {
-          bucket[k] = patch[k];
+      var langPatch = patch[lang] || patch['en'] || {};
+      for (var k in langPatch) {
+        if (Object.prototype.hasOwnProperty.call(langPatch, k) && !(k in bucket)) {
+          bucket[k] = langPatch[k];
           inserted++;
         }
       }
@@ -2201,9 +2202,10 @@ window.__tfTtsCredits = window.__tfTtsCredits || (function(){
       langs.forEach(function(lang){
         var bucket = loc[lang];
         if (!bucket || typeof bucket !== 'object') return;
-        for (var k in patch) {
-          if (Object.prototype.hasOwnProperty.call(patch, k) && !(k in bucket)) {
-            bucket[k] = patch[k];
+        var langPatch = patch[lang] || patch['en'] || {};
+        for (var k in langPatch) {
+          if (Object.prototype.hasOwnProperty.call(langPatch, k) && !(k in bucket)) {
+            bucket[k] = langPatch[k];
             merged++;
           }
         }

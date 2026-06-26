@@ -343,31 +343,25 @@ function getBackendLaunchConfig() {
   // under `resources/backend-node/` and we re-execute Electron itself in
   // Node mode (ELECTRON_RUN_AS_NODE=1) so we don't have to bundle a second
   // node.exe alongside the app.
+  //
+  // Note: To prevent NODE_MODULE_VERSION (ABI) mismatches with native modules
+  // like better-sqlite3 which are rebuilt for Electron's ABI, we ALWAYS spawn
+  // the backend using the Electron binary as Node (ELECTRON_RUN_AS_NODE=1)
+  // in both dev and packaged environments.
   const projDir = app.isPackaged
     ? path.join(process.resourcesPath, "backend-node")
     : path.join(__dirname, "..", "backend-node");
   const entry = path.join(projDir, "src", "index.js");
 
-  if (app.isPackaged) {
-    return {
-      command: process.execPath,
-      args: [entry],
-      cwd: projDir,
-      label: `electron --node ${entry}`,
-      extraEnv: { ELECTRON_RUN_AS_NODE: "1" },
-    };
-  }
-  // Dev: use the user's node (faster startup than spinning up Electron). If
-  // the user lacks a global node we'd still fall back to Electron-as-node,
-  // but every dev box that has Electron also has Node.
   return {
-    command: isWin ? "node.exe" : "node",
+    command: process.execPath,
     args: [entry],
     cwd: projDir,
-    label: `node ${entry}`,
-    extraEnv: {},
+    label: `electron --node ${entry}`,
+    extraEnv: { ELECTRON_RUN_AS_NODE: "1" },
   };
 }
+
 
 function startBackend() {
   const cfg = getBackendLaunchConfig();

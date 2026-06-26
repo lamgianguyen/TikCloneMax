@@ -670,4 +670,24 @@
     max-height: 170px !important;
   }
 
+  /* Thay đổi logo ở góc trên bên trái sidebar sang logo TikPro mới (TP) */
+  .tf-logo {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .tf-logo svg {
+    display: none !important;
+  }
+  .tf-logo::before {
+    content: "" !important;
+    display: block !important;
+    width: 36px !important;
+    height: 36px !important;
+    background-image: url('/img/logo-pro.png') !important;
+    background-size: contain !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+  }
+
 </style>

@@ -55,9 +55,9 @@ const _state = {
 };
 
 // How long we tolerate event silence before assuming the stream ended.
-// 4 min — low-activity rooms can be quiet, but TikTok itself sends roomUser
-// heartbeats every ~30-60s while live so 4 min of total silence is decisive.
-const EVENT_SILENCE_TIMEOUT_MS = 4 * 60 * 1000;
+// 2 min — low-activity rooms can be quiet, but TikTok itself sends roomUser
+// heartbeats every ~30-60s while live so 2 min of total silence is decisive.
+const EVENT_SILENCE_TIMEOUT_MS = 2 * 60 * 1000;
 
 // Extract avatar URL from a webcast `Image` proto. v2 uses `url: string[]`
 // (singular, despite holding multiple resolutions). Legacy converter sometimes
@@ -191,6 +191,10 @@ function refreshGoals(channelId) {
 // connect path calls disconnect() with NO args (abortInFlight stays false) so it
 // never awaits the very promise it runs under (no deadlock).
 async function disconnect({ abortInFlight = false } = {}) {
+  const wasConnectedOrConnecting = _state.connected || _state.connecting;
+  const channelId = _state.channelId;
+  const username = _state.username;
+
   clearReconnectTimer(); // cancel any pending auto-reconnect on teardown
   // A user disconnect DURING the connecting window must abort the in-flight
   // connect retry loop. Otherwise the next attempt re-populates _state and the
@@ -227,6 +231,16 @@ async function disconnect({ abortInFlight = false } = {}) {
   _state.connecting = false;
   _state.roomId = null;
   _state.roomInfo = null;
+
+  if (wasConnectedOrConnecting) {
+    try {
+      sockets.broadcast('status', { connected: false, tiktok: false, connecting: false });
+      sockets.broadcast('channelStatus', {
+        channelId, connected: false, connecting: false, tiktok: username,
+        isConnectedToTikTok: false, isConnecting: false,
+      });
+    } catch (_) {}
+  }
 }
 
 // Number of attempts before declaring failure. tiktok-live-connector
@@ -262,6 +276,23 @@ function readConnRoom(conn) {
   try { roomId = conn.roomId || null; } catch (_) { roomId = null; }
   try { roomInfo = conn.roomInfo || null; } catch (_) { roomInfo = null; }
   return { roomId, roomInfo };
+}
+
+function checkRoomEnded(info) {
+  if (!info) return false;
+  const ri = info.data || info.liveRoomUserInfo || info;
+  const status = ri.status;
+  const finishTime = ri.finish_time;
+  if (status === 2) {
+    return false;
+  }
+  if (status === 4) {
+    return true;
+  }
+  if (finishTime && Number(finishTime) > 0 && Number(finishTime) * 1000 <= Date.now()) {
+    return true;
+  }
+  return false;
 }
 
 async function tryConnectOnce(clean, channelId, attempt) {
@@ -361,6 +392,13 @@ async function tryConnectOnce(clean, channelId, attempt) {
           if (info && _state.username === clean) {
             _state.roomInfo = info;
             logger.info(`[TikTokBridge] roomInfo fetched (owner=${info?.owner?.nickname || '?'})`);
+            
+            if (checkRoomEnded(info)) {
+              logger.warn(`[TikTokBridge] Room has ended — disconnecting`);
+              disconnect();
+              return;
+            }
+
             // Seed the Follower Counter widget (followercount) with the live total.
             // Widget listens io.on('updateFollowerCount', {followerCount}); base from
             // roomInfo here, then the 'follow' handler bumps it +1 per new follower.
@@ -394,6 +432,13 @@ async function tryConnectOnce(clean, channelId, attempt) {
             .then((info) => {
               if (info && _state.username === clean) {
                 _state.roomInfo = info;
+                
+                if (checkRoomEnded(info)) {
+                  logger.warn(`[TikTokBridge] Room has ended (soft success path) — disconnecting`);
+                  disconnect();
+                  return;
+                }
+
                 // Seed Follower Counter widget on the SOFT-success path too (hard-success
                 // does this; without it the widget sticks on placeholder 1234 until the
                 // first live 'follow'). pre-release audit 2026-06-16.
@@ -556,6 +601,13 @@ function scheduleReconnect(channelId, username) {
     logger.warn(`[TikTokBridge] auto-reconnect giving up @${username} after ${_reconnectAttempts} attempts`);
     _reconnectAttempts = 0;
     _state.connecting = false; // give up → status reports Disconnected, not stuck "Connecting"
+    try {
+      sockets.broadcast('status', { connected: false, tiktok: false, connecting: false });
+      sockets.broadcast('channelStatus', {
+        channelId, connected: false, connecting: false, tiktok: username,
+        isConnectedToTikTok: false, isConnecting: false,
+      });
+    } catch (_) {}
     return;
   }
   // Report `connecting:true` for the WHOLE reconnect window (backoff + attempts)
@@ -668,6 +720,14 @@ function wireEvents(conn, channelId, username) {
     _state.connected = false;
     _state.connecting = false;
     _state.lastEventAt = 0;
+    
+    try {
+      sockets.broadcast('channelStatus', {
+        channelId, connected: false, connecting: false, tiktok: username,
+        isConnectedToTikTok: false, isConnecting: false,
+      });
+    } catch (_) {}
+
     // The host ENDED the stream — don't auto-reconnect into a dead room. The
     // connector emits a follow-up `disconnected` right after streamEnd; strip
     // listeners + tear down so it can't reach the disconnected handler and kick
