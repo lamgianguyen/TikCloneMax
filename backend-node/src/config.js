@@ -79,7 +79,7 @@ const JWT_SECRET = resolveJwtSecret();
 
 module.exports = {
   PORT: BACKEND_PORT,
-  HOST: process.env.HOST || '127.0.0.1',
+  HOST: process.env.HOST || '0.0.0.0',
   FRONTEND_PATH: resolveFrontendPath(),
   DATA_DIR,
   DB_PATH: path.join(DATA_DIR, 'tikfinity.db'),

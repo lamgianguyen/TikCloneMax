@@ -76,18 +76,40 @@ app.disable('x-powered-by');
 // NOT reflect an arbitrary site's Origin back WITH credentials — that lets any
 // page the user opens in a normal browser drive credentialed POSTs to our
 // destructive endpoints (reset/backup-wipe/deleteAllUsers). Allow only loopback.
-function isLoopbackOrigin(origin) {
+function isAllowedOrigin(origin, hostHeader) {
   if (!origin) return true; // non-browser (curl/QA harness) or same-origin w/o header
   try {
     const h = new URL(origin).hostname;
-    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
+    const cleanHost = h.replace(/^\[|\]$/g, '');
+
+    // 1. Loopback
+    if (cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost === '::1' || cleanHost === '::' || cleanHost === '0.0.0.0') {
+      return true;
+    }
+    // 2. Same-origin (matches Host header name)
+    if (hostHeader) {
+      const hostName = hostHeader.split(':')[0].replace(/^\[|\]$/g, '');
+      if (cleanHost === hostName) return true;
+    }
+    // 3. Private IP ranges (local network)
+    if (/^10\.\d+\.\d+\.\d+$/.test(cleanHost)) return true;
+    if (/^192\.168\.\d+\.\d+$/.test(cleanHost)) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(cleanHost)) return true;
+
+    // 4. Link-local IPv6
+    if (cleanHost.startsWith('fe80:')) {
+      return true;
+    }
   } catch {
     return false;
   }
+  return false;
 }
-app.use(cors({
-  origin: (origin, cb) => cb(null, isLoopbackOrigin(origin)),
-  credentials: true,
+app.use(cors((req, callback) => {
+  const origin = req.header('Origin');
+  const hostHeader = req.header('Host');
+  const allowed = isAllowedOrigin(origin, hostHeader);
+  callback(null, { origin: allowed, credentials: true });
 }));
 app.use(compression());
 app.use(cookieParser());

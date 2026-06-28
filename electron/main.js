@@ -411,7 +411,7 @@ function startBackend() {
         ...process.env,
         ...(cfg.extraEnv || {}),
         PORT: String(BACKEND_PORT),
-        HOST: "127.0.0.1",
+        HOST: "0.0.0.0",
         TIKMAX_DATA_DIR: dataDir,
         NODE_ENV: app.isPackaged ? "production" : "development",
       },
